@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: toasted-acs
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        value: accounting@acsbeverage.com
+      - key: FROM_NAME
+        value: Toasted — ACS Beverage Co.
+      - key: NOTIFY_EMAILS
+        value: kevin@acsbeverage.com,jessica@acsbeverage.com
