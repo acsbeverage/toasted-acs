@@ -125,7 +125,7 @@ app.get('/api/seed-now', async (req, res) => {
   }
 });
 // Email notification endpoint (called from frontend)
-app.post('/api/email/order', async (req, res) => {
+app.post('/api/notify/order', async (req, res) => {
   try {
     const sgMail = require('@sendgrid/mail');
     if (!process.env.SENDGRID_API_KEY) {
