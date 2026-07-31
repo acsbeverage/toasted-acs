@@ -3344,7 +3344,7 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
   // Use backend API if configured, otherwise fall back to mailto:
   const backendUrl = (TOASTED_BACKEND_URL||'').trim();
   if(backendUrl){
-    fetch(backendUrl+'/api/notify/order', {
+    fetch(backendUrl+'/api/email/order', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(payload)
