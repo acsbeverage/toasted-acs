@@ -124,7 +124,72 @@ app.get('/api/seed-now', async (req, res) => {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
-
+// Email notification endpoint (called from frontend)
+app.post('/api/notify/order', async (req, res) => {
+  try {
+    const sgMail = require('@sendgrid/mail');
+    if (!process.env.SENDGRID_API_KEY) {
+      console.log('No SendGrid key - skipping email');
+      return res.json({ ok: true, devMode: true });
+    }
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    const d = req.body;
+    const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessica@acsbeverage.com').split(',').map(e=>e.trim());
+    const to = [...NOTIFY_EMAILS];
+    if (d.repEmail && !to.map(e=>e.toLowerCase()).includes(d.repEmail.toLowerCase())) {
+      to.push(d.repEmail);
+    }
+    const linesHtml = (d.lines||[]).map(l=>`<tr><td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${l.name}</td><td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:center">${l.qty}</td><td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:600">${l.total}</td></tr>`).join('');
+    const feesHtml = (d.fees||[]).map(f=>`<tr><td colspan="2" style="padding:4px 12px;color:#888;font-style:italic">${f.label}</td><td style="padding:4px 12px;text-align:right;color:#888">${f.total}</td></tr>`).join('');
+    await sgMail.sendMultiple({
+      to,
+      from: { email: process.env.FROM_EMAIL||'kevin@acsbeverage.com', name: process.env.FROM_NAME||'Toasted — ACS Beverage Co.' },
+      subject: `New Order Has Been Placed - ${d.accountName}`,
+      text: `New order ${d.orderId} placed by ${d.placedBy} for ${d.accountName}. Total: ${d.orderTotal}`,
+      html: `<div style="font-family:system-ui;max-width:600px;margin:32px auto">
+        <div style="background:#1a1a1a;padding:20px 32px;border-radius:12px 12px 0 0">
+          <span style="font-size:20px;font-weight:800;color:#fff">Toast<span style="color:#B8872C;font-weight:400;font-style:italic">ed</span></span>
+        </div>
+        <div style="background:#B8872C;padding:14px 32px">
+          <div style="color:#fff;font-size:16px;font-weight:700">New Order — ${d.accountName}</div>
+          <div style="color:rgba(255,255,255,0.85);font-size:13px">Order ID: ${d.orderId} &bull; Placed by: ${d.placedBy}</div>
+        </div>
+        <div style="background:#fff;padding:24px 32px;border:1px solid #eee">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <tr><td style="color:#888;padding:4px 0;width:140px">Account</td><td style="font-weight:600">${d.accountName}</td></tr>
+            <tr><td style="color:#888;padding:4px 0">Order Date</td><td>${d.orderDate}</td></tr>
+            <tr><td style="color:#888;padding:4px 0">Delivery Date</td><td>${d.deliveryDate}</td></tr>
+            <tr><td style="color:#888;padding:4px 0">Sales Rep</td><td>${d.repName}${d.repEmail?' &lt;'+d.repEmail+'&gt;':''}</td></tr>
+            ${d.po?`<tr><td style="color:#888;padding:4px 0">PO #</td><td>${d.po}</td></tr>`:''}
+          </table>
+          <div style="margin-top:20px">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr style="background:#f9f9f9">
+                <th style="padding:8px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase">Product</th>
+                <th style="padding:8px 12px;text-align:center;color:#888;font-size:11px;text-transform:uppercase">Qty</th>
+                <th style="padding:8px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase">Total</th>
+              </tr></thead>
+              <tbody>${linesHtml}${feesHtml}</tbody>
+              <tfoot><tr style="border-top:2px solid #222">
+                <td colspan="2" style="padding:10px 12px;font-weight:700;font-size:15px">Order Total</td>
+                <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;color:#B8872C">${d.orderTotal}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+          ${d.notes?`<div style="margin-top:16px;padding:12px;background:#fffbe8;border-radius:8px;font-size:13px"><strong>Notes:</strong> ${d.notes}</div>`:''}
+        </div>
+        <div style="padding:14px 32px;background:#f9f9f9;border:1px solid #eee;border-top:none;border-radius:0 0 12px 12px;font-size:11px;color:#aaa;text-align:center">
+          Toasted &mdash; ACS Beverage Co. LLC &bull; accounting@acsbeverage.com
+        </div>
+      </div>`
+    });
+    console.log(`Email sent for ${d.orderId} to: ${to.join(', ')}`);
+    res.json({ ok: true, sentTo: to });
+  } catch(err) {
+    console.error('Email error:', err.response?.body||err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
