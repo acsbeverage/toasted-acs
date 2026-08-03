@@ -225,37 +225,7 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/reset-rep-passwords', async (req, res) => {
-  if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
-  const {query} = require('./db');
-  const bcrypt = require('bcryptjs');
-  const users = [
-    {id:'u1',email:'admin@acsbeverage.com',pw:'admin123'},
-    {id:'u4',email:'brad@acsbeverage.com',pw:'rep123'},
-    {id:'u5',email:'gio@acsbeverage.com',pw:'rep123'},
-    {id:'u6',email:'hernan@acsbeverage.com',pw:'rep123'},
-    {id:'u7',email:'mark@acsbeverage.com',pw:'rep123'},
-    {id:'u8',email:'joel@acsbeverage.com',pw:'rep123'},
-    {id:'u9',email:'jill@acsbeverage.com',pw:'rep123'},
-    {id:'u10',email:'josh@acsbeverage.com',pw:'rep123'},
-    {id:'u11',email:'linda@acsbeverage.com',pw:'rep123'},
-    {id:'u12',email:'sheldon@acsbeverage.com',pw:'rep123'},
-  ];
-  let updated=0;
-  for(const u of users){
-    const hash = await bcrypt.hash(u.pw, 10);
-    const r = await query('UPDATE users SET pw_hash=$1 WHERE id=$2 OR LOWER(email)=$3',
-      [hash, u.id, u.email.toLowerCase()]);
-    if(r.rowCount>0) updated++;
-    else {
-      // Insert if not exists
-      await query('INSERT INTO users (id,fname,lname,email,pw_hash,role,commission) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET pw_hash=$5',
-        [u.id, u.email.split('@')[0], '', u.email.toLowerCase(), hash, u.id==='u1'?'admin':'rep', 5]);
-      updated++;
-    }
-  }
-  res.json({ok:true, updated});
-});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
