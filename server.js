@@ -222,8 +222,7 @@ app.post('/api/notify/order', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-const path = require('path');
-const fs = require('fs');
+
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
