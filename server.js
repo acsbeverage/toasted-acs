@@ -222,25 +222,7 @@ app.post('/api/notify/order', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-app.get('/api/upsert-accounts', async (req, res) => {
-  if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
-  const {query} = require('./db');
-  const fs = require('fs'), path = require('path');
-  const accounts = JSON.parse(fs.readFileSync(path.join(__dirname,'accounts_update.json'),'utf8'));
-  let upserted=0, errors=0;
-  for(const a of accounts){
-    try{
-      await query(`INSERT INTO accounts (id,name,code,lic,abc_num,contact,contact_first,contact_last,phone,email,ship_street,ship_city,ship_state,ship_zip,bill_street,bill_city,bill_state,bill_zip,terms,rep)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-        ON CONFLICT (id) DO UPDATE SET name=$2,code=$3,lic=$4,abc_num=$5,contact=$6,contact_first=$7,contact_last=$8,phone=$9,email=$10,ship_street=$11,ship_city=$12,ship_state=$13,ship_zip=$14,bill_street=$15,bill_city=$16,bill_state=$17,bill_zip=$18,terms=$19,rep=$20`,
-        [a.id,a.name,a.code,a.lic,a.abcNum,a.contact,a.contactFirst,a.contactLast,
-         a.phone,a.email,a.shipStreet,a.shipCity,a.shipState,a.shipZip,
-         a.billStreet,a.billCity,a.billState,a.billZip,a.terms,a.rep]);
-      upserted++;
-    }catch(e){console.error(e.message);errors++;}
-  }
-  res.json({ok:true, upserted, errors, total:accounts.length});
-});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Toasted v2 running on port ${PORT}`);
