@@ -539,6 +539,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 <div class="toast" id="toast"><i class="ti ti-check"></i><span id="toast-msg"></span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
+const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
 let PRODUCTS=[]
 // -- CONFIG & STATIC DATA ------------------------------------------------------
 let COMPANY={name:'ACS Beverage Co. LLC',address:'6680 Alhambra Ave. #505, Martinez, CA 94553',phone:'',email:'accounting@acsbeverage.com',license:'CA-DIS-00421',website:'acsbeverageco.com'};
@@ -1671,7 +1672,7 @@ const NOTIFY_ALWAYS = ['kevin@acsbeverage.com', 'jessica@acsbeverage.com'];
 
 // Set this to your deployed backend URL once live (e.g. https://toasted-acs.onrender.com)
 // Leave empty to use mailto: fallback during development
-const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
+// TOASTED_BACKEND_URL defined at top of script
 
 function sendOrderNotification(orderId, placedByLabel, placedByEmail){
   const o = ORDERS.find(x=>x.id===orderId); if(!o) return;
