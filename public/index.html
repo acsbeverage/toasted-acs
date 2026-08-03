@@ -2408,6 +2408,40 @@ function toast(msg){const t=document.getElementById('toast');document.getElement
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 
 // -- AUTH ----------------------------------------------------------------------
+async function loadAllDataFromBackend(){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
+  try{
+    // Load orders
+    const ordersRes=await fetch(TOASTED_BACKEND_URL+'/api/orders',{headers}).then(r=>r.json());
+    if(ordersRes.ok&&ordersRes.orders){
+      ORDERS=ordersRes.orders;
+      console.log('Loaded',ORDERS.length,'orders from database');
+    }
+    // Load accounts
+    const acctsRes=await fetch(TOASTED_BACKEND_URL+'/api/accounts',{headers}).then(r=>r.json());
+    if(acctsRes.ok&&acctsRes.accounts){
+      ACCOUNTS=acctsRes.accounts;
+      console.log('Loaded',ACCOUNTS.length,'accounts from database');
+    }
+    // Load products
+    const prodsRes=await fetch(TOASTED_BACKEND_URL+'/api/products',{headers}).then(r=>r.json());
+    if(prodsRes.ok&&prodsRes.products){
+      PRODUCTS=prodsRes.products;
+      console.log('Loaded',PRODUCTS.length,'products from database');
+    }
+    // Load users
+    const usersRes=await fetch(TOASTED_BACKEND_URL+'/api/users',{headers}).then(r=>r.json());
+    if(usersRes.ok&&usersRes.users){
+      USERS=usersRes.users;
+      console.log('Loaded',USERS.length,'users from database');
+    }
+    updateBadges();
+  } catch(err){
+    console.error('Error loading data from backend:',err.message);
+  }
+}
+
 function doLogin(){
   const email=document.getElementById('login-email').value.trim().toLowerCase();
   const pw=document.getElementById('login-pw').value;
@@ -2431,7 +2465,8 @@ function doLogin(){
     if(nm)nm.textContent=(u.fname||'')+' '+(u.lname||'');
     if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
-    updateBadges();showPage('dashboard');
+    updateBadges();
+    loadAllDataFromBackend().then(()=>showPage('dashboard'));
   }).catch(err=>{
     console.error('Login error:',err);
     document.getElementById('login-err').style.display='block';
