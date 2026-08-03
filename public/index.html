@@ -800,6 +800,8 @@ function doLogin(){
     if(!data.ok){document.getElementById('login-err').style.display='block';return;}
     window._authToken=data.token;
     currentUser=data.user;
+    localStorage.setItem('_toastedToken', data.token);
+    localStorage.setItem('_toastedUser', JSON.stringify(data.user));
     document.getElementById('login-err').style.display='none';
     document.getElementById('view-login').classList.add('hidden');
     document.getElementById('view-app').classList.remove('hidden');
@@ -1190,7 +1192,40 @@ function submitPortalOrder(){
 }
 
 // -- UPDATE LOGIN HINT to include customer demo ---------------------------------
-function doLogout(){currentUser=null;document.getElementById('view-app').classList.add('hidden');document.getElementById('view-login').classList.remove('hidden');['login-email','login-pw'].forEach(id=>document.getElementById(id).value='')}
+function doLogout(){
+  currentUser=null;
+  window._authToken=null;
+  localStorage.removeItem('_toastedToken');
+  localStorage.removeItem('_toastedUser');
+  document.getElementById('view-app').classList.add('hidden');
+  document.getElementById('view-login').classList.remove('hidden');
+  ['login-email','login-pw'].forEach(id=>document.getElementById(id).value='')
+}
+
+// Auto-restore session on page load
+(function restoreSession(){
+  const token=localStorage.getItem('_toastedToken');
+  const user=localStorage.getItem('_toastedUser');
+  if(!token||!user) return;
+  try{
+    window._authToken=token;
+    currentUser=JSON.parse(user);
+    document.getElementById('view-login').classList.add('hidden');
+    document.getElementById('view-app').classList.remove('hidden');
+    const u=currentUser;
+    const av=document.getElementById('sb-av');
+    const nm=document.getElementById('sb-name');
+    const rl=document.getElementById('sb-role');
+    if(av)av.textContent=(u.fname?u.fname[0]:'')+(u.lname?u.lname[0]:'');
+    if(nm)nm.textContent=(u.fname||'')+' '+(u.lname||'');
+    if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
+    document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
+    loadAllDataFromBackend().then(()=>{updateBadges();showPage('dashboard');});
+  }catch(e){
+    localStorage.removeItem('_toastedToken');
+    localStorage.removeItem('_toastedUser');
+  }
+})();
 
 // ── CHANGE PASSWORD ───────────────────────────────────────────────────────────
 function openChangePassword(){
