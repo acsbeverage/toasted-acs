@@ -3989,6 +3989,33 @@ function renderAccountsPage(){
   });
 }
 
+function saveAccountRep(acctId){
+  const sel=document.getElementById('acct-rep-select');
+  if(!sel)return;
+  const newRepId=sel.value;
+  const acct=ACCOUNTS.find(a=>a.id===acctId);
+  if(!acct)return;
+  const rep=USERS.find(u=>u.id===newRepId);
+  acct.rep=newRepId;
+
+  // Save to backend
+  if(TOASTED_BACKEND_URL&&window._authToken){
+    fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({rep:newRepId})
+    }).then(r=>r.json()).then(data=>{
+      if(data.ok){
+        toast((rep?rep.fname+' '+(rep.lname||''):'Rep')+' assigned to '+acct.name);
+      } else {
+        toast('Error saving rep assignment');
+      }
+    }).catch(()=>toast('Error saving rep assignment'));
+  } else {
+    toast((rep?rep.fname+' '+(rep.lname||''):'Rep')+' assigned to '+acct.name);
+  }
+}
+
 function openAccountDetail(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
   const isAdmin=currentUser&&currentUser.role==='admin';
@@ -4043,6 +4070,14 @@ function openAccountDetail(acctId){
   if(a.id)html+='<div><span style="color:var(--text2)">Account ID:</span> '+a.id+'</div>';
   html+='<div><span style="color:var(--text2)">Terms:</span> '+(a.terms||'Net 30')+'</div>';
   if(a.shipStreet)html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><div style="color:var(--text2)">Address:</div><div>'+a.shipStreet+'</div><div>'+[a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div></div>';
+  if(isAdmin){
+    const repOptions=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${u.id===a.rep?'selected':''}>${u.fname} ${u.lname}</option>`).join('');
+    html+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
+    html+='<div style="color:var(--text2);margin-bottom:6px;font-size:12px">Assigned Rep</div>';
+    html+='<select id="acct-rep-select" class="finput" style="width:100%;font-size:13px">'+repOptions+'</select>';
+    html+='<button class="btn btn-sm btn-dark" style="width:100%;margin-top:8px" onclick="saveAccountRep(\''+a.id+'\')"><i class="ti ti-device-floppy"></i> Save Rep</button>';
+    html+='</div>';
+  }
   html+='</div></div>';
 
   html+='<div class="card"><div class="card-header"><span class="card-title">Order History ('+allOrders.length+')</span></div>';
