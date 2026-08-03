@@ -681,6 +681,64 @@ function toast(msg){const t=document.getElementById('toast');document.getElement
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 
 // -- AUTH ----------------------------------------------------------------------
+async // ── DATABASE SAVE HELPERS ─────────────────────────────────────────────────────
+function saveOrderStatusToDB(orderId, updates){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(updates)
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok) console.error('Failed to save order status:',d.error);
+  }).catch(e=>console.error('Save order error:',e.message));
+}
+
+function deleteOrderFromDB(orderId){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
+    method:'DELETE',
+    headers:{'Authorization':'Bearer '+window._authToken}
+  }).catch(e=>console.error('Delete order error:',e.message));
+}
+
+function saveDraftToDB(draft){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/drafts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(draft)
+  }).catch(e=>console.error('Save draft error:',e.message));
+}
+
+function deleteDraftFromDB(draftId){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/drafts/'+draftId,{
+    method:'DELETE',
+    headers:{'Authorization':'Bearer '+window._authToken}
+  }).catch(e=>console.error('Delete draft error:',e.message));
+}
+
+function saveProductToDB(sku){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({prices:p.prices,da:p.da,stock:p.stock,_details:p._details})
+  }).catch(e=>console.error('Save product error:',e.message));
+}
+
+function saveNewOrderToDB(order){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/orders',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(order)
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok) console.error('Failed to save order:',d.error);
+  }).catch(e=>console.error('Save new order error:',e.message));
+}
+
 async function loadAllDataFromBackend(){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
@@ -708,6 +766,18 @@ async function loadAllDataFromBackend(){
     if(usersRes.ok&&usersRes.users){
       USERS=usersRes.users;
       console.log('Loaded',USERS.length,'users from database');
+    }
+    // Load drafts
+    const draftsRes=await fetch(TOASTED_BACKEND_URL+'/api/drafts',{headers}).then(r=>r.json());
+    if(draftsRes.ok&&draftsRes.drafts){
+      DRAFT_ORDERS=draftsRes.drafts;
+      console.log('Loaded',DRAFT_ORDERS.length,'drafts from database');
+    }
+    // Load docs
+    const docsRes=await fetch(TOASTED_BACKEND_URL+'/api/docs',{headers}).then(r=>r.json());
+    if(docsRes.ok&&docsRes.docs){
+      SHARED_DOCS=docsRes.docs;
+      console.log('Loaded',SHARED_DOCS.length,'docs from database');
     }
     updateBadges();
   } catch(err){
@@ -1708,7 +1778,9 @@ function submitOrder(){
 
   if(currentOrder.orderType==='draft'){
     const id='DRAFT-'+Date.now();
-    DRAFT_ORDERS.push({id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,po:currentOrder.po||'',notes:currentOrder.notes||'',savedAt:today(),items:currentOrder.items.map(x=>({...x}))});
+    const draft={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,po:currentOrder.po||'',notes:currentOrder.notes||'',savedAt:today(),items:currentOrder.items.map(x=>({...x}))};
+    DRAFT_ORDERS.push(draft);
+    saveDraftToDB(draft);
     toast('Draft saved to Draft Orders');
     setTimeout(()=>showPage('drafts'),1000);
     return;
@@ -1716,7 +1788,9 @@ function submitOrder(){
 
   const isSample=currentOrder.orderType==='sample';
   const id='ORD-2024-'+String(orderSeq++).padStart(4,'0');
-  ORDERS.push({id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))});
+  const newOrder={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
+  ORDERS.push(newOrder);
+  saveNewOrderToDB({...newOrder,placedByLabel:currentUser.fname+' '+(currentUser.lname||'')});
   updateBadges();
   const placedByLabel = (currentUser.fname||'')+' '+(currentUser.lname||'')+' ('+(currentUser.role==='admin'?'Admin':'Sales Rep')+')';
   sendOrderNotification(id, placedByLabel, currentUser.email||'');
@@ -1742,6 +1816,7 @@ function deleteDraft(draftId){
   const acct=ACCOUNTS.find(a=>a.id===d.acct);
   if(!confirm('Delete draft order for '+(acct?acct.name:'unknown account')+'?'))return;
   DRAFT_ORDERS=DRAFT_ORDERS.filter(x=>x.id!==draftId);
+  deleteDraftFromDB(draftId);
   toast('Draft deleted');renderDraftOrders();
 }
 function renderDraftOrders(){
@@ -1774,6 +1849,7 @@ function renderUnconfirmed(){
 function doConfirm(){
   const o=ORDERS.find(x=>x.id===confirmingOrderId);if(!o)return;
   o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
+  saveOrderStatusToDB(o.id,{status:'confirmed'});
   updateBadges();
 
   // Switch modal to "confirmed" state with PDF button - don't close yet
@@ -1850,6 +1926,7 @@ function saveEditOrder(){
   o.date=document.getElementById('edit-date').value;o.delivery=document.getElementById('edit-delivery').value;
   o.po=document.getElementById('edit-po').value;o.notes=document.getElementById('edit-notes').value;
   o.items=window._editItems.map(x=>({...x}));
+  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes});
   closeModal('modal-edit-order');toast('Order updated');
   const active=document.querySelector('.nav-item.active');if(active){const p=active.id.replace('nav-','');showPage(p)}
 }
@@ -2106,13 +2183,12 @@ function doUploadDoc(){
   if(!name){alert('Please enter a document name.');return;}
   if(!file){alert('Please select a file to upload.');return;}
 
-  // Read file as base64 data URL
   const reader=new FileReader();
   reader.onload=function(e){
     const dataUrl=e.target.result;
     const sizeKb=Math.round(file.size/1024);
     const sizeLabel=sizeKb>1024?(sizeKb/1024).toFixed(1)+' MB':sizeKb+' KB';
-    SHARED_DOCS.push({
+    const doc={
       id:'doc'+Date.now(),
       name,category,description:desc,
       filename:file.name,
@@ -2120,7 +2196,11 @@ function doUploadDoc(){
       sizeLabel,
       uploadedAt:today(),
       uploadedBy:currentUser?currentUser.fname+' '+currentUser.lname:'Admin',
-    });
+    };
+    SHARED_DOCS.push(doc);
+    if(TOASTED_BACKEND_URL&&window._authToken){
+      fetch(TOASTED_BACKEND_URL+'/api/docs',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({id:doc.id,name:doc.name,category:doc.category,description:doc.description,filename:doc.filename,dataUrl:doc.dataUrl,sizeLabel:doc.sizeLabel,uploadedBy:doc.uploadedBy})}).catch(console.error);
+    }
     toast('"'+name+'" uploaded successfully');
     renderDocs();
   };
@@ -2136,6 +2216,9 @@ function editDoc(id){
   doc.name=newName.trim()||doc.name;
   doc.category=newCat.trim()||'General';
   doc.description=newDesc.trim();
+  if(TOASTED_BACKEND_URL&&window._authToken){
+    fetch(TOASTED_BACKEND_URL+'/api/docs/'+id,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({name:doc.name,category:doc.category,description:doc.description})}).catch(console.error);
+  }
   toast('Document updated');
   renderDocs();
 }
@@ -2144,6 +2227,9 @@ function deleteDoc(id){
   const doc=SHARED_DOCS.find(d=>d.id===id);if(!doc)return;
   if(!confirm('Delete "'+doc.name+'"? This cannot be undone.'))return;
   SHARED_DOCS=SHARED_DOCS.filter(d=>d.id!==id);
+  if(TOASTED_BACKEND_URL&&window._authToken){
+    fetch(TOASTED_BACKEND_URL+'/api/docs/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).catch(console.error);
+  }
   toast('Document deleted');
   renderDocs();
 }
@@ -2487,7 +2573,24 @@ function switchTab(show,hide,el){
 }function switchTab(show,hide,el){document.getElementById(show).classList.remove('hidden');document.getElementById(hide).classList.add('hidden');document.querySelectorAll('.tabs .tab').forEach(t=>t.classList.remove('active'));el.classList.add('active')}
 function openAddUser(){editingUserId=null;document.getElementById('modal-user-title').textContent='Add user';['u-fname','u-lname','u-email','u-pw'].forEach(id=>document.getElementById(id).value='');document.getElementById('u-role').value='rep';document.getElementById('u-commission').value='';document.getElementById('u-accounts').innerHTML=ACCOUNTS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');document.getElementById('modal-user').classList.add('open')}
 function openEditUser(id){editingUserId=id;const u=USERS.find(x=>x.id===id);if(!u)return;document.getElementById('modal-user-title').textContent='Edit user';document.getElementById('u-fname').value=u.fname;document.getElementById('u-lname').value=u.lname;document.getElementById('u-email').value=u.email;document.getElementById('u-pw').value=u.pw;document.getElementById('u-role').value=u.role;document.getElementById('u-commission').value=u.commission||'';const sel=document.getElementById('u-accounts');sel.innerHTML=ACCOUNTS.map(a=>`<option value="${a.id}" ${u.accounts.includes(a.id)?'selected':''}>${a.name}</option>`).join('');document.getElementById('modal-user').classList.add('open')}
-function saveUser(){const fname=document.getElementById('u-fname').value.trim();const lname=document.getElementById('u-lname').value.trim();const email=document.getElementById('u-email').value.trim();const pw=document.getElementById('u-pw').value.trim();const role=document.getElementById('u-role').value;const commission=parseFloat(document.getElementById('u-commission').value)||0;const accts=[...document.getElementById('u-accounts').selectedOptions].map(o=>o.value);if(!fname||!email){alert('Name and email required.');return}if(editingUserId){const u=USERS.find(x=>x.id===editingUserId);if(u){u.fname=fname;u.lname=lname;u.email=email;if(pw)u.pw=pw;u.role=role;u.commission=commission;u.accounts=accts}}else USERS.push({id:'u'+Date.now(),fname,lname,email,pw,role,commission,accounts:accts});closeModal('modal-user');toast('User saved');renderUsers()}
+function saveUser(){const fname=document.getElementById('u-fname').value.trim();const lname=document.getElementById('u-lname').value.trim();const email=document.getElementById('u-email').value.trim();const pw=document.getElementById('u-pw').value.trim();const role=document.getElementById('u-role').value;const commission=parseFloat(document.getElementById('u-commission').value)||0;const accts=[...document.getElementById('u-accounts').selectedOptions].map(o=>o.value);if(!fname||!email){alert('Name and email required.');return}
+  if(editingUserId){
+    const u=USERS.find(x=>x.id===editingUserId);
+    if(u){u.fname=fname;u.lname=lname;u.email=email;if(pw)u.pw=pw;u.role=role;u.commission=commission;u.accounts=accts;}
+    if(TOASTED_BACKEND_URL&&window._authToken){
+      const body={fname,lname,email,role,commission};if(pw)body.password=pw;
+      fetch(TOASTED_BACKEND_URL+'/api/users/'+editingUserId,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(body)}).catch(console.error);
+    }
+  } else {
+    const id='u'+Date.now();
+    USERS.push({id,fname,lname,email,pw,role,commission,accounts:accts});
+    if(TOASTED_BACKEND_URL&&window._authToken){
+      const body={id,fname,lname,email,password:pw,role,commission};
+      fetch(TOASTED_BACKEND_URL+'/api/users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(body)}).catch(console.error);
+    }
+  }
+  closeModal('modal-user');toast('User saved');renderUsers();
+}
 function openAddAccount(){document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');['a-name','a-lic','a-contact','a-phone','a-email','a-addr'].forEach(id=>document.getElementById(id).value='');document.getElementById('a-terms').value='Net 30';document.getElementById('modal-account').classList.add('open')}
 function deleteUser(id){
   const u=USERS.find(x=>x.id===id);
@@ -2500,9 +2603,11 @@ function deleteUser(id){
     ?`Delete ${u.fname} ${u.lname}? Their ${acctCount} account(s) will be reassigned to admin.`
     :`Delete ${u.fname} ${u.lname}? This cannot be undone.`;
   if(!confirm(msg))return;
-  // Reassign their accounts to admin
   ACCOUNTS.forEach(a=>{if(a.rep===id)a.rep='u1';});
   USERS=USERS.filter(x=>x.id!==id);
+  if(TOASTED_BACKEND_URL&&window._authToken){
+    fetch(TOASTED_BACKEND_URL+'/api/users/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).catch(console.error);
+  }
   toast(`${u.fname} ${u.lname} deleted`);
   renderUsers();
 }
@@ -3130,7 +3235,7 @@ function markSelectedDelivered(){
   if(!ids.length){toast('Select at least one order first');return}
   ids.forEach(id=>{
     const o=ORDERS.find(x=>x.id===id);
-    if(o){o.status='delivered';o.deliveredAt=today();}
+    if(o){o.status='delivered';o.deliveredAt=today();saveOrderStatusToDB(id,{status:'delivered'});}
   });
   updateBadges();
   toast(ids.length+' order'+(ids.length!==1?'s':'')+' marked as delivered');
@@ -4952,11 +5057,13 @@ function renderARTable(){
 function markARPaid(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   o.paid=true;o.paidAt=today();
+  saveOrderStatusToDB(orderId,{paid:true,paidDate:today()});
   updateBadges();toast(orderId+' marked as paid');renderARTable();
 }
 function markARUnpaid(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   o.paid=false;o.paidAt=null;
+  saveOrderStatusToDB(orderId,{paid:false,paidDate:null});
   updateBadges();toast(orderId+' marked as open');renderARTable();
 }
 
@@ -5071,8 +5178,8 @@ function unconfirmOrder(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   o.status='unconfirmed';
   delete o.confirmedBy;delete o.confirmedAt;
-  // also clear delivered stamp if set
   delete o.deliveredAt;
+  saveOrderStatusToDB(orderId,{status:'unconfirmed'});
   updateBadges();
   toast(orderId+' moved back to unconfirmed');
   const active=document.querySelector('.nav-item.active');
@@ -5086,6 +5193,7 @@ function deleteOrderFromDeliveries(orderId){
   const statusLabel=o.status==='confirmed'?'confirmed (pending delivery)':o.status;
   if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nStatus: '+statusLabel+'\n\nThis cannot be undone.'))return;
   ORDERS=ORDERS.filter(x=>x.id!==orderId);
+  deleteOrderFromDB(orderId);
   updateBadges();
   toast(orderId+' deleted');
   renderDeliveries();
@@ -5097,6 +5205,7 @@ function deleteOrder(orderId){
   const acctName=acct?acct.name:'unknown account';
   if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nThis cannot be undone.'))return;
   ORDERS=ORDERS.filter(x=>x.id!==orderId);
+  deleteOrderFromDB(orderId);
   updateBadges();
   toast(orderId+' deleted');
   const active=document.querySelector('.nav-item.active');
@@ -5530,13 +5639,13 @@ function setPricingPageCasePrice(sku,tierId,val,btl){
   const casePrice=parseFloat(val)||0;
   p.prices[tierId]=casePrice>0?parseFloat((casePrice/btl).toFixed(4)):0;
   updatePPNet(sku,tierId,btl);
-  // Refresh the btl price display
   const inp=event.target;
   if(inp){
     const btlEl=inp.parentElement.nextElementSibling;
     if(btlEl)btlEl.textContent=casePrice>0?'$'+(casePrice/btl).toFixed(2)+'/btl':'';
   }
-  toast('Price updated');
+  saveProductToDB(sku);
+  toast('Price updated & saved');
 }
 
 function setPricingPageComm(sku,tierId,val,inputEl){
@@ -5561,7 +5670,8 @@ function setPricingPageDA(sku,tierId,val){
   const da=parseFloat(val)||0;
   p.da[tierId]=da;
   updatePPNet(sku,tierId,p.btl);
-  toast('DA support updated');
+  saveProductToDB(sku);
+  toast('DA support updated & saved');
 }
 
 function updatePPNet(sku,tierId,btl){
