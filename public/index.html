@@ -780,6 +780,7 @@ async function loadAllDataFromBackend(){
     if(docsRes.ok&&docsRes.docs){
       SHARED_DOCS=docsRes.docs;
       console.log('Loaded',SHARED_DOCS.length,'docs from database');
+      loadSchedulesFromDocs();
     }
     updateBadges();
   } catch(err){
@@ -3368,7 +3369,7 @@ function exportManifest(){
 }
 
 // -- REPORTS -------------------------------------------------------------------
-let reportTab='sales'; // 'sales' | 'inventory' | 'commission' | 'scheduled'
+let reportTab='reports'; // 'reports' | 'scheduled'
 
 // -- EXPORT ORDERS -------------------------------------------------------------
 function renderExportOrders(){
@@ -3827,10 +3828,8 @@ function _showExportResult(doc, filename, label){
 function renderReports(){
   document.getElementById('main-content').innerHTML=`
   <div class="tabs" id="report-tabs">
-    <div class="tab ${reportTab==='sales'?'active':''}" onclick="switchReportTab('sales')"><i class="ti ti-chart-bar" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Sales & Depletions</div>
-    <div class="tab ${reportTab==='inventory'?'active':''}" onclick="switchReportTab('inventory')"><i class="ti ti-bottle" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Inventory</div>
-    <div class="tab ${reportTab==='commission'?'active':''}" onclick="switchReportTab('commission')"><i class="ti ti-cash" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Commission</div>
-    <div class="tab ${reportTab==='scheduled'?'active':''}" onclick="switchReportTab('scheduled')"><i class="ti ti-clock-play" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Scheduled Reports <span id="sched-count-pill" style="background:var(--gold);color:var(--navy);font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px;display:none">0</span></div>
+    <div class="tab ${reportTab==='reports'?'active':''}" onclick="switchReportTab('reports')"><i class="ti ti-chart-bar" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Reports</div>
+    <div class="tab ${reportTab==='scheduled'?'active':''}" onclick="switchReportTab('scheduled')"><i class="ti ti-clock-play" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Scheduled <span id="sched-count-pill" style="background:var(--gold);color:var(--navy);font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px;display:none">0</span></div>
   </div>
   <div id="report-body"></div>`;
   renderReportTab();
@@ -3838,18 +3837,491 @@ function renderReports(){
 function switchReportTab(tab){
   reportTab=tab;
   document.querySelectorAll('#report-tabs .tab').forEach((t,i)=>{
-    t.classList.toggle('active',['sales','inventory','commission'][i]===tab);
+    t.classList.toggle('active',['reports','scheduled'][i]===tab);
   });
   renderReportTab();
 }
 function renderReportTab(){
-  if(reportTab==='sales')renderSalesReport();
-  else if(reportTab==='inventory')renderInventoryReport();
-  else if(reportTab==='scheduled')renderScheduledReports();
-  else renderCommissionReport();
+  if(reportTab==='scheduled') renderScheduledReports();
+  else renderReportsList();
 }
 
-// -- SALES & DEPLETIONS BY PRODUCER -------------------------------------------
+// ── ACS REPORT DEFINITIONS ────────────────────────────────────────────────────
+const ACS_REPORTS = [
+  {id:'RA2',  name:'RA2 - Invoice Line Item',       icon:'ti-file-invoice',    desc:'All invoice line items for a given date range and supplier'},
+  {id:'RA5',  name:'RA5 - Depletion by Producer',   icon:'ti-chart-bar',       desc:'Cases and bottles sold by producer/supplier'},
+  {id:'RA40', name:'RA40 - CRV',                    icon:'ti-recycle',         desc:'CRV collected within a date range'},
+  {id:'RB1',  name:'RB1 - Inventory by Supplier',   icon:'ti-building-store',  desc:'Current inventory levels grouped by supplier'},
+  {id:'RB2',  name:'RB2 - Inventory by Producer',   icon:'ti-bottle',          desc:'Current inventory levels grouped by producer'},
+  {id:'RC12', name:'RC12 - Samples',                icon:'ti-flask',           desc:'All sample orders within a date range'},
+  {id:'RI2',  name:'RI2 - Open/Past Due',           icon:'ti-alert-triangle',  desc:'All open and past due invoices'},
+];
+
+let activeReportId = null;
+
+function renderReportsList(){
+  const el = document.getElementById('report-body');
+  if(activeReportId){
+    renderActiveReport(activeReportId);
+    return;
+  }
+  el.innerHTML = `
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:4px">
+    ${ACS_REPORTS.map(r=>`
+    <div class="card" style="cursor:pointer;transition:box-shadow 0.15s" 
+         onmouseover="this.style.boxShadow='0 4px 20px rgba(0,0,0,0.12)'" 
+         onmouseout="this.style.boxShadow=''"
+         onclick="openReport('${r.id}')">
+      <div class="card-body" style="padding:20px 22px">
+        <div style="display:flex;align-items:flex-start;gap:14px">
+          <div style="width:42px;height:42px;background:rgba(184,135,44,0.12);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="ti ${r.icon}" style="font-size:20px;color:var(--gold)"></i>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${r.name}</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5">${r.desc}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-sm btn-dark" onclick="event.stopPropagation();openReport('${r.id}')"><i class="ti ti-play"></i> Run Report</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();openSchedModal(null,'${r.id}')"><i class="ti ti-clock-play"></i> Schedule</button>
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function openReport(reportId){
+  activeReportId = reportId;
+  renderActiveReport(reportId);
+}
+
+function renderActiveReport(reportId){
+  const r = ACS_REPORTS.find(x=>x.id===reportId);
+  if(!r) return;
+
+  // Get unique producers/suppliers for filter
+  const producers = [...new Set(PRODUCTS.map(p=>p.producer).filter(Boolean))].sort();
+
+  const el = document.getElementById('report-body');
+
+  // Common filter bar HTML
+  const filterBar = `
+  <div style="margin-bottom:12px">
+    <button onclick="activeReportId=null;renderReportsList()" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:13px;font-weight:600;padding:0">
+      <i class="ti ti-arrow-left" style="vertical-align:-2px"></i> Back to Reports
+    </button>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-body" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:14px 18px">
+      <div>
+        <label class="flabel">Start Date</label>
+        <input type="date" class="finput" id="rpt-from" value="${window._rptFrom||''}" onchange="window._rptFrom=this.value;renderActiveReport('${reportId}')" style="width:150px"/>
+      </div>
+      <div>
+        <label class="flabel">End Date</label>
+        <input type="date" class="finput" id="rpt-to" value="${window._rptTo||''}" onchange="window._rptTo=this.value;renderActiveReport('${reportId}')" style="width:150px"/>
+      </div>
+      ${['RA2','RA5','RB1','RB2','RC12'].includes(reportId)?`
+      <div>
+        <label class="flabel">Supplier / Producer</label>
+        <select class="finput" id="rpt-producer" onchange="window._rptProducer=this.value;renderActiveReport('${reportId}')" style="width:200px;padding:7px 9px">
+          <option value="">All suppliers</option>
+          ${producers.map(p=>`<option value="${p}" ${window._rptProducer===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+      </div>`:''}
+      <button class="btn btn-sm" onclick="window._rptFrom='';window._rptTo='';window._rptProducer='';renderActiveReport('${reportId}')">Clear</button>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="openSchedModal(null,'${reportId}')"><i class="ti ti-clock-play"></i> Schedule</button>
+        <button class="btn btn-sm btn-dark" onclick="exportReportCSV('${reportId}')"><i class="ti ti-download"></i> Export CSV</button>
+      </div>
+    </div>
+  </div>`;
+
+  el.innerHTML = filterBar;
+
+  // Render the specific report
+  const from = window._rptFrom||'';
+  const to = window._rptTo||'';
+  const producer = window._rptProducer||'';
+
+  let orders = ORDERS.filter(o=>o.status==='delivered'||o.status==='confirmed');
+  if(from) orders = orders.filter(o=>o.date>=from);
+  if(to)   orders = orders.filter(o=>o.date<=to);
+
+  if(reportId==='RA2') renderRA2(el, orders, producer);
+  else if(reportId==='RA5') renderRA5(el, orders, producer);
+  else if(reportId==='RA40') renderRA40(el, orders);
+  else if(reportId==='RB1') renderRB1(el, producer);
+  else if(reportId==='RB2') renderRB2(el, producer);
+  else if(reportId==='RC12') renderRC12(el, from, to, producer);
+  else if(reportId==='RI2') renderRI2(el);
+}
+
+// RA2 - Invoice Line Item
+function renderRA2(el, orders, producerFilter){
+  const rows=[];
+  orders.forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);
+      if(!p) return;
+      if(producerFilter && p.producer!==producerFilter) return;
+      const price=itemPrice(p,item.tier||'frontline');
+      const total=itemLineTotal(item);
+      rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,sku:item.sku,product:p.name,producer:p.producer,cases:item.cases,bottles:item.bottles,tier:item.tier,unitPrice:price,total});
+    });
+  });
+  const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+  el.innerHTML+=`
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RA2 — Invoice Line Item</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} line items · ${fmt(grandTotal)}</span>
+    </div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th>SKU</th><th>Product</th><th>Producer</th><th>Cases</th><th>Btl</th><th>Tier</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>
+        ${rows.length?rows.map(r=>`<tr>
+          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
+          <td style="font-size:12px">${r.date}</td>
+          <td style="font-size:12px">${r.acct}</td>
+          <td style="font-size:12px">${r.rep}</td>
+          <td style="font-size:11px;color:var(--text2)">${r.sku}</td>
+          <td style="font-size:12px;font-weight:600">${r.product}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.producer}</td>
+          <td style="text-align:right;font-size:12px">${r.cases}</td>
+          <td style="text-align:right;font-size:12px">${r.bottles}</td>
+          <td style="font-size:11px"><span class="tier-pill">${r.tier}</span></td>
+          <td style="text-align:right;font-size:12px">${fmt(r.unitPrice)}</td>
+          <td style="text-align:right;font-weight:600">${fmt(r.total)}</td>
+        </tr>`).join(''):`<tr><td colspan="12" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>`}
+        </tbody>
+        ${rows.length?`<tfoot><tr><td colspan="11" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandTotal)}</td></tr></tfoot>`:''}
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows = rows;
+  window._lastReportCols = ['invoice','date','acct','rep','sku','product','producer','cases','bottles','tier','unitPrice','total'];
+}
+
+// RA5 - Depletion by Producer
+function renderRA5(el, orders, producerFilter){
+  const prodMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(producerFilter&&p.producer!==producerFilter)return;
+      if(!prodMap[p.producer])prodMap[p.producer]={producer:p.producer,cases:0,bottles:0,revenue:0,skus:{}};
+      const btl=itemTotalBottles(item);
+      const total=itemLineTotal(item);
+      prodMap[p.producer].cases+=item.cases;
+      prodMap[p.producer].bottles+=btl;
+      prodMap[p.producer].revenue+=total;
+      if(!prodMap[p.producer].skus[item.sku])prodMap[p.producer].skus[item.sku]={name:p.name,cases:0,bottles:0,revenue:0};
+      prodMap[p.producer].skus[item.sku].cases+=item.cases;
+      prodMap[p.producer].skus[item.sku].bottles+=btl;
+      prodMap[p.producer].skus[item.sku].revenue+=total;
+    });
+  });
+  const rows=Object.values(prodMap).sort((a,b)=>b.revenue-a.revenue);
+  const grandRev=rows.reduce((s,r)=>s+r.revenue,0);
+  const grandCases=rows.reduce((s,r)=>s+r.cases,0);
+  el.innerHTML+=`
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RA5 — Depletion by Producer</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} producers · ${grandCases} cases · ${fmt(grandRev)}</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead>
+        <tbody>
+        ${rows.length?rows.map(r=>`
+          <tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+            <td style="font-weight:600">${r.producer} <i class="ti ti-chevron-down" style="font-size:11px;color:var(--text3)"></i></td>
+            <td style="text-align:right">${r.cases}</td>
+            <td style="text-align:right;color:var(--text2)">${r.bottles}</td>
+            <td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td>
+            <td style="text-align:right;color:var(--text2)">${grandRev>0?(r.revenue/grandRev*100).toFixed(1):0}%</td>
+          </tr>
+          <tr style="display:none;background:var(--bg2)">
+            <td colspan="5" style="padding:0 24px 12px">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                ${Object.values(r.skus).sort((a,b)=>b.revenue-a.revenue).map(s=>`<tr>
+                  <td style="padding:4px 0;color:var(--text2)">${s.name}</td>
+                  <td style="text-align:right;padding:4px 0">${s.cases}cs</td>
+                  <td style="text-align:right;padding:4px 0;color:var(--text2)">${s.bottles}btl</td>
+                  <td style="text-align:right;padding:4px 0;font-weight:600">${fmt(s.revenue)}</td>
+                </tr>`).join('')}
+              </table>
+            </td>
+          </tr>`).join(''):`<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>`}
+        </tbody>
+        ${rows.length?`<tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700">${grandCases}</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandRev)}</td><td></td></tr></tfoot>`:''}
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows=rows;
+  window._lastReportCols=['producer','cases','bottles','revenue'];
+}
+
+// RA40 - CRV
+const CRV_HIGH=0.10, CRV_LOW=0.05;
+function renderRA40(el, orders){
+  let totalCRV=0, rows=[];
+  orders.forEach(o=>{
+    let orderCRV=0;
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      // CRV based on bottle size
+      const sizeStr=(p._details?.bottleSize||p.bottleSize||'').toLowerCase();
+      const ml=parseFloat(sizeStr)||0;
+      let rate=0;
+      if(ml>=720) rate=CRV_HIGH;
+      else if(ml>0) rate=CRV_LOW;
+      if(rate===0) return;
+      const btl=itemTotalBottles(item);
+      const crv=btl*rate;
+      orderCRV+=crv;
+      rows.push({invoice:o.id,date:o.date,sku:item.sku,product:p.name,btl,rate,crv});
+    });
+    totalCRV+=orderCRV;
+  });
+  el.innerHTML+=`
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RA40 — CRV</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} items · ${fmt(totalCRV)} total CRV</span>
+    </div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr><th>Invoice</th><th>Date</th><th>SKU</th><th>Product</th><th style="text-align:right">Bottles</th><th style="text-align:right">CRV Rate</th><th style="text-align:right">CRV Total</th></tr></thead>
+        <tbody>
+        ${rows.length?rows.map(r=>`<tr>
+          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
+          <td style="font-size:12px">${r.date}</td>
+          <td style="font-size:11px;color:var(--text2)">${r.sku}</td>
+          <td style="font-size:12px">${r.product}</td>
+          <td style="text-align:right;font-size:12px">${r.btl}</td>
+          <td style="text-align:right;font-size:12px">$${r.rate.toFixed(2)}</td>
+          <td style="text-align:right;font-weight:600">${fmt(r.crv)}</td>
+        </tr>`).join(''):`<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No CRV data</td></tr>`}
+        </tbody>
+        ${rows.length?`<tfoot><tr><td colspan="6" style="padding:10px 12px;font-weight:700">Total CRV</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalCRV)}</td></tr></tfoot>`:''}
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows=rows;
+  window._lastReportCols=['invoice','date','sku','product','btl','rate','crv'];
+}
+
+// RB1 - Inventory by Supplier
+function renderRB1(el, supplierFilter){
+  const supplierMap={};
+  PRODUCTS.forEach(p=>{
+    if(supplierFilter&&p.producer!==supplierFilter)return;
+    const supplier=p.producer||'Unknown';
+    if(!supplierMap[supplier])supplierMap[supplier]={supplier,products:[],totalStock:0};
+    supplierMap[supplier].products.push(p);
+    supplierMap[supplier].totalStock+=p.stock||0;
+  });
+  const rows=Object.values(supplierMap).sort((a,b)=>a.supplier.localeCompare(b.supplier));
+  el.innerHTML+=`
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RB1 — Inventory by Supplier</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} suppliers</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr><th>Supplier / Producer</th><th style="text-align:right">SKUs</th><th style="text-align:right">Total Cases on Hand</th></tr></thead>
+        <tbody>
+        ${rows.map(r=>`
+          <tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+            <td style="font-weight:600">${r.supplier} <i class="ti ti-chevron-down" style="font-size:11px;color:var(--text3)"></i></td>
+            <td style="text-align:right;color:var(--text2)">${r.products.length}</td>
+            <td style="text-align:right;font-weight:600">${r.totalStock.toFixed(1)}</td>
+          </tr>
+          <tr style="display:none;background:var(--bg2)">
+            <td colspan="3" style="padding:0 24px 12px">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <tr style="color:var(--text3);font-size:11px"><td>SKU</td><td>Product</td><td style="text-align:right">Stock (cases)</td><td style="text-align:right">Reorder Point</td></tr>
+                ${r.products.sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<tr>
+                  <td style="padding:3px 0;color:var(--text2)">${p.sku}</td>
+                  <td style="padding:3px 0">${p.name}</td>
+                  <td style="text-align:right;padding:3px 0;font-weight:600;color:${(p.stock||0)<=(p.reorder||6)?'var(--red)':'var(--green)'}">${(p.stock||0).toFixed(1)}</td>
+                  <td style="text-align:right;padding:3px 0;color:var(--text2)">${p.reorder||6}</td>
+                </tr>`).join('')}
+              </table>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows=rows;
+  window._lastReportCols=['supplier','skuCount','totalStock'];
+}
+
+// RB2 - Inventory by Producer
+function renderRB2(el, producerFilter){
+  let products=PRODUCTS;
+  if(producerFilter)products=products.filter(p=>p.producer===producerFilter);
+  const sorted=products.sort((a,b)=>a.name.localeCompare(b.name));
+  el.innerHTML+=`
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RB2 — Inventory by Producer</span>
+      <span style="font-size:12px;color:var(--text2)">${sorted.length} products</span>
+    </div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Pack</th><th style="text-align:right">Stock (cs)</th><th style="text-align:right">Reorder Pt</th><th>Status</th></tr></thead>
+        <tbody>
+        ${sorted.map(p=>{
+          const low=(p.stock||0)<=(p.reorder||6);
+          return`<tr>
+            <td style="font-size:11px;color:var(--text2)">${p.sku}</td>
+            <td style="font-weight:600;font-size:12px">${p.name}</td>
+            <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
+            <td style="text-align:right;font-size:12px">${p.btl||12}</td>
+            <td style="text-align:right;font-weight:600;color:${low?'var(--red)':'var(--green)'}">${(p.stock||0).toFixed(1)}</td>
+            <td style="text-align:right;font-size:12px;color:var(--text2)">${p.reorder||6}</td>
+            <td><span style="font-size:11px;font-weight:600;color:${low?'var(--red)':'var(--green)'}">${low?'⚠ Low':'OK'}</span></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows=sorted.map(p=>({sku:p.sku,name:p.name,producer:p.producer,pack:p.btl,stock:p.stock||0,reorder:p.reorder||6}));
+  window._lastReportCols=['sku','name','producer','pack','stock','reorder'];
+}
+
+// RC12 - Samples
+function renderRC12(el, from, to, producerFilter){
+  let orders=ORDERS.filter(o=>o.isSample||o.orderType==='sample');
+  if(from)orders=orders.filter(o=>o.date>=from);
+  if(to)  orders=orders.filter(o=>o.date<=to);
+  const rows=[];
+  orders.forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(producerFilter&&p.producer!==producerFilter)return;
+      rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,sku:item.sku,product:p.name,producer:p.producer,cases:item.cases,bottles:item.bottles});
+    });
+  });
+  el.innerHTML+=`
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RC12 — Samples</span>
+      <span style="font-size:12px;color:var(--text2)">${orders.length} sample orders · ${rows.length} line items</span>
+    </div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th></tr></thead>
+        <tbody>
+        ${rows.length?rows.map(r=>`<tr>
+          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
+          <td style="font-size:12px">${r.date}</td>
+          <td style="font-size:12px">${r.acct}</td>
+          <td style="font-size:12px">${r.rep}</td>
+          <td style="font-size:11px;color:var(--text2)">${r.sku}</td>
+          <td style="font-size:12px;font-weight:600">${r.product}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.producer}</td>
+          <td style="text-align:right;font-size:12px">${r.cases}</td>
+          <td style="text-align:right;font-size:12px">${r.bottles}</td>
+        </tr>`).join(''):`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No sample orders found</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows=rows;
+  window._lastReportCols=['invoice','date','acct','rep','sku','product','producer','cases','bottles'];
+}
+
+// RI2 - Open/Past Due
+function renderRI2(el){
+  const today_=today();
+  const orders=ORDERS.filter(o=>o.status==='delivered'&&!o.paid);
+  const rows=orders.map(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown',terms:'Net 30'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const terms=parseInt((acct.terms||'Net 30').replace(/\D/g,''))||30;
+    const dueDate=new Date(o.delivery||o.date);
+    dueDate.setDate(dueDate.getDate()+terms);
+    const dueDateStr=dueDate.toISOString().slice(0,10);
+    const pastDue=dueDateStr<today_;
+    const daysOut=Math.round((new Date(dueDateStr)-new Date(today_))/(1000*60*60*24));
+    const total=orderTotal(o);
+    return{invoice:o.id,date:o.date,delivery:o.delivery||o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,terms:acct.terms||'Net 30',dueDate:dueDateStr,daysOut,pastDue,total};
+  }).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const totalOwed=rows.reduce((s,r)=>s+r.total,0);
+  const pastDueAmt=rows.filter(r=>r.pastDue).reduce((s,r)=>s+r.total,0);
+  el.innerHTML+=`
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
+    <div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--red)">${rows.filter(r=>r.pastDue).length}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Past Due</div></div>
+    <div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--amber)">${rows.filter(r=>!r.pastDue).length}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Open (not yet due)</div></div>
+    <div class="card" style="padding:16px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--red)">${fmt(pastDueAmt)}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Past Due Amount</div></div>
+    <div class="card" style="padding:16px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--text)">${fmt(totalOwed)}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Total Open AR</div></div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">RI2 — Open / Past Due Invoices</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} open invoices</span>
+    </div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr><th>Invoice</th><th>Invoice Date</th><th>Account</th><th>Rep</th><th>Terms</th><th>Due Date</th><th style="text-align:right">Days</th><th style="text-align:right">Amount</th><th>Status</th></tr></thead>
+        <tbody>
+        ${rows.length?rows.map(r=>`<tr>
+          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
+          <td style="font-size:12px">${r.date}</td>
+          <td style="font-size:12px;font-weight:600">${r.acct}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.rep}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.terms}</td>
+          <td style="font-size:12px">${r.dueDate}</td>
+          <td style="text-align:right;font-size:12px;font-weight:600;color:${r.pastDue?'var(--red)':'var(--text2)'}">${r.pastDue?'+'+Math.abs(r.daysOut)+' overdue':r.daysOut+' days'}</td>
+          <td style="text-align:right;font-weight:600">${fmt(r.total)}</td>
+          <td><span style="font-size:11px;font-weight:700;color:${r.pastDue?'var(--red)':'var(--amber)'}">${r.pastDue?'PAST DUE':'OPEN'}</span></td>
+        </tr>`).join(''):`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No open invoices</td></tr>`}
+        </tbody>
+        ${rows.length?`<tfoot><tr><td colspan="7" style="padding:10px 12px;font-weight:700">Total Open AR</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalOwed)}</td><td></td></tr></tfoot>`:''}
+      </table>
+    </div>
+  </div>`;
+  window._lastReportRows=rows;
+  window._lastReportCols=['invoice','date','acct','rep','terms','dueDate','daysOut','total','pastDue'];
+}
+
+// Export report as CSV
+function exportReportCSV(reportId){
+  const rows=window._lastReportRows||[];
+  const cols=window._lastReportCols||[];
+  if(!rows.length){toast('No data to export');return;}
+  const header=cols.join(',');
+  const body=rows.map(r=>cols.map(c=>{
+    const v=r[c];
+    if(typeof v==='string'&&v.includes(','))return'"'+v+'"';
+    return v??'';
+  }).join(',')).join('\n');
+  const csv=header+'\n'+body;
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=reportId+'_'+today()+'.csv';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},500);
+  toast('CSV exported!');
+}
+
+// ── OLD REPORTS (kept for reference) ─────────────────────────────────────────
+
 function renderSalesReport(){
   const confirmedOrDelivered=ORDERS.filter(o=>o.status==='delivered');
   // date range state
@@ -4454,8 +4926,13 @@ function renderScheduledReports(){
         <div>
           <label class="flabel">Report type</label>
           <select class="finput" id="sched-type" onchange="onSchedTypeChange()">
-            <option value="sales">Sales & Depletions (by producer)</option>
-            <option value="inventory">Inventory stock levels</option>
+            <option value="RA2">RA2 - Invoice Line Item</option>
+            <option value="RA5">RA5 - Depletion by Producer</option>
+            <option value="RA40">RA40 - CRV</option>
+            <option value="RB1">RB1 - Inventory by Supplier</option>
+            <option value="RB2">RB2 - Inventory by Producer</option>
+            <option value="RC12">RC12 - Samples</option>
+            <option value="RI2">RI2 - Open/Past Due</option>
           </select>
         </div>
         <div>
@@ -4569,7 +5046,7 @@ function renderSchedRows(schedules){
 }
 
 // -- MODAL HELPERS -------------------------------------------------------------
-function openSchedModal(id){
+function openSchedModal(id, presetReportId){
   editingScheduleId=id||null;
   window._schedRecipients=[];
   document.getElementById('sched-modal-title').textContent=id?'Edit schedule':'New scheduled report';
@@ -4589,14 +5066,13 @@ function openSchedModal(id){
     document.getElementById('sched-dom').value=s.dayOfMonth||1;
     document.getElementById('sched-time').value=s.time||'08:00';
     window._schedRecipients=s.recipients.map(r=>({...r}));
-    // restore producer checkboxes
     const selected=s.producers||[];
     document.querySelectorAll('.sched-prod-chk').forEach(c=>{
       c.checked=selected.length===0||selected.includes('all')||selected.includes(c.value);
     });
   } else {
     document.getElementById('sched-name').value='';
-    document.getElementById('sched-type').value='sales';
+    document.getElementById('sched-type').value=presetReportId||'RA2';
     document.getElementById('sched-range').value='rolling30';
     document.getElementById('sched-freq').value='weekly';
     document.getElementById('sched-dow').value='1';
@@ -4683,16 +5159,46 @@ function saveSchedule(){
   } else {
     SCHEDULES.push(sched);
   }
+  // Save to database via a report_schedules key in shared_docs as JSON
+  saveSchedulesToDB();
   closeModal('modal-sched');
   toast((editingScheduleId?'Schedule updated':'Schedule created')+' -- '+name);
   updateSchedPill();
   renderScheduledReports();
 }
 
+function saveSchedulesToDB(){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  // Store schedules as a special shared doc entry
+  const payload={
+    id:'report_schedules',
+    name:'__report_schedules__',
+    category:'system',
+    description:JSON.stringify(SCHEDULES),
+    filename:'schedules.json',
+    dataUrl:'',
+    sizeLabel:'',
+    uploadedBy:'system'
+  };
+  fetch(TOASTED_BACKEND_URL+'/api/docs',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(payload)
+  }).catch(e=>console.error('Save schedules error:',e));
+}
+
+function loadSchedulesFromDocs(){
+  const schedDoc=SHARED_DOCS.find(d=>d.id==='report_schedules');
+  if(schedDoc&&schedDoc.description){
+    try{SCHEDULES=JSON.parse(schedDoc.description);}catch(e){}
+  }
+}
+
 function toggleSchedule(id){
   const s=SCHEDULES.find(x=>x.id===id);if(!s)return;
   s.active=!s.active;
   if(s.active)s.nextSend=calcNextSend(s.freq,s.dayOfWeek,s.dayOfMonth,s.time);
+  saveSchedulesToDB();
   toast(s.name+(s.active?' resumed':' paused'));
   updateSchedPill();renderScheduledReports();
 }
@@ -4701,6 +5207,7 @@ function deleteSchedule(id){
   const s=SCHEDULES.find(x=>x.id===id);
   if(!s||!confirm(`Delete "${s.name}"?`))return;
   SCHEDULES=SCHEDULES.filter(x=>x.id!==id);
+  saveSchedulesToDB();
   toast('Schedule deleted');updateSchedPill();renderScheduledReports();
 }
 
