@@ -4076,8 +4076,64 @@ function renderReportsList(){
   }).join('')}`;
 }
 
+// ── DATE RANGE HELPER ─────────────────────────────────────────────────────────
+function getReportDateRange(preset){
+  const now=new Date();
+  const y=now.getFullYear();
+  const m=now.getMonth();
+  const pad=n=>String(n).padStart(2,'0');
+  const fmt2=(y,m,d)=>`${y}-${pad(m+1)}-${pad(d)}`;
+  switch(preset){
+    case 'custom': return{from:window._rptFrom||'',to:window._rptTo||''};
+    case 'lastWeek':{
+      const d=new Date(now);d.setDate(d.getDate()-d.getDay()-6);
+      const from=d.toISOString().slice(0,10);
+      d.setDate(d.getDate()+6);
+      return{from,to:d.toISOString().slice(0,10)};
+    }
+    case 'lastMonth':{
+      const lm=m===0?11:m-1;const ly=m===0?y-1:y;
+      const lastDay=new Date(ly,lm+1,0).getDate();
+      return{from:fmt2(ly,lm,1),to:fmt2(ly,lm,lastDay)};
+    }
+    case 'thisMonth': return{from:fmt2(y,m,1),to:fmt2(y,m,new Date(y,m+1,0).getDate())};
+    case 'lastQuarter':{
+      const q=Math.floor(m/3);
+      const lq=q===0?3:q-1;const ly=q===0?y-1:y;
+      const qStart=[0,3,6,9][lq];
+      return{from:fmt2(ly,qStart,1),to:fmt2(ly,qStart+2,new Date(ly,qStart+3,0).getDate())};
+    }
+    case 'thisQuarter':{
+      const q=Math.floor(m/3);const qStart=q*3;
+      return{from:fmt2(y,qStart,1),to:fmt2(y,qStart+2,new Date(y,qStart+3,0).getDate())};
+    }
+    case 'lastYear': return{from:`${y-1}-01-01`,to:`${y-1}-12-31`};
+    case 'thisYear': return{from:`${y}-01-01`,to:`${y}-12-31`};
+    case 'h1': return{from:`${y}-01-01`,to:`${y}-06-30`};
+    case 'h2': return{from:`${y}-07-01`,to:`${y}-12-31`};
+    case 'all': default: return{from:'',to:''};
+  }
+}
+
+function applyReportPreset(reportId){
+  const preset=document.getElementById('rpt-preset')?.value||'all';
+  window._rptPreset=preset;
+  if(preset!=='custom'){
+    const dr=getReportDateRange(preset);
+    window._rptFrom=dr.from;window._rptTo=dr.to;
+  }
+  const customWrap=document.getElementById('rpt-custom-wrap');
+  if(customWrap)customWrap.style.display=preset==='custom'?'flex':'none';
+  renderActiveReport(reportId);
+}
+
 function openReport(reportId){
-  activeReportId = reportId;
+  activeReportId=reportId;
+  window._rptPreset=window._rptPreset||'all';
+  if(window._rptPreset!=='custom'){
+    const dr=getReportDateRange(window._rptPreset);
+    window._rptFrom=dr.from;window._rptTo=dr.to;
+  }
   renderActiveReport(reportId);
 }
 
@@ -4100,14 +4156,32 @@ function renderActiveReport(reportId){
   <div class="card" style="margin-bottom:14px">
     <div class="card-body" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:14px 18px">
       <div>
-        <label class="flabel">Start Date</label>
-        <input type="date" class="finput" id="rpt-from" value="${window._rptFrom||''}" onchange="window._rptFrom=this.value;renderActiveReport('${reportId}')" style="width:150px"/>
+        <label class="flabel">Date Range</label>
+        <select class="finput" id="rpt-preset" onchange="applyReportPreset('${reportId}')" style="width:185px;padding:7px 9px">
+          <option value="all" ${(window._rptPreset||'all')==='all'?'selected':''}>All Time</option>
+          <option value="thisMonth" ${window._rptPreset==='thisMonth'?'selected':''}>This Month to Date</option>
+          <option value="lastMonth" ${window._rptPreset==='lastMonth'?'selected':''}>Last Month</option>
+          <option value="lastWeek" ${window._rptPreset==='lastWeek'?'selected':''}>Last Week</option>
+          <option value="thisYear" ${window._rptPreset==='thisYear'?'selected':''}>This Year</option>
+          <option value="lastYear" ${window._rptPreset==='lastYear'?'selected':''}>Last Year</option>
+          <option value="thisQuarter" ${window._rptPreset==='thisQuarter'?'selected':''}>This Quarter</option>
+          <option value="lastQuarter" ${window._rptPreset==='lastQuarter'?'selected':''}>Last Quarter</option>
+          <option value="h1" ${window._rptPreset==='h1'?'selected':''}>H1 (Jan–Jun)</option>
+          <option value="h2" ${window._rptPreset==='h2'?'selected':''}>H2 (Jul–Dec)</option>
+          <option value="custom" ${window._rptPreset==='custom'?'selected':''}>Custom Range...</option>
+        </select>
       </div>
-      <div>
-        <label class="flabel">End Date</label>
-        <input type="date" class="finput" id="rpt-to" value="${window._rptTo||''}" onchange="window._rptTo=this.value;renderActiveReport('${reportId}')" style="width:150px"/>
+      <div id="rpt-custom-wrap" style="display:${(window._rptPreset==='custom')?'flex':'none'};gap:8px;align-items:flex-end">
+        <div>
+          <label class="flabel">From</label>
+          <input type="date" class="finput" id="rpt-from" value="${window._rptFrom||''}" onchange="window._rptFrom=this.value;renderActiveReport('${reportId}')" style="width:145px"/>
+        </div>
+        <div>
+          <label class="flabel">To</label>
+          <input type="date" class="finput" id="rpt-to" value="${window._rptTo||''}" onchange="window._rptTo=this.value;renderActiveReport('${reportId}')" style="width:145px"/>
+        </div>
       </div>
-      ${['RA2','RA5','RB1','RB2','RC12'].includes(reportId)?`
+      ${['RA2','RA5','RA6','RA8','RA9','RA10','RA12','RA13','RA14','RA18','RA21','RA22','RA28','RA33','RA34','RA38','RA39','RA41','RA42','RA44','RB1','RB2','RB6','RB7','RB9','RBOUTS','RC12'].includes(reportId)?`
       <div>
         <label class="flabel">Supplier / Producer</label>
         <select class="finput" id="rpt-producer" onchange="window._rptProducer=this.value;renderActiveReport('${reportId}')" style="width:200px;padding:7px 9px">
@@ -4115,7 +4189,7 @@ function renderActiveReport(reportId){
           ${producers.map(p=>`<option value="${p}" ${window._rptProducer===p?'selected':''}>${p}</option>`).join('')}
         </select>
       </div>`:''}
-      <button class="btn btn-sm" onclick="window._rptFrom='';window._rptTo='';window._rptProducer='';renderActiveReport('${reportId}')">Clear</button>
+      <button class="btn btn-sm" onclick="window._rptFrom='';window._rptTo='';window._rptProducer='';window._rptPreset='all';renderActiveReport('${reportId}')">Clear</button>
       <div style="margin-left:auto;display:flex;gap:8px">
         <button class="btn btn-sm" onclick="openSchedModal(null,'${reportId}')"><i class="ti ti-clock-play"></i> Schedule</button>
         <button class="btn btn-sm btn-dark" onclick="exportReportCSV('${reportId}')"><i class="ti ti-download"></i> Export CSV</button>
