@@ -3081,7 +3081,7 @@ function closeProdDD(){const dd=document.getElementById('prod-dd');if(dd)dd.clas
 function addLineItem(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
-  if(ex)ex.cases+=1;else currentOrder.items.push({sku,cases:1,bottles:0,tier:'frontline'});
+  if(ex)ex.cases+=0;else currentOrder.items.push({sku,cases:0,bottles:0,tier:'frontline'});
   closeProdDD();syncFees();renderLineItems();
 }
 function removeLineItem(idx){currentOrder.items.splice(idx,1);syncFees();renderLineItems()}
@@ -3926,8 +3926,8 @@ function renderAccountsPage(){
     const myOrders=ORDERS.filter(o=>o.acct===a.id);
     const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
     const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
-    return`<tr>
-      <td style="font-weight:600">${a.name}</td>
+    return`<tr style="cursor:pointer" onclick="openAccountDetail('${a.id}')">
+      <td style="font-weight:600;color:var(--gold)">${a.name}</td>
       <td style="font-size:12px;color:var(--text2)">${a.lic||a.abcNum||'--'}</td>
       <td style="font-size:12px;color:var(--text2)">${a.contact||'--'}</td>
       <td style="font-size:12px;color:var(--text2)">${a.phone||'--'}</td>
@@ -3936,7 +3936,7 @@ function renderAccountsPage(){
       ${isAdmin?`<td style="font-size:12px;color:var(--text2)">${rep.fname||''} ${rep.lname||''}</td>`:''}
       <td style="font-size:12px;text-align:center">${myOrders.length}</td>
       <td style="font-size:12px;font-weight:600;color:${openBal>0?'var(--red)':'var(--text3)'}">${openBal>0?fmt(openBal):'--'}</td>
-      <td><button class="btn btn-sm" onclick="startOrderForAccount('${a.id}')"><i class="ti ti-plus"></i> Order</button></td>
+      <td onclick="event.stopPropagation()"><button class="btn btn-sm" onclick="startOrderForAccount('${a.id}')"><i class="ti ti-plus"></i> Order</button></td>
     </tr>`;
   }).join('')||`<tr><td colspan="${isAdmin?10:9}" style="padding:40px;text-align:center;color:var(--text3)">No accounts</td></tr>`;
 
@@ -3952,6 +3952,71 @@ function renderAccountsPage(){
     const visible=[...rows].filter(r=>r.style.display!=='none').length;
     document.getElementById('acct-count').textContent=visible+' account'+(visible!==1?'s':'');
   });
+}
+
+function openAccountDetail(acctId){
+  const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
+  const isAdmin=currentUser&&currentUser.role==='admin';
+  const rep=USERS.find(u=>u.id===a.rep)||{};
+  const allOrders=ORDERS.filter(o=>o.acct===a.id).sort((x,y)=>y.date.localeCompare(x.date));
+  const openAR=allOrders.filter(o=>o.status==='delivered'&&!o.paid);
+  const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
+  const totalSpend=allOrders.filter(o=>o.paid).reduce((s,o)=>s+orderTotal(o),0);
+  const lastOrder=allOrders[0];
+  const statusColor=st=>({unconfirmed:'var(--amber)',confirmed:'var(--green)',delivered:'var(--navy)'}[st]||'var(--text2)');
+
+  const ordersHtml=allOrders.length===0
+    ?'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No orders yet</td></tr>'
+    :allOrders.map(o=>{
+      const tot=orderTotal(o);
+      return '<tr>'+
+        '<td style="font-weight:600;font-size:12px">'+o.id+'</td>'+
+        '<td style="font-size:12px">'+o.date+'</td>'+
+        '<td style="font-size:12px">'+(o.delivery||'--')+'</td>'+
+        '<td><span style="font-size:11px;font-weight:600;color:'+statusColor(o.status)+'">'+o.status+'</span></td>'+
+        '<td style="font-weight:600">'+fmt(tot)+'</td>'+
+        '<td style="font-size:12px">'+(o.paid?'<span style="color:var(--green)">Paid</span>':'<span style="color:var(--red)">Unpaid</span>')+'</td>'+
+        '<td><button class="btn btn-sm" onclick="viewInvoice(\''+o.id+'\')"><i class="ti ti-file-invoice"></i></button></td>'+
+      '</tr>';
+    }).join('');
+
+  let html='<div style="margin-bottom:16px">';
+  html+='<button onclick="showPage(\'accounts\')" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:13px;font-weight:600;padding:0"><i class="ti ti-arrow-left" style="vertical-align:-2px"></i> Back to Accounts</button></div>';
+  html+='<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:20px 24px">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">';
+  html+='<div><div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">'+a.name+'</div>';
+  html+='<div style="font-size:13px;color:var(--text2)">'+[a.shipStreet,a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div>';
+  html+=(a.lic?'<div style="font-size:13px;color:var(--text2)">ABC: '+a.lic+(a.phone?' &nbsp;&middot;&nbsp; '+a.phone:'')+'</div>':'');
+  html+='</div><div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="startOrderForAccount(\''+a.id+'\')"><i class="ti ti-plus"></i> New Order</button></div>';
+  html+='</div></div></div>';
+
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:14px">';
+  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--gold)">'+allOrders.length+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Total Orders</div></div>';
+  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--green)">'+fmt(totalSpend)+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Total Spend</div></div>';
+  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:'+(openBal>0?'var(--red)':'var(--text3)')+'">'+fmt(openBal)+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Open AR</div></div>';
+  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:16px;font-weight:700;color:var(--text)">'+(lastOrder?lastOrder.date:'--')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Last Order</div></div>';
+  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:16px;font-weight:700;color:var(--text)">'+(a.terms||'Net 30')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Terms</div></div>';
+  if(isAdmin&&rep.fname)html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:15px;font-weight:700;color:var(--text)">'+rep.fname+' '+(rep.lname||'')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Sales Rep</div></div>';
+  html+='</div>';
+
+  html+='<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
+  html+='<div class="card"><div class="card-header"><span class="card-title">Account Info</span></div><div class="card-body" style="font-size:13px;line-height:2">';
+  if(a.contact)html+='<div><span style="color:var(--text2)">Contact:</span> '+a.contact+'</div>';
+  if(a.email)html+='<div><span style="color:var(--text2)">Email:</span> '+a.email+'</div>';
+  if(a.phone)html+='<div><span style="color:var(--text2)">Phone:</span> '+a.phone+'</div>';
+  if(a.lic)html+='<div><span style="color:var(--text2)">ABC Lic:</span> '+a.lic+'</div>';
+  if(a.id)html+='<div><span style="color:var(--text2)">Account ID:</span> '+a.id+'</div>';
+  html+='<div><span style="color:var(--text2)">Terms:</span> '+(a.terms||'Net 30')+'</div>';
+  if(a.shipStreet)html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><div style="color:var(--text2)">Address:</div><div>'+a.shipStreet+'</div><div>'+[a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div></div>';
+  html+='</div></div>';
+
+  html+='<div class="card"><div class="card-header"><span class="card-title">Order History ('+allOrders.length+')</span></div>';
+  html+='<div style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="tbl"><thead><tr>';
+  html+='<th>Order ID</th><th>Date</th><th>Delivery</th><th>Status</th><th>Total</th><th>Paid</th><th></th>';
+  html+='</tr></thead><tbody>'+ordersHtml+'</tbody></table></div></div>';
+  html+='</div>';
+
+  document.getElementById('main-content').innerHTML=html;
 }
 
 function startOrderForAccount(acctId){
@@ -4025,7 +4090,7 @@ function addProductToOrder(sku){
   setTimeout(()=>{
     const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
     if(!currentOrder.items.find(x=>x.sku===sku)){
-      currentOrder.items.push({sku,cases:1,bottles:0,tier:'frontline',discountPct:0});
+      currentOrder.items.push({sku,cases:0,bottles:0,tier:'frontline',discountPct:0});
       syncFees();renderLineItems();
       toast(p.name+' added to order');
     }
@@ -8055,4 +8120,3 @@ const QBO_BACKEND_STUB = "Backend stub code available at:\nhttps://github.com/yo
 </script>
 </body>
 </html>
-
