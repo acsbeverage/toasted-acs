@@ -222,6 +222,33 @@ app.post('/api/notify/order', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/import-history', async (req, res) => {
+  if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
+  try {
+    const {query} = require('./db');
+    const fs = require('fs');
+    const path = require('path');
+    const orders = JSON.parse(fs.readFileSync(path.join(__dirname,'history.json'),'utf8'));
+    let imported=0, skipped=0;
+    for(const o of orders){
+      try{
+        const ex = await query('SELECT id FROM orders WHERE id=$1',[o.id]);
+        if(ex.rows.length>0){skipped++;continue;}
+        await query(`INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,is_sample,paid,paid_date,paid_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [o.id,o.acct,o.rep,o.date||null,o.delivery||null,'delivered','standard','','[Historical]',!!o.isSample,!!o.paid,o.paidDate||null,o.paidAmount||0]);
+        for(let idx=0;idx<o.items.length;idx++){
+          const it=o.items[idx];
+          await query('INSERT INTO order_items (order_id,sku,cases,bottles,tier,discount_pct,is_fee,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+            [o.id,it.sku,it.cases||0,it.bottles||0,'frontline',0,false,idx]);
+        }
+        imported++;
+      }catch(e){skipped++;}
+    }
+    res.json({ok:true, imported, skipped, total:orders.length});
+  }catch(err){
+    res.status(500).json({ok:false,error:err.message});
+  }
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
