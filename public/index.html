@@ -3847,15 +3847,140 @@ function renderReportTab(){
 }
 
 // ── ACS REPORT DEFINITIONS ────────────────────────────────────────────────────
-const ACS_REPORTS = [
-  {id:'RA2',  name:'RA2 - Invoice Line Item',       icon:'ti-file-invoice',    desc:'All invoice line items for a given date range and supplier'},
-  {id:'RA5',  name:'RA5 - Depletion by Producer',   icon:'ti-chart-bar',       desc:'Cases and bottles sold by producer/supplier'},
-  {id:'RA40', name:'RA40 - CRV',                    icon:'ti-recycle',         desc:'CRV collected within a date range'},
-  {id:'RB1',  name:'RB1 - Inventory by Supplier',   icon:'ti-building-store',  desc:'Current inventory levels grouped by supplier'},
-  {id:'RB2',  name:'RB2 - Inventory by Producer',   icon:'ti-bottle',          desc:'Current inventory levels grouped by producer'},
-  {id:'RC12', name:'RC12 - Samples',                icon:'ti-flask',           desc:'All sample orders within a date range'},
-  {id:'RI2',  name:'RI2 - Open/Past Due',           icon:'ti-alert-triangle',  desc:'All open and past due invoices'},
+const REPORT_CATEGORIES = [
+  {
+    id: 'sales', name: 'Sales & Depletions', icon: 'ti-chart-bar',
+    reports: [
+      {id:'RA1',  name:'RA1 - Basic Sales',                          desc:'Basic sales report',                                          icon:'ti-receipt',         available:true},
+      {id:'RA2',  name:'RA2 - Invoice Line Item',                    desc:'Granular invoice line item report',                           icon:'ti-file-invoice',    available:true},
+      {id:'RA3',  name:'RA3 - Sales Comparison',                     desc:'Account sales over two distinct date ranges',                 icon:'ti-arrows-diff',     available:true},
+      {id:'RA4',  name:'RA4 - Accounts with Sales Rep',              desc:'Export all accounts with sales rep and buyer contact',        icon:'ti-users',           available:true},
+      {id:'RA5',  name:'RA5 - Depletion by Producer',                desc:'Cases and bottles sold grouped by producer',                  icon:'ti-chart-bar',       available:true},
+      {id:'RA6',  name:'RA6 - Depletion by Supplier',                desc:'Cases and bottles sold grouped by supplier',                  icon:'ti-building-store',  available:true},
+      {id:'RA7',  name:'RA7 - Sales across Suppliers & Reps',        desc:'All suppliers with sales by all sales reps',                  icon:'ti-table',           available:true},
+      {id:'RA8',  name:'RA8 - Sales by Supplier across Accounts',    desc:'All sales for a single supplier across all accounts',         icon:'ti-building',        available:true},
+      {id:'RA9',  name:'RA9 - Itemized Sales by Supplier',           desc:'Itemized sales for a supplier across accounts by SKU & rep',  icon:'ti-list-details',    available:true},
+      {id:'RA10', name:'RA10 - Sales by Supplier across SKUs',       desc:'All sales for a single supplier across SKUs',                 icon:'ti-barcode',         available:true},
+      {id:'RA11', name:'RA11 - Sales for Account across SKUs',       desc:'Sales for a single account across all SKUs',                  icon:'ti-building-store',  available:true},
+      {id:'RA12', name:'RA12 - Sales by Supplier & Sales Reps',      desc:'Sales by supplier broken down by sales rep',                  icon:'ti-chart-dots',      available:true},
+      {id:'RA13', name:'RA13 - Single Product Sales by Reps',        desc:'Sales for a single product across one or more reps',          icon:'ti-wine',            available:true},
+      {id:'RA14', name:'RA14 - Single Product Sales by Accounts',    desc:'Sales for a single product across one or more accounts',      icon:'ti-wine',            available:true},
+      {id:'RA15', name:'RA15 - Accounts with No Sales',              desc:'Accounts with no sales given a number of days',               icon:'ti-user-off',        available:true},
+      {id:'RA16', name:'RA16 - Sales by Region',                     desc:'Total sales by region',                                       icon:'ti-map',             available:false},
+      {id:'RA17', name:'RA17 - Depletion by Importer',               desc:'Depletion report grouped by importer',                        icon:'ti-ship',            available:false},
+      {id:'RA18', name:'RA18 - Sales by Producers & Reps',           desc:'Sales by producers and sales reps',                           icon:'ti-chart-dots',      available:true},
+      {id:'RA19', name:'RA19 - Sales by Suppliers & Reps: Comparison',desc:'Date range comparison by supplier and rep',                  icon:'ti-arrows-diff',     available:true},
+      {id:'RA20', name:'RA20 - Sales by Suppliers/Producers & Reps', desc:'Date range comparison by suppliers/producers & reps',         icon:'ti-arrows-diff',     available:true},
+      {id:'RA21', name:'RA21 - Top Products Sold',                   desc:'Top products ranked by sales volume and revenue',             icon:'ti-trophy',          available:true},
+      {id:'RA22', name:'RA22 - Aggregate Totals by Supplier',        desc:'Aggregate sales totals grouped by supplier',                  icon:'ti-sum',             available:true},
+      {id:'RA23', name:'RA23 - Aggregate Totals by Account',         desc:'Account sales with product detail',                           icon:'ti-building-store',  available:true},
+      {id:'RA24', name:'RA24 - Sales by Invoice & Account',          desc:'Sales grouped by invoice number and account',                 icon:'ti-file-description',available:true},
+      {id:'RA25', name:'RA25 - Sales by Importer',                   desc:'Sales grouped by importer',                                   icon:'ti-ship',            available:false},
+      {id:'RA26', name:'RA26 - Products with No Sales',              desc:'Products that have had no sales',                             icon:'ti-package-off',     available:true},
+      {id:'RA27', name:'RA27 - Points of Distribution',              desc:'Points of distribution report',                               icon:'ti-map-pin',         available:false},
+      {id:'RA28', name:'RA28 - Depletion by Product',                desc:'Depletion report by individual product/SKU',                  icon:'ti-bottle',          available:true},
+      {id:'RA29', name:'RA29 - Aggregate Totals by Importer',        desc:'Aggregate totals grouped by importer',                        icon:'ti-ship',            available:false},
+      {id:'RA30', name:'RA30 - New Placements',                      desc:'New account placements grouped by product',                   icon:'ti-star',            available:false},
+      {id:'RA31', name:'RA31 - Quantity Sold by Region',             desc:'Quantity sold grouped by region',                             icon:'ti-map',             available:false},
+      {id:'RA32', name:'RA32 - Quantity by Region: Date Range',      desc:'Quantity sold by region for a date range',                    icon:'ti-map',             available:false},
+      {id:'RA33', name:'RA33 - Aggregate by Producer with Detail',   desc:'Producer totals including on-premise and off-premise',        icon:'ti-sum',             available:true},
+      {id:'RA34', name:'RA34 - Aggregate Sales by Supplier by SKU',  desc:'Aggregate sales by supplier broken down by SKU',              icon:'ti-barcode',         available:true},
+      {id:'RA35', name:'RA35 - Products Last Purchased',             desc:'Last purchase date for each product',                         icon:'ti-clock',           available:true},
+      {id:'RA36', name:'RA36 - Qty by Region: Date Comparison',      desc:'Quantity sold by region date range comparison',               icon:'ti-map',             available:false},
+      {id:'RA37', name:'RA37 - Monthly Sales by Sales Rep',          desc:'Monthly sales totals per sales rep',                          icon:'ti-calendar-stats',  available:true},
+      {id:'RA38', name:'RA38 - Detailed Sales with Accounts',        desc:'Detailed sales report with account follow-along data',        icon:'ti-file-spreadsheet',available:true},
+      {id:'RA39', name:'RA39 - Monthly Sales by Supplier',           desc:'Monthly sales totals grouped by supplier',                    icon:'ti-calendar-stats',  available:true},
+      {id:'RA40', name:'RA40 - CRV / Redemption Entry Sales',        desc:'CRV collected within a date range',                           icon:'ti-recycle',         available:true},
+      {id:'RA41', name:'RA41 - Top Products by Sales Rep',           desc:'Top products sold by each sales rep',                         icon:'ti-trophy',          available:true},
+      {id:'RA42', name:'RA42 - Sales by Producer',                   desc:'Sales totals grouped by producer',                            icon:'ti-chart-pie',       available:true},
+      {id:'RA43', name:'RA43 - Sales by Importer: Date Comparison',  desc:'Sales by importer with date range comparison',                icon:'ti-ship',            available:false},
+      {id:'RA44', name:'RA44 - Sales by Product: Monthly',           desc:'Monthly sales breakdown per product',                         icon:'ti-calendar-stats',  available:true},
+    ]
+  },
+  {
+    id: 'inventory', name: 'Inventory', icon: 'ti-bottle',
+    reports: [
+      {id:'RB1',  name:'RB1 - Inventory by Supplier',               desc:'Current inventory for a specific supplier',                   icon:'ti-building-store',  available:true},
+      {id:'RB2',  name:'RB2 - Inventory by Producer',               desc:'Current inventory by one or more producers',                  icon:'ti-bottle',          available:true},
+      {id:'RB3',  name:'RB3 - Allocations by Supplier',             desc:'Allocations for a specific supplier',                         icon:'ti-git-branch',      available:false},
+      {id:'RB4',  name:'RB4 - Unused Allocations',                  desc:'Unused allocations report',                                   icon:'ti-package-off',     available:false},
+      {id:'RB5',  name:'RB5 - Inventory Transactions by Warehouse', desc:'Inventory transactions for a timeframe and warehouse',        icon:'ti-building-warehouse',available:false},
+      {id:'RB6',  name:'RB6 - Velocity Estimate',                   desc:'Estimate velocity and remaining inventory',                   icon:'ti-trending-down',   available:true},
+      {id:'RB7',  name:'RB7 - Inventory Stock Status',              desc:'Grouped by producer, importer, product family',               icon:'ti-clipboard-list',  available:true},
+      {id:'RB8',  name:'RB8 - Pre-Arrivals',                        desc:'Pre-arrival inventory report',                                icon:'ti-truck',           available:false},
+      {id:'RB9',  name:'RB9 - Total Dollars On Hand',               desc:'Total dollar value of current inventory',                     icon:'ti-cash',            available:true},
+      {id:'RB10', name:'RB10 - Current Order Inventory Snapshot',   desc:'Snapshot of inventory for current orders',                    icon:'ti-camera',          available:false},
+      {id:'RBOUTS',name:'RB - OUTS (Inventory Not Available)',       desc:'Products that are out of stock or unavailable',               icon:'ti-alert-triangle',  available:true},
+    ]
+  },
+  {
+    id: 'rep_activity', name: 'Sales Rep Activity', icon: 'ti-user-check',
+    reports: [
+      {id:'RC1',  name:'RC1 - Sales & Tastings by Supplier & Rep',  desc:'Total sales and tastings for a supplier and all reps',        icon:'ti-chart-bar',       available:false},
+      {id:'RC2',  name:'RC2 - Customer Activity by Month',           desc:'Monthly activity summary for a single sales rep',             icon:'ti-calendar-stats',  available:true},
+      {id:'RC3',  name:'RC3 - Unloved Accounts',                    desc:'Sales reps and their unloved accounts and priority thresholds',icon:'ti-heart-broken',   available:true},
+      {id:'RC4',  name:'RC4 - Account Priorities',                  desc:'Account priorities optionally by one or more sales reps',     icon:'ti-flag',            available:false},
+      {id:'RC5',  name:'RC5 - Sales Summary by Month',              desc:'Total sales for each account by month',                       icon:'ti-calendar-stats',  available:true},
+      {id:'RC6',  name:'RC6 - Commissions Calculator',              desc:'Estimates commissions based on a specific commission rate',   icon:'ti-calculator',      available:true},
+      {id:'RC7',  name:'RC7 - Simple Sales Rep Activity',           desc:'Simple representation of sales rep activity',                 icon:'ti-user',            available:true},
+      {id:'RC8',  name:'RC8 - Tasting Opportunities',               desc:'Tasting opportunities report',                                icon:'ti-glass',           available:false},
+      {id:'RC9',  name:'RC9 - Unloved Accounts List',               desc:'Unloved accounts list',                                       icon:'ti-heart-broken',    available:true},
+      {id:'RC10', name:'RC10 - Sales by Sales Rep Descending',      desc:'Sales by sales rep in descending order',                      icon:'ti-sort-descending', available:true},
+      {id:'RC11', name:'RC11 - Allocations Status',                 desc:'Allocations status report',                                   icon:'ti-git-branch',      available:false},
+      {id:'RC12', name:'RC12 - Samples',                            desc:'Samples by account and by account by month',                  icon:'ti-flask',           available:true},
+      {id:'RC13', name:'RC13 - Commission Overrides',               desc:'Importer/supplier and rep specific commission override rates', icon:'ti-adjustments',     available:false},
+      {id:'RC14', name:'RC14 - Sales Opportunities',                desc:'Sales opportunities report',                                  icon:'ti-target',          available:false},
+    ]
+  },
+  {
+    id: 'tastings', name: 'Tastings by Product', icon: 'ti-glass',
+    reports: [
+      {id:'RD1', name:'RD1 - Single Product Tasting by Reps',       desc:'Total tastings for a single product across reps',             icon:'ti-glass',           available:false},
+      {id:'RD2', name:'RD2 - Single Product Tasting for Rep',       desc:'Tasting of a single product for a single rep',                icon:'ti-glass',           available:false},
+      {id:'RD3', name:'RD3 - Single Product Tasting for Accounts',  desc:'Tasting activity of a single product across all accounts',    icon:'ti-glass',           available:false},
+    ]
+  },
+  {
+    id: 'campaigns', name: 'Focus Product Campaigns', icon: 'ti-target',
+    reports: [
+      {id:'RE1', name:'RE1 - Focus Campaign by Sales Rep',          desc:'Summary of focus campaign by sales rep',                      icon:'ti-target',          available:false},
+      {id:'RE2', name:'RE2 - Focus Campaign: Summary',              desc:'Summary of focus campaign',                                   icon:'ti-target',          available:false},
+    ]
+  },
+  {
+    id: 'aggregate', name: 'Aggregate Reports', icon: 'ti-sum',
+    reports: [
+      {id:'RF1', name:'RF1 - Aggregate Sales',                      desc:'Aggregate sales report by sales reps',                        icon:'ti-sum',             available:true},
+      {id:'RF2', name:'RF2 - Aggregate Tastings',                   desc:'Aggregate tastings report by sales reps',                     icon:'ti-sum',             available:false},
+      {id:'RF3', name:'RF3 - Aggregate Activity',                   desc:'Aggregate activity report by sales reps',                     icon:'ti-sum',             available:false},
+    ]
+  },
+  {
+    id: 'mappings', name: 'External Mappings', icon: 'ti-link',
+    reports: [
+      {id:'RG1', name:'RG1 - Accounts: External Mappings',          desc:'Accounts and whether they are mapped to an external object',  icon:'ti-link',            available:false},
+      {id:'RG2', name:'RG2 - Products: External Mappings',          desc:'Products and whether they are mapped to an external object',  icon:'ti-link',            available:false},
+    ]
+  },
+  {
+    id: 'account_mgmt', name: 'Account Management', icon: 'ti-building',
+    reports: [
+      {id:'RH1', name:'RH1 - Account Resale',                       desc:'Accounts with missing resale # and contact emails',           icon:'ti-building',        available:true},
+      {id:'RH2', name:'RH2 - Account A/R History Detail',           desc:'Account receivables history detail',                          icon:'ti-history',         available:true},
+    ]
+  },
+  {
+    id: 'ar', name: 'Account Receivables', icon: 'ti-cash',
+    reports: [
+      {id:'RI1', name:'RI1 - Account Receivables: Paid',            desc:'Orders that have been marked as paid',                        icon:'ti-circle-check',    available:true},
+      {id:'RI2', name:'RI2 - Account Receivables: Open/Past Due',   desc:'Invoices that are open or past due',                          icon:'ti-alert-triangle',  available:true},
+    ]
+  },
 ];
+
+// Flat list for easy lookup
+const ACS_REPORTS = REPORT_CATEGORIES.flatMap(c=>c.reports);
+
 
 let activeReportId = null;
 
@@ -3865,30 +3990,55 @@ function renderReportsList(){
     renderActiveReport(activeReportId);
     return;
   }
+
+  // Search filter
+  const search = (window._reportSearch||'').toLowerCase();
+
   el.innerHTML = `
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:4px">
-    ${ACS_REPORTS.map(r=>`
-    <div class="card" style="cursor:pointer;transition:box-shadow 0.15s" 
-         onmouseover="this.style.boxShadow='0 4px 20px rgba(0,0,0,0.12)'" 
-         onmouseout="this.style.boxShadow=''"
-         onclick="openReport('${r.id}')">
-      <div class="card-body" style="padding:20px 22px">
-        <div style="display:flex;align-items:flex-start;gap:14px">
-          <div style="width:42px;height:42px;background:rgba(184,135,44,0.12);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <i class="ti ${r.icon}" style="font-size:20px;color:var(--gold)"></i>
-          </div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${r.name}</div>
-            <div style="font-size:12px;color:var(--text2);line-height:1.5">${r.desc}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:14px">
-          <button class="btn btn-sm btn-dark" onclick="event.stopPropagation();openReport('${r.id}')"><i class="ti ti-play"></i> Run Report</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation();openSchedModal(null,'${r.id}')"><i class="ti ti-clock-play"></i> Schedule</button>
-        </div>
+  <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center">
+    <input class="finput" placeholder="Search reports..." value="${window._reportSearch||''}" 
+      oninput="window._reportSearch=this.value;renderReportsList()" style="max-width:300px"/>
+    <span style="font-size:12px;color:var(--text2)">${ACS_REPORTS.filter(r=>r.available).length} available · ${ACS_REPORTS.filter(r=>!r.available).length} coming soon</span>
+  </div>
+  ${REPORT_CATEGORIES.map(cat=>{
+    const filtered = cat.reports.filter(r=>
+      !search || r.name.toLowerCase().includes(search) || r.desc.toLowerCase().includes(search)
+    );
+    if(!filtered.length) return '';
+    return`
+    <div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <i class="ti ${cat.icon}" style="color:var(--gold);font-size:16px"></i>
+        <span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2)">${cat.name}</span>
+        <span style="font-size:11px;color:var(--text3)">(${filtered.filter(r=>r.available).length}/${filtered.length} available)</span>
       </div>
-    </div>`).join('')}
-  </div>`;
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
+        ${filtered.map(r=>`
+        <div class="card" style="cursor:${r.available?'pointer':'default'};opacity:${r.available?1:0.55};transition:box-shadow 0.15s"
+             ${r.available?`onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow=''" onclick="openReport('${r.id}')"`:''}> 
+          <div class="card-body" style="padding:14px 16px">
+            <div style="display:flex;align-items:flex-start;gap:10px">
+              <div style="width:34px;height:34px;background:${r.available?'rgba(184,135,44,0.12)':'var(--bg3)'};border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ti ${r.icon}" style="font-size:16px;color:${r.available?'var(--gold)':'var(--text3)'}"></i>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px">${r.name}</div>
+                <div style="font-size:11px;color:var(--text2);line-height:1.4">${r.desc}</div>
+              </div>
+            </div>
+            ${r.available?`
+            <div style="display:flex;gap:6px;margin-top:10px">
+              <button class="btn btn-sm btn-dark" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();openReport('${r.id}')"><i class="ti ti-play"></i> Run</button>
+              <button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();openSchedModal(null,'${r.id}')"><i class="ti ti-clock-play"></i> Schedule</button>
+            </div>`:`
+            <div style="margin-top:8px">
+              <span style="font-size:10px;color:var(--text3);font-style:italic">Coming soon</span>
+            </div>`}
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('')}`;
 }
 
 function openReport(reportId){
@@ -3956,6 +4106,59 @@ function renderActiveReport(reportId){
   else if(reportId==='RB2') renderRB2(el, producer);
   else if(reportId==='RC12') renderRC12(el, from, to, producer);
   else if(reportId==='RI2') renderRI2(el);
+  else if(reportId==='RA1') renderRA1(el, orders, producer);
+  else if(reportId==='RA3') renderRA3(el, producer);
+  else if(reportId==='RA4') renderRA4(el);
+  else if(reportId==='RA6') renderRA6(el, orders, producer);
+  else if(reportId==='RA7') renderRA7(el, orders);
+  else if(reportId==='RA8') renderRA8(el, orders, producer);
+  else if(reportId==='RA9') renderRA9(el, orders, producer);
+  else if(reportId==='RA10') renderRA10(el, orders, producer);
+  else if(reportId==='RA11') renderRA11(el, orders, producer);
+  else if(reportId==='RA12') renderRA12(el, orders, producer);
+  else if(reportId==='RA13') renderRA13(el, orders, producer);
+  else if(reportId==='RA14') renderRA14(el, orders, producer);
+  else if(reportId==='RA15') renderRA15(el, from, to);
+  else if(reportId==='RA18') renderRA18(el, orders, producer);
+  else if(reportId==='RA19') renderRA19(el, producer);
+  else if(reportId==='RA20') renderRA20(el, producer);
+  else if(reportId==='RA21') renderRA21(el, orders, producer);
+  else if(reportId==='RA22') renderRA22(el, orders, producer);
+  else if(reportId==='RA23') renderRA23(el, orders, producer);
+  else if(reportId==='RA24') renderRA24(el, orders, producer);
+  else if(reportId==='RA26') renderRA26(el, orders);
+  else if(reportId==='RA28') renderRA28(el, orders, producer);
+  else if(reportId==='RA33') renderRA33(el, orders, producer);
+  else if(reportId==='RA34') renderRA34(el, orders, producer);
+  else if(reportId==='RA35') renderRA35(el, producer);
+  else if(reportId==='RA37') renderRA37(el, orders);
+  else if(reportId==='RA38') renderRA38(el, orders, producer);
+  else if(reportId==='RA39') renderRA39(el, orders, producer);
+  else if(reportId==='RA41') renderRA41(el, orders, producer);
+  else if(reportId==='RA42') renderRA42(el, orders, producer);
+  else if(reportId==='RA44') renderRA44(el, orders, producer);
+  else if(reportId==='RB6') renderRB6(el, producer);
+  else if(reportId==='RB7') renderRB7(el, producer);
+  else if(reportId==='RB9') renderRB9(el, producer);
+  else if(reportId==='RBOUTS') renderRBOUTS(el, producer);
+  else if(reportId==='RC2') renderRC2(el, orders);
+  else if(reportId==='RC3') renderRC3(el);
+  else if(reportId==='RC5') renderRC5(el, orders);
+  else if(reportId==='RC6') renderRC6(el, orders);
+  else if(reportId==='RC7') renderRC7(el, orders);
+  else if(reportId==='RC9') renderRC9(el);
+  else if(reportId==='RC10') renderRC10(el, orders);
+  else if(reportId==='RF1') renderRF1(el, orders);
+  else if(reportId==='RH1') renderRH1(el);
+  else if(reportId==='RH2') renderRH2(el);
+  else if(reportId==='RI1') renderRI1(el);
+  else {
+    el.innerHTML+=`<div class="card"><div class="card-body" style="padding:60px;text-align:center;color:var(--text3)">
+      <i class="ti ti-tools" style="font-size:48px;display:block;margin-bottom:14px;color:var(--gold)"></i>
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">${r?r.name:reportId}</div>
+      <div style="font-size:13px">This report is coming soon.</div>
+    </div></div>`;
+  }
 }
 
 // RA2 - Invoice Line Item
@@ -4321,6 +4524,668 @@ function exportReportCSV(reportId){
 }
 
 // ── OLD REPORTS (kept for reference) ─────────────────────────────────────────
+
+// RA1 - Basic Sales
+function renderRA1(el, orders, producerFilter){
+  const rows=[];
+  orders.forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const total=orderTotal(o);
+    const items=o.items.filter(i=>!i._fee);
+    const hasProducer=items.some(i=>{const p=PRODUCTS.find(x=>x.sku===i.sku);return !producerFilter||(p&&p.producer===producerFilter);});
+    if(!hasProducer&&producerFilter)return;
+    rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,lines:items.length,total});
+  });
+  const grand=rows.reduce((s,r)=>s+r.total,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA1 — Basic Sales</span><span style="font-size:12px;color:var(--text2)">${rows.length} invoices · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th style="text-align:right">Line Items</th><th style="text-align:right">Total</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--gold)">${r.invoice}</td><td style="font-size:12px">${r.date}</td><td style="font-size:12px;font-weight:600">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="text-align:right;font-size:12px">${r.lines}</td><td style="text-align:right;font-weight:600">${fmt(r.total)}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody>${rows.length?`<tfoot><tr><td colspan="5" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td></tr></tfoot>`:''}</table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['invoice','date','acct','rep','lines','total'];
+}
+
+// RA3 - Sales Comparison
+function renderRA3(el, producerFilter){
+  const from1=window._rptFrom||'';const to1=window._rptTo||'';
+  // For comparison use previous period of same length
+  const ms=from1&&to1?new Date(to1)-new Date(from1):0;
+  const from2=from1?new Date(new Date(from1)-ms-86400000).toISOString().slice(0,10):'';
+  const to2=from1?new Date(new Date(from1)-86400000).toISOString().slice(0,10):'';
+  let o1=ORDERS.filter(o=>o.status==='delivered'||o.status==='confirmed');
+  let o2=[...o1];
+  if(from1)o1=o1.filter(o=>o.date>=from1);if(to1)o1=o1.filter(o=>o.date<=to1);
+  if(from2)o2=o2.filter(o=>o.date>=from2);if(to2)o2=o2.filter(o=>o.date<=to2);
+  const calcByAcct=(orders)=>{
+    const m={};
+    orders.forEach(o=>{
+      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+      if(!m[o.acct])m[o.acct]={acct:acct.name,total:0};
+      m[o.acct].total+=orderTotal(o);
+    });
+    return m;
+  };
+  const m1=calcByAcct(o1),m2=calcByAcct(o2);
+  const allIds=[...new Set([...Object.keys(m1),...Object.keys(m2)])];
+  const rows=allIds.map(id=>({acct:(m1[id]||m2[id])?.acct||id,p1:(m1[id]?.total||0),p2:(m2[id]?.total||0)}))
+    .map(r=>({...r,diff:r.p1-r.p2,pct:r.p2>0?((r.p1-r.p2)/r.p2*100):0}))
+    .sort((a,b)=>b.p1-a.p1);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA3 — Sales Comparison</span><span style="font-size:12px;color:var(--text2)">Period 1: ${from1||'all'} to ${to1||'now'} vs Period 2: ${from2||'prior'} to ${to2||''}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th style="text-align:right">Period 1</th><th style="text-align:right">Period 2</th><th style="text-align:right">Change</th><th style="text-align:right">%</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="text-align:right;font-weight:600">${fmt(r.p1)}</td><td style="text-align:right;color:var(--text2)">${fmt(r.p2)}</td><td style="text-align:right;color:${r.diff>=0?'var(--green)':'var(--red)'}">${r.diff>=0?'+':''}${fmt(r.diff)}</td><td style="text-align:right;font-size:12px;color:${r.diff>=0?'var(--green)':'var(--red)'}">${r.pct>=0?'+':''}${r.pct.toFixed(1)}%</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data for selected range</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['acct','p1','p2','diff','pct'];
+}
+
+// RA4 - Accounts with Sales Rep
+function renderRA4(el){
+  const rows=ACCOUNTS.map(a=>{
+    const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:'',email:''};
+    return{acct:a.name,id:a.id,repName:rep.fname+' '+rep.lname,repEmail:rep.email||'',contact:a.contact||'',contactEmail:a.email||'',phone:a.phone||'',terms:a.terms||'Net 30'};
+  }).sort((a,b)=>a.acct.localeCompare(b.acct));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA4 — Accounts with Sales Rep</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Account ID</th><th>Sales Rep</th><th>Rep Email</th><th>Contact</th><th>Contact Email</th><th>Phone</th><th>Terms</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:11px;color:var(--text2)">${r.id}</td><td style="font-size:12px">${r.repName}</td><td style="font-size:11px;color:var(--text2)">${r.repEmail}</td><td style="font-size:12px">${r.contact}</td><td style="font-size:11px;color:var(--text2)">${r.contactEmail}</td><td style="font-size:12px">${r.phone}</td><td style="font-size:12px">${r.terms}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['acct','id','repName','repEmail','contact','contactEmail','phone','terms'];
+}
+
+// RA6 - Depletion by Supplier (same as RA5 but labeled supplier)
+function renderRA6(el, orders, supplierFilter){renderRA5(el,orders,supplierFilter);}
+
+// RA7 - Sales across all Suppliers & Reps
+function renderRA7(el, orders){
+  const suppliers=[...new Set(PRODUCTS.map(p=>p.producer).filter(Boolean))].sort();
+  const reps=USERS.filter(u=>u.role==='rep');
+  const matrix={};
+  suppliers.forEach(s=>{matrix[s]={};reps.forEach(r=>{matrix[s][r.id]=0;});});
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p||!matrix[p.producer])return;
+      matrix[p.producer][o.rep]=(matrix[p.producer][o.rep]||0)+itemLineTotal(item);
+    });
+  });
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA7 — Sales across Suppliers & Reps</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Supplier/Producer</th>${reps.map(r=>`<th style="text-align:right;font-size:11px">${r.fname}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+  ${suppliers.map(s=>{const row=matrix[s];const tot=Object.values(row).reduce((a,b)=>a+b,0);if(tot===0)return'';
+    return`<tr><td style="font-weight:600;font-size:12px">${s}</td>${reps.map(r=>`<td style="text-align:right;font-size:12px;color:${row[r.id]>0?'var(--text)':'var(--text3)'}">${row[r.id]>0?fmt(row[r.id]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;
+  }).join('')}
+  </tbody></table></div></div>`;
+}
+
+// RA8 - Sales by Supplier across Accounts
+function renderRA8(el, orders, supplierFilter){
+  const acctMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(supplierFilter&&p.producer!==supplierFilter)return;
+      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+      if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,total:0,invoices:new Set()};
+      acctMap[o.acct].total+=itemLineTotal(item);
+      acctMap[o.acct].invoices.add(o.id);
+    });
+  });
+  const rows=Object.values(acctMap).sort((a,b)=>b.total-a.total);
+  const grand=rows.reduce((s,r)=>s+r.total,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA8 — Sales by Supplier across Accounts${supplierFilter?' — '+supplierFilter:''}</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th style="text-align:right">Invoices</th><th style="text-align:right">Total</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="text-align:right;font-size:12px">${r.invoices.size}</td><td style="text-align:right;font-weight:600">${fmt(r.total)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${grand>0?(r.total/grand*100).toFixed(1):0}%</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody>${rows.length?`<tfoot><tr><td colspan="2" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td><td></td></tr></tfoot>`:''}</table></div></div>`;
+  window._lastReportRows=rows.map(r=>({acct:r.acct,invoices:r.invoices.size,total:r.total}));window._lastReportCols=['acct','invoices','total'];
+}
+
+// RA9 - Itemized Sales by Supplier across Accounts  
+function renderRA9(el, orders, supplierFilter){renderRA2(el,orders,supplierFilter);}
+
+// RA10 - Sales by Supplier across SKUs
+function renderRA10(el, orders, supplierFilter){
+  const skuMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(supplierFilter&&p.producer!==supplierFilter)return;
+      if(!skuMap[item.sku])skuMap[item.sku]={sku:item.sku,name:p.name,producer:p.producer,cases:0,bottles:0,revenue:0};
+      skuMap[item.sku].cases+=item.cases;
+      skuMap[item.sku].bottles+=itemTotalBottles(item);
+      skuMap[item.sku].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(skuMap).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA10 — Sales by Supplier across SKUs${supplierFilter?' — '+supplierFilter:''}</span><span style="font-size:12px;color:var(--text2)">${rows.length} SKUs · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${r.bottles}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','cases','bottles','revenue'];
+}
+
+// RA11 - Sales for Account across SKUs (uses account filter from producer field)
+function renderRA11(el, orders, acctFilter){
+  const skuMap={};
+  orders.filter(o=>!acctFilter||o.acct===acctFilter).forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(!skuMap[item.sku])skuMap[item.sku]={sku:item.sku,name:p.name,producer:p.producer,cases:0,revenue:0};
+      skuMap[item.sku].cases+=item.cases;
+      skuMap[item.sku].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(skuMap).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  const acctName=acctFilter?ACCOUNTS.find(a=>a.id===acctFilter)?.name||acctFilter:'All Accounts';
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA11 — Sales for ${acctName} across SKUs</span><span style="font-size:12px;color:var(--text2)">${rows.length} SKUs · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','cases','revenue'];
+}
+
+// RA12 - Sales by Supplier & Sales Reps
+function renderRA12(el, orders, supplierFilter){
+  const repMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(supplierFilter&&p.producer!==supplierFilter)return;
+      const rep=USERS.find(u=>u.id===o.rep)||{fname:'Unknown',lname:''};
+      const key=o.rep;
+      if(!repMap[key])repMap[key]={rep:rep.fname+' '+rep.lname,cases:0,revenue:0};
+      repMap[key].cases+=item.cases;
+      repMap[key].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(repMap).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA12 — Sales by Supplier & Sales Reps${supplierFilter?' — '+supplierFilter:''}</span><span style="font-size:12px;color:var(--text2)">${fmt(grand)}</span></div>
+  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;color:var(--text2)">${grand>0?(r.revenue/grand*100).toFixed(1):0}%</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['rep','cases','revenue'];
+}
+
+// RA13 - Single Product Sales by Reps
+function renderRA13(el, orders, skuFilter){
+  const repMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee&&(!skuFilter||i.sku===skuFilter)).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const rep=USERS.find(u=>u.id===o.rep)||{fname:'Unknown',lname:''};
+      if(!repMap[o.rep])repMap[o.rep]={rep:rep.fname+' '+rep.lname,cases:0,revenue:0};
+      repMap[o.rep].cases+=item.cases;repMap[o.rep].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(repMap).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  const prodName=skuFilter?PRODUCTS.find(p=>p.sku===skuFilter)?.name||skuFilter:'All Products';
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA13 — ${prodName} Sales by Rep</span><span style="font-size:12px;color:var(--text2)">${fmt(grand)}</span></div>
+  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="3" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['rep','cases','revenue'];
+}
+
+// RA14 - Single Product Sales by Accounts
+function renderRA14(el, orders, skuFilter){
+  const acctMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee&&(!skuFilter||i.sku===skuFilter)).forEach(item=>{
+      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+      if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,cases:0,revenue:0};
+      acctMap[o.acct].cases+=item.cases;acctMap[o.acct].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(acctMap).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  const prodName=skuFilter?PRODUCTS.find(p=>p.sku===skuFilter)?.name||skuFilter:'All Products';
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA14 — ${prodName} Sales by Account</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${grand>0?(r.revenue/grand*100).toFixed(1):0}%</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['acct','cases','revenue'];
+}
+
+// RA15 - Accounts with No Sales
+function renderRA15(el, from, to){
+  const activeAcctIds=new Set(ORDERS.filter(o=>{
+    if(from&&o.date<from)return false;
+    if(to&&o.date>to)return false;
+    return true;
+  }).map(o=>o.acct));
+  const inactive=ACCOUNTS.filter(a=>!activeAcctIds.has(a.id));
+  const rows=inactive.map(a=>{
+    const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
+    const lastOrder=ORDERS.filter(o=>o.acct===a.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+    return{acct:a.name,rep:rep.fname+' '+rep.lname,phone:a.phone||'',lastOrder:lastOrder?.date||'Never'};
+  }).sort((a,b)=>a.acct.localeCompare(b.acct));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA15 — Accounts with No Sales</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts with no sales in period</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Sales Rep</th><th>Phone</th><th>Last Order</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="font-size:12px">${r.phone}</td><td style="font-size:12px;color:${r.lastOrder==='Never'?'var(--red)':'var(--text2)'}">${r.lastOrder}</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">All accounts have sales in this period</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['acct','rep','phone','lastOrder'];
+}
+
+// RA18 - Sales by Producers & Reps
+function renderRA18(el, orders, producerFilter){renderRA12(el,orders,producerFilter);}
+
+// RA19/RA20 - Date range comparison
+function renderRA19(el, producerFilter){renderRA3(el,producerFilter);}
+function renderRA20(el, producerFilter){renderRA3(el,producerFilter);}
+
+// RA21 - Top Products Sold
+function renderRA21(el, orders, producerFilter){
+  const skuMap={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(producerFilter&&p.producer!==producerFilter)return;
+      if(!skuMap[item.sku])skuMap[item.sku]={sku:item.sku,name:p.name,producer:p.producer,cases:0,revenue:0,accounts:new Set()};
+      skuMap[item.sku].cases+=item.cases;
+      skuMap[item.sku].revenue+=itemLineTotal(item);
+      skuMap[item.sku].accounts.add(o.acct);
+    });
+  });
+  const rows=Object.values(skuMap).sort((a,b)=>b.revenue-a.revenue).slice(0,50);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA21 — Top Products Sold</span><span style="font-size:12px;color:var(--text2)">Top ${rows.length} products by revenue</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>#</th><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Accounts</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+  ${rows.map((r,i)=>`<tr><td style="font-size:12px;color:var(--text3)">${i+1}</td><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-size:12px">${r.accounts.size}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows.map((r,i)=>({rank:i+1,sku:r.sku,name:r.name,producer:r.producer,cases:r.cases,accounts:r.accounts.size,revenue:r.revenue}));
+  window._lastReportCols=['rank','sku','name','producer','cases','accounts','revenue'];
+}
+
+// RA22 - Aggregate Totals by Supplier
+function renderRA22(el, orders, supplierFilter){
+  const map={};
+  orders.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(supplierFilter&&p.producer!==supplierFilter)return;
+      const key=p.producer||'Unknown';
+      if(!map[key])map[key]={supplier:key,invoices:new Set(),cases:0,revenue:0};
+      map[key].invoices.add(o.id);map[key].cases+=item.cases;map[key].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(map).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA22 — Aggregate Totals by Supplier</span><span style="font-size:12px;color:var(--text2)">${rows.length} suppliers · ${fmt(grand)}</span></div>
+  <table class="tbl"><thead><tr><th>Supplier/Producer</th><th style="text-align:right">Invoices</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600">${r.supplier}</td><td style="text-align:right">${r.invoices.size}</td><td style="text-align:right">${r.cases}</td><td style="text-align:right;font-weight:600;color:var(--gold)">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody>${rows.length?`<tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td></tr></tfoot>`:''}</table></div>`;
+  window._lastReportRows=rows.map(r=>({supplier:r.supplier,invoices:r.invoices.size,cases:r.cases,revenue:r.revenue}));
+  window._lastReportCols=['supplier','invoices','cases','revenue'];
+}
+
+// RA23 - Aggregate Totals by Account with Product Detail
+function renderRA23(el, orders, producerFilter){
+  const acctMap={};
+  orders.forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,revenue:0,products:{}};
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(producerFilter&&p.producer!==producerFilter)return;
+      acctMap[o.acct].revenue+=itemLineTotal(item);
+      if(!acctMap[o.acct].products[item.sku])acctMap[o.acct].products[item.sku]={name:p.name,cases:0,revenue:0};
+      acctMap[o.acct].products[item.sku].cases+=item.cases;
+      acctMap[o.acct].products[item.sku].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(acctMap).filter(r=>r.revenue>0).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA23 — Aggregate by Account with Product Detail</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account / Product</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+  ${rows.map(r=>`
+    <tr style="cursor:pointer;background:var(--bg2)" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+      <td style="font-weight:700">${r.acct} <i class="ti ti-chevron-down" style="font-size:11px"></i></td><td></td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.revenue)}</td>
+    </tr>
+    <tr style="display:none">
+      <td colspan="3" style="padding:0 24px 8px">
+        ${Object.values(r.products).sort((a,b)=>b.revenue-a.revenue).map(p=>`<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--border)"><span>${p.name}</span><span>${p.cases}cs &nbsp; <strong>${fmt(p.revenue)}</strong></span></div>`).join('')}
+      </td>
+    </tr>`).join('')||'<tr><td colspan="3" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+}
+
+// RA24 - Sales grouped by Invoice
+function renderRA24(el, orders, producerFilter){renderRA1(el,orders,producerFilter);}
+
+// RA26 - Products with No Sales
+function renderRA26(el, orders){
+  const soldSkus=new Set(orders.flatMap(o=>o.items.map(i=>i.sku)));
+  const rows=PRODUCTS.filter(p=>!soldSkus.has(p.sku)).map(p=>({sku:p.sku,name:p.name,producer:p.producer||'',cat:p.cat||'',stock:p.stock||0})).sort((a,b)=>a.name.localeCompare(b.name));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA26 — Products with No Sales</span><span style="font-size:12px;color:var(--text2)">${rows.length} products with no sales in period</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Category</th><th style="text-align:right">Stock</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="font-size:12px;color:var(--text2)">${r.cat}</td><td style="text-align:right;font-size:12px">${r.stock}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">All products have sales in this period</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','cat','stock'];
+}
+
+// RA28 - Depletion by Product
+function renderRA28(el, orders, producerFilter){renderRA10(el,orders,producerFilter);}
+
+// RA33 - Aggregate by Producer with Detail
+function renderRA33(el, orders, producerFilter){renderRA23(el,orders,producerFilter);}
+
+// RA34 - Aggregate Sales by Supplier by SKU
+function renderRA34(el, orders, supplierFilter){renderRA10(el,orders,supplierFilter);}
+
+// RA35 - Products Last Purchased
+function renderRA35(el, producerFilter){
+  const lastPurchase={};
+  ORDERS.filter(o=>o.status==='delivered'||o.status==='confirmed').forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      if(!lastPurchase[item.sku]||o.date>lastPurchase[item.sku].date){
+        lastPurchase[item.sku]={date:o.date,acct:ACCOUNTS.find(a=>a.id===o.acct)?.name||'Unknown',invoice:o.id};
+      }
+    });
+  });
+  const rows=PRODUCTS.filter(p=>!producerFilter||p.producer===producerFilter).map(p=>({
+    sku:p.sku,name:p.name,producer:p.producer||'',
+    lastDate:lastPurchase[p.sku]?.date||'Never',
+    lastAcct:lastPurchase[p.sku]?.acct||'—',
+    lastInvoice:lastPurchase[p.sku]?.invoice||'—',
+  })).sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA35 — Products Last Purchased</span><span style="font-size:12px;color:var(--text2)">${rows.length} products</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Last Purchased</th><th>Account</th><th>Invoice</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="font-size:12px;color:${r.lastDate==='Never'?'var(--red)':'var(--text)'}">${r.lastDate}</td><td style="font-size:12px">${r.lastAcct}</td><td style="font-size:11px;color:var(--gold)">${r.lastInvoice}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','lastDate','lastAcct','lastInvoice'];
+}
+
+// RA37 - Monthly Sales by Sales Rep
+function renderRA37(el, orders){
+  const months=[...new Set(orders.map(o=>o.date.slice(0,7)))].sort();
+  const reps=USERS.filter(u=>u.role==='rep');
+  const data={};
+  reps.forEach(r=>{data[r.id]={rep:r.fname+' '+r.lname,months:{}};months.forEach(m=>data[r.id].months[m]=0);});
+  orders.forEach(o=>{
+    const m=o.date.slice(0,7);
+    if(data[o.rep])data[o.rep].months[m]=(data[o.rep].months[m]||0)+orderTotal(o);
+  });
+  const rows=Object.values(data).filter(r=>Object.values(r.months).some(v=>v>0));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA37 — Monthly Sales by Sales Rep</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Sales Rep</th>${months.slice(-12).map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+  ${rows.map(r=>{const tot=Object.values(r.months).reduce((a,b)=>a+b,0);return`<tr><td style="font-weight:600">${r.rep}</td>${months.slice(-12).map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]>0?'var(--text)':'var(--text3)'}">${r.months[m]>0?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="20" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+}
+
+// RA38 - Detailed Sales with Accounts
+function renderRA38(el, orders, producerFilter){renderRA2(el,orders,producerFilter);}
+
+// RA39 - Monthly Sales by Supplier
+function renderRA39(el, orders, supplierFilter){
+  const months=[...new Set(orders.map(o=>o.date.slice(0,7)))].sort().slice(-12);
+  const suppMap={};
+  orders.forEach(o=>{
+    const m=o.date.slice(0,7);
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(supplierFilter&&p.producer!==supplierFilter)return;
+      const key=p.producer||'Unknown';
+      if(!suppMap[key])suppMap[key]={supplier:key,months:{}};
+      suppMap[key].months[m]=(suppMap[key].months[m]||0)+itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(suppMap).sort((a,b)=>a.supplier.localeCompare(b.supplier));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA39 — Monthly Sales by Supplier</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Supplier</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+  ${rows.map(r=>{const tot=months.reduce((a,m)=>a+(r.months[m]||0),0);return`<tr><td style="font-weight:600">${r.supplier}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="15" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+}
+
+// RA41 - Top Products by Sales Rep
+function renderRA41(el, orders, producerFilter){
+  const repMap={};
+  USERS.filter(u=>u.role==='rep').forEach(u=>{repMap[u.id]={rep:u.fname+' '+u.lname,products:{}};});
+  orders.forEach(o=>{
+    if(!repMap[o.rep])return;
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(producerFilter&&p.producer!==producerFilter)return;
+      if(!repMap[o.rep].products[item.sku])repMap[o.rep].products[item.sku]={name:p.name,cases:0,revenue:0};
+      repMap[o.rep].products[item.sku].cases+=item.cases;
+      repMap[o.rep].products[item.sku].revenue+=itemLineTotal(item);
+    });
+  });
+  const rows=Object.values(repMap).filter(r=>Object.keys(r.products).length>0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA41 — Top Products by Sales Rep</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl">
+  ${rows.map(r=>{
+    const top=Object.values(r.products).sort((a,b)=>b.revenue-a.revenue).slice(0,10);
+    return`<thead><tr><th colspan="3" style="background:var(--navy);color:#fff;padding:10px 12px">${r.rep}</th></tr>
+    <tr><th>Product</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead>
+    <tbody>${top.map(p=>`<tr><td style="font-size:12px">${p.name}</td><td style="text-align:right;font-size:12px">${p.cases}</td><td style="text-align:right;font-weight:600">${fmt(p.revenue)}</td></tr>`).join('')}</tbody>`;
+  }).join('')}
+  </table></div></div>`;
+}
+
+// RA42 - Sales by Producer
+function renderRA42(el, orders, producerFilter){renderRA5(el,orders,producerFilter);}
+
+// RA44 - Sales by Product: Monthly
+function renderRA44(el, orders, producerFilter){
+  const months=[...new Set(orders.map(o=>o.date.slice(0,7)))].sort().slice(-6);
+  const skuMap={};
+  orders.forEach(o=>{
+    const m=o.date.slice(0,7);
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      if(producerFilter&&p.producer!==producerFilter)return;
+      if(!skuMap[item.sku])skuMap[item.sku]={name:p.name,months:{}};
+      skuMap[item.sku].months[m]=(skuMap[item.sku].months[m]||0)+itemLineTotal(item);
+    });
+  });
+  const rows=Object.entries(skuMap).map(([sku,v])=>({sku,...v,total:Object.values(v.months).reduce((a,b)=>a+b,0)})).sort((a,b)=>b.total-a.total).slice(0,50);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA44 — Sales by Product: Monthly</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.total)}</td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+}
+
+// RB6 - Velocity Estimate
+function renderRB6(el, producerFilter){
+  const now=new Date();const thirtyDaysAgo=new Date(now-30*24*60*60*1000).toISOString().slice(0,10);
+  const recent=ORDERS.filter(o=>o.date>=thirtyDaysAgo&&(o.status==='delivered'||o.status==='confirmed'));
+  const velocity={};
+  recent.forEach(o=>{
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      velocity[item.sku]=(velocity[item.sku]||0)+item.cases;
+    });
+  });
+  const rows=PRODUCTS.filter(p=>!producerFilter||p.producer===producerFilter).map(p=>{
+    const vel30=velocity[p.sku]||0;
+    const velMonth=vel30;
+    const stock=p.stock||0;
+    const weeksLeft=velMonth>0?(stock/(velMonth/4.3)):999;
+    return{sku:p.sku,name:p.name,producer:p.producer||'',stock,velMonth,weeksLeft:weeksLeft<999?weeksLeft.toFixed(1):'∞'};
+  }).filter(r=>r.stock>0||r.velMonth>0).sort((a,b)=>parseFloat(a.weeksLeft)-parseFloat(b.weeksLeft));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RB6 — Velocity Estimate</span><span style="font-size:12px;color:var(--text2)">Based on last 30 days sales</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Stock (cs)</th><th style="text-align:right">Velocity/mo</th><th style="text-align:right">Weeks Left</th><th>Status</th></tr></thead><tbody>
+  ${rows.map(r=>{const low=parseFloat(r.weeksLeft)<4;return`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.stock.toFixed(1)}</td><td style="text-align:right;font-size:12px">${r.velMonth.toFixed(1)}</td><td style="text-align:right;font-weight:600;color:${low?'var(--red)':'var(--green)'}">${r.weeksLeft}</td><td><span style="font-size:11px;font-weight:700;color:${low?'var(--red)':'var(--green)'}">${low?'⚠ Low':'OK'}</span></td></tr>`;}).join('')||'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No inventory data</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','stock','velMonth','weeksLeft'];
+}
+
+// RB7 - Inventory Stock Status
+function renderRB7(el, producerFilter){renderRB2(el,producerFilter);}
+
+// RB9 - Total Dollars On Hand
+function renderRB9(el, producerFilter){
+  let products=PRODUCTS.filter(p=>!producerFilter||p.producer===producerFilter);
+  const rows=products.map(p=>{
+    const price=(p.prices?.frontline||0)*p.btl;
+    const value=(p.stock||0)*price;
+    return{sku:p.sku,name:p.name,producer:p.producer||'',stock:p.stock||0,price,value};
+  }).filter(r=>r.stock>0).sort((a,b)=>b.value-a.value);
+  const grand=rows.reduce((s,r)=>s+r.value,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RB9 — Total Dollars On Hand</span><span style="font-size:12px;color:var(--text2)">${rows.length} products · ${fmt(grand)} total value</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Stock (cs)</th><th style="text-align:right">Case Price</th><th style="text-align:right">Value</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.stock.toFixed(1)}</td><td style="text-align:right;font-size:12px">${fmt(r.price)}</td><td style="text-align:right;font-weight:600">${fmt(r.value)}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No inventory on hand</td></tr>'}
+  </tbody>${rows.length?`<tfoot><tr><td colspan="5" style="padding:10px 12px;font-weight:700">Total Value</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td></tr></tfoot>`:''}</table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','stock','price','value'];
+}
+
+// RBOUTS - Inventory Not Available
+function renderRBOUTS(el, producerFilter){
+  const rows=PRODUCTS.filter(p=>(!producerFilter||p.producer===producerFilter)&&(p.stock||0)<=0)
+    .map(p=>({sku:p.sku,name:p.name,producer:p.producer||'',stock:p.stock||0,reorder:p.reorder||6}))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RB - OUTS (Inventory Not Available)</span><span style="font-size:12px;color:var(--red)">${rows.length} products out of stock</span></div>
+  <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Stock</th><th style="text-align:right">Reorder Point</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px;color:var(--red)">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-weight:700;color:var(--red)">${r.stock}</td><td style="text-align:right;font-size:12px">${r.reorder}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--green)">All products are in stock!</td></tr>'}
+  </tbody></table></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','stock','reorder'];
+}
+
+// RC2 - Customer Activity by Month
+function renderRC2(el, orders){
+  const reps=USERS.filter(u=>u.role==='rep');
+  const months=[...new Set(orders.map(o=>o.date.slice(0,7)))].sort().slice(-6);
+  const data={};
+  reps.forEach(r=>{data[r.id]={rep:r.fname+' '+r.lname,months:{}};});
+  orders.forEach(o=>{
+    if(!data[o.rep])return;
+    const m=o.date.slice(0,7);
+    if(!data[o.rep].months[m])data[o.rep].months[m]={orders:0,revenue:0,accounts:new Set()};
+    data[o.rep].months[m].orders++;
+    data[o.rep].months[m].revenue+=orderTotal(o);
+    data[o.rep].months[m].accounts.add(o.acct);
+  });
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC2 — Customer Activity by Month</span></div>
+  ${Object.values(data).map(r=>`
+  <div style="padding:12px 18px;border-bottom:1px solid var(--border)">
+    <div style="font-weight:700;margin-bottom:8px">${r.rep}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr>${months.map(m=>`<th style="padding:4px 8px;text-align:center;color:var(--text2)">${m}</th>`).join('')}</tr>
+      <tr>${months.map(m=>`<td style="padding:4px 8px;text-align:center">${r.months[m]?r.months[m].orders+' orders':'-'}</td>`).join('')}</tr>
+      <tr>${months.map(m=>`<td style="padding:4px 8px;text-align:center;font-weight:600;color:var(--gold)">${r.months[m]?fmt(r.months[m].revenue):'-'}</td>`).join('')}</tr>
+    </table>
+  </div>`).join('')}</div>`;
+}
+
+// RC3 - Unloved Accounts
+function renderRC3(el){
+  const ninetyDaysAgo=new Date(Date.now()-90*24*60*60*1000).toISOString().slice(0,10);
+  const recentAccts=new Set(ORDERS.filter(o=>o.date>=ninetyDaysAgo).map(o=>o.acct));
+  const unloved=ACCOUNTS.filter(a=>!recentAccts.has(a.id));
+  const rows=unloved.map(a=>{
+    const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
+    const lastOrder=ORDERS.filter(o=>o.acct===a.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+    const daysSince=lastOrder?Math.floor((Date.now()-new Date(lastOrder.date))/(1000*60*60*24)):999;
+    return{acct:a.name,rep:rep.fname+' '+rep.lname,lastOrder:lastOrder?.date||'Never',daysSince,phone:a.phone||''};
+  }).sort((a,b)=>b.daysSince-a.daysSince);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC3 — Unloved Accounts</span><span style="font-size:12px;color:var(--red)">${rows.length} accounts with no orders in 90 days</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Sales Rep</th><th>Phone</th><th>Last Order</th><th style="text-align:right">Days Since</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="font-size:12px">${r.phone}</td><td style="font-size:12px;color:${r.lastOrder==='Never'?'var(--red)':'var(--text2)'}">${r.lastOrder}</td><td style="text-align:right;font-weight:600;color:${r.daysSince>180?'var(--red)':r.daysSince>90?'var(--amber)':'var(--text)'}">${r.daysSince===999?'Never':r.daysSince+'d'}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--green)">All accounts have recent activity!</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['acct','rep','phone','lastOrder','daysSince'];
+}
+
+// RC5 - Sales Summary by Month
+function renderRC5(el, orders){
+  const months=[...new Set(orders.map(o=>o.date.slice(0,7)))].sort().slice(-6);
+  const acctMap={};
+  orders.forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const m=o.date.slice(0,7);
+    if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,months:{}};
+    acctMap[o.acct].months[m]=(acctMap[o.acct].months[m]||0)+orderTotal(o);
+  });
+  const rows=Object.values(acctMap).sort((a,b)=>a.acct.localeCompare(b.acct));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC5 — Sales Summary by Month</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+  ${rows.map(r=>{const tot=months.reduce((a,m)=>a+(r.months[m]||0),0);return`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+}
+
+// RC6 - Commissions Calculator
+function renderRC6(el, orders){
+  const reps=USERS.filter(u=>u.role==='rep');
+  const rows=reps.map(r=>{
+    const repOrders=orders.filter(o=>o.rep===r.id);
+    const revenue=repOrders.reduce((s,o)=>s+orderTotal(o),0);
+    const commission=revenue*(r.commission||5)/100;
+    return{rep:r.fname+' '+r.lname,orders:repOrders.length,revenue,rate:r.commission||5,commission};
+  }).sort((a,b)=>b.revenue-a.revenue);
+  const grandRev=rows.reduce((s,r)=>s+r.revenue,0);
+  const grandComm=rows.reduce((s,r)=>s+r.commission,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC6 — Commissions Calculator</span><span style="font-size:12px;color:var(--text2)">Total commissions: ${fmt(grandComm)}</span></div>
+  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right;font-size:12px">${r.orders}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${r.rate}%</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.commission)}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(grandRev)}</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandComm)}</td></tr></tfoot></table></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['rep','orders','revenue','rate','commission'];
+}
+
+// RC7 - Simple Sales Rep Activity
+function renderRC7(el, orders){renderRC2(el,orders);}
+
+// RC9 - Unloved Accounts List
+function renderRC9(el){renderRC3(el);}
+
+// RC10 - Sales by Sales Rep Descending
+function renderRC10(el, orders){
+  const rows=USERS.filter(u=>u.role==='rep').map(u=>{
+    const repOrders=orders.filter(o=>o.rep===u.id);
+    const revenue=repOrders.reduce((s,o)=>s+orderTotal(o),0);
+    return{rep:u.fname+' '+u.lname,orders:repOrders.length,accounts:new Set(repOrders.map(o=>o.acct)).size,revenue};
+  }).sort((a,b)=>b.revenue-a.revenue);
+  const grand=rows.reduce((s,r)=>s+r.revenue,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC10 — Sales by Sales Rep</span><span style="font-size:12px;color:var(--text2)">${fmt(grand)} total</span></div>
+  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Orders</th><th style="text-align:right">Accounts</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right;font-size:12px">${r.orders}</td><td style="text-align:right;font-size:12px">${r.accounts}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${grand>0?(r.revenue/grand*100).toFixed(1):0}%</td></tr>`).join('')}
+  </tbody></table></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['rep','orders','accounts','revenue'];
+}
+
+// RF1 - Aggregate Sales
+function renderRF1(el, orders){renderRC10(el,orders);}
+
+// RH1 - Account Resale
+function renderRH1(el){
+  const rows=ACCOUNTS.filter(a=>!a.lic||a.lic.trim()==='').map(a=>{
+    const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
+    return{acct:a.name,rep:rep.fname+' '+rep.lname,contact:a.contact||'',email:a.email||'',phone:a.phone||''};
+  }).sort((a,b)=>a.acct.localeCompare(b.acct));
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RH1 — Account Resale (Missing ABC#)</span><span style="font-size:12px;color:var(--amber)">${rows.length} accounts missing license/resale #</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Sales Rep</th><th>Contact</th><th>Email</th><th>Phone</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="font-size:12px">${r.contact}</td><td style="font-size:12px;color:var(--text2)">${r.email}</td><td style="font-size:12px">${r.phone}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--green)">All accounts have license numbers!</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['acct','rep','contact','email','phone'];
+}
+
+// RH2 - Account A/R History Detail
+function renderRH2(el){
+  const rows=[];
+  ORDERS.filter(o=>o.status==='delivered').forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,total:orderTotal(o),paid:o.paid?'Paid':'Open',paidDate:o.paidDate||'—'});
+  });
+  rows.sort((a,b)=>b.date.localeCompare(a.date));
+  const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+  const paidTotal=rows.filter(r=>r.paid==='Paid').reduce((s,r)=>s+r.total,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RH2 — Account A/R History Detail</span><span style="font-size:12px;color:var(--text2)">${rows.length} invoices · ${fmt(grandTotal)} total · ${fmt(paidTotal)} paid</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th style="text-align:right">Total</th><th>Status</th><th>Paid Date</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--gold)">${r.invoice}</td><td style="font-size:12px">${r.date}</td><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="text-align:right;font-weight:600">${fmt(r.total)}</td><td><span style="font-size:11px;font-weight:700;color:${r.paid==='Paid'?'var(--green)':'var(--amber)'}">${r.paid}</span></td><td style="font-size:12px;color:var(--text2)">${r.paidDate}</td></tr>`).join('')||'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
+  </tbody></table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['invoice','date','acct','rep','total','paid','paidDate'];
+}
+
+// RI1 - Account Receivables: Paid
+function renderRI1(el){
+  const rows=ORDERS.filter(o=>o.paid).map(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    return{invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,total:orderTotal(o),paidDate:o.paidDate||'—'};
+  }).sort((a,b)=>b.paidDate.localeCompare(a.paidDate));
+  const grand=rows.reduce((s,r)=>s+r.total,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RI1 — Account Receivables: Paid</span><span style="font-size:12px;color:var(--green)">${rows.length} paid invoices · ${fmt(grand)}</span></div>
+  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Invoice</th><th>Invoice Date</th><th>Account</th><th>Rep</th><th style="text-align:right">Total</th><th>Paid Date</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--gold)">${r.invoice}</td><td style="font-size:12px">${r.date}</td><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="text-align:right;font-weight:600">${fmt(r.total)}</td><td style="font-size:12px;color:var(--green)">${r.paidDate}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No paid invoices</td></tr>'}
+  </tbody>${rows.length?`<tfoot><tr><td colspan="4" style="padding:10px 12px;font-weight:700">Total Paid</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td><td></td></tr></tfoot>`:''}</table></div></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['invoice','date','acct','rep','total','paidDate'];
+}
 
 function renderSalesReport(){
   const confirmedOrDelivered=ORDERS.filter(o=>o.status==='delivered');
