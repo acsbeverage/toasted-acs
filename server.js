@@ -224,9 +224,7 @@ app.post('/api/notify/order', async (req, res) => {
 });
 
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+
 app.get('/api/reset-rep-passwords', async (req, res) => {
   if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
   const {query} = require('./db');
@@ -257,6 +255,9 @@ app.get('/api/reset-rep-passwords', async (req, res) => {
     }
   }
   res.json({ok:true, updated});
+});
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
