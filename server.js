@@ -20,6 +20,38 @@ app.get('/health', (req, res) => res.json({
 }));
 
 // One-time seed endpoint
+// Historical order import endpoint
+app.post('/api/import-orders', async (req, res) => {
+  if (req.query.secret !== 'toasted2026') return res.status(403).json({ ok: false });
+  try {
+    const { query } = require('./db');
+    const { orders } = req.body;
+    let imported = 0, skipped = 0;
+    for (const o of orders) {
+      try {
+        // Check if order already exists
+        const exists = await query('SELECT id FROM orders WHERE id=$1', [o.id]);
+        if (exists.rows.length > 0) { skipped++; continue; }
+        await query(`INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,is_sample,paid,paid_date,paid_amount)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [o.id, o.acct, o.rep, o.date||null, o.delivery||null, o.status||'delivered',
+           o.orderType||'standard', o.po||'', o.notes||'', !!o.isSample,
+           !!o.paid, o.paidDate||null, o.paidAmount||0]);
+        for (let i = 0; i < o.items.length; i++) {
+          const item = o.items[i];
+          await query(`INSERT INTO order_items (order_id,sku,cases,bottles,tier,discount_pct,is_fee,sort_order)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [o.id, item.sku, item.cases||0, item.bottles||0, item.tier||'frontline',
+             0, false, i]);
+        }
+        imported++;
+      } catch(e) { skipped++; }
+    }
+    res.json({ ok: true, imported, skipped });
+  } catch(err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/seed-now', async (req, res) => {
   if (req.query.secret !== 'toasted2026') {
     return res.status(403).json({ ok: false, error: 'Forbidden' });
