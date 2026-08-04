@@ -348,6 +348,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div class="nav-sec">Orders</div>
     <div class="nav-item nav-item-neworder" onclick="showPage('neworder')" id="nav-neworder"><i class="ti ti-plus"></i> New Order</div>
     <div class="nav-item" onclick="showPage('drafts')" id="nav-drafts"><i class="ti ti-file-text"></i> Draft Orders <span class="nav-badge" id="drafts-badge" style="display:none">0</span></div>
+    <div class="nav-item" onclick="showPage('tastings')" id="nav-tastings"><i class="ti ti-glass"></i> Tastings <span class="nav-badge" id="tastings-badge" style="display:none">0</span></div>
     <div class="nav-item admin-only hidden" onclick="showPage('unconfirmed')" id="nav-unconfirmed"><i class="ti ti-clock"></i> Unconfirmed <span class="nav-badge" id="unconf-badge">0</span></div>
     <div class="nav-item admin-only hidden" onclick="showPage('deliveries')" id="nav-deliveries"><i class="ti ti-truck-delivery"></i> Deliveries <span class="nav-badge" id="deliv-badge" style="display:none">0</span></div>
     <div class="nav-item" onclick="showPage('history')" id="nav-history"><i class="ti ti-history"></i> Order History</div>
@@ -542,6 +543,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
 let PRODUCTS=[];
 let DRAFT_ORDERS=[];
+let TASTINGS=[];
 // SHARED_DOCS declared at top
 // -- CONFIG & STATIC DATA ------------------------------------------------------
 let COMPANY={name:'ACS Beverage Co. LLC',address:'6680 Alhambra Ave. #505, Martinez, CA 94553',phone:'',email:'accounting@acsbeverage.com',license:'CA-DIS-00421',website:'acsbeverageco.com'};
@@ -569,25 +571,14 @@ let CUSTOMER_USERS=[
 ];
 let currentCustomer=null;
 let currentUser=null,currentOrder={acct:null,items:[],date:'',delivery:'',po:'',notes:'',orderType:'standard'},editingUserId=null,confirmingOrderId=null,editingOrderId=null,orderSeq=87;
+let currentTasting={id:null,acct:null,date:'',notes:'',items:[]};
 
 // -- HELPERS -------------------------------------------------------------------
 const today=()=>new Date().toISOString().split('T')[0];
 const plusDays=(d,n)=>{const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().split('T')[0]};
 const tierName=id=>{const t=TIERS.find(x=>x.id===id);return t?t.name:id};
 const myAccounts=()=>currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id);
-const itemTotalBottles=item=>{const p=PRODUCTS.find(y=>y.sku===item.sku);return(item.cases||0)*((p&&p.btl)||12)+(item.bottles||0);};
-
-// Format order quantity as "Xcs Ybtl" or just "Xcs" or "Ybtl"
-function orderQtyLabel(items){
-  if(!items||!items.length)return'--';
-  const prodItems=items.filter(i=>!i._fee);
-  const cases=prodItems.reduce((s,x)=>s+(x.cases||0),0);
-  const loose=prodItems.reduce((s,x)=>s+(x.bottles||0),0);
-  if(cases>0&&loose>0)return`${cases}cs ${loose}btl`;
-  if(cases>0)return`${cases}cs`;
-  if(loose>0)return`${loose}btl`;
-  return'--';
-}
+const itemTotalBottles=item=>item.cases*((PRODUCTS.find(y=>y.sku===item.sku)||{btl:6}).btl)+item.bottles;
 const itemPrice=(p,tier)=>p.prices[tier]||0;
 const DELIVERY_FEE_SKU='__DELIVERY__';
 const BROKEN_CASE_SKU='__BROKEN_CASE__';
@@ -690,6 +681,7 @@ function updateBadges(){
   const db=document.getElementById('deliv-badge');if(db){const dc=pendingDeliveries().length;db.textContent=dc;db.style.display=dc>0?'inline':'none'}
   const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.date,ACCOUNTS.find(a=>a.id===o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
   const drb=document.getElementById('drafts-badge');if(drb){const mine=currentUser&&currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>currentUser&&d.rep===currentUser.id);const dc=mine.length;drb.textContent=dc;drb.style.display=dc>0?'inline':'none'}
+  const tsb=document.getElementById('tastings-badge');if(tsb){const mine=currentUser&&currentUser.role==='admin'?TASTINGS:TASTINGS.filter(t=>currentUser&&t.rep===currentUser.id);const tc=mine.length;tsb.textContent=tc;tsb.style.display=tc>0?'inline':'none'}
 }
 function toast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800)}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
@@ -732,6 +724,21 @@ function deleteDraftFromDB(draftId){
   }).catch(e=>console.error('Delete draft error:',e.message));
 }
 
+function saveTastingToDB(tasting){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/tastings',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(tasting)
+  }).catch(console.error);
+}
+function deleteTastingFromDB(tastingId){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/tastings/'+tastingId,{
+    method:'DELETE',
+    headers:{'Authorization':'Bearer '+window._authToken}
+  }).catch(console.error);
+}
 function saveProductToDB(sku){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
@@ -786,6 +793,12 @@ async function loadAllDataFromBackend(){
     if(draftsRes.ok&&draftsRes.drafts){
       DRAFT_ORDERS=draftsRes.drafts;
       console.log('Loaded',DRAFT_ORDERS.length,'drafts from database');
+    }
+    // Load tastings
+    const tastingsRes=await fetch(TOASTED_BACKEND_URL+'/api/tastings',{headers}).then(r=>r.json());
+    if(tastingsRes.ok&&tastingsRes.tastings){
+      TASTINGS=tastingsRes.tastings;
+      console.log('Loaded',TASTINGS.length,'tastings from database');
     }
     // Load docs
     const docsRes=await fetch(TOASTED_BACKEND_URL+'/api/docs',{headers}).then(r=>r.json());
@@ -1177,7 +1190,7 @@ function submitPortalOrder(){
   }
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
   const repId=acct.rep||'u1';
-  const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  const id='ORD-'+today().replace(/-/g,'')+'-'+String(orderSeq++).padStart(4,'0');
   ORDERS.push({
     id, acct:currentOrder.acct, rep:repId,
     date:currentOrder.date||today(),
@@ -1373,339 +1386,58 @@ accounting@acsbeverage.com`
 })()
 
 // -- NAV -----------------------------------------------------------------------
-function showPage(page, pushState=true){
+function showPage(page){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
-  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products'};
+  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   document.getElementById('topbar-right').innerHTML='';
-  // Push to browser history so back button works within app
-  if(pushState){
-    history.pushState({page}, '', '#'+page);
-  }
-  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts}[page]||(() => {}))();
+  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts}[page]||(() => {}))();
 }
-
-// Handle browser back/forward buttons
-window.addEventListener('popstate', function(e){
-  if(e.state&&e.state.page){
-    showPage(e.state.page, false);
-  } else {
-    // If no state, go to dashboard
-    showPage('dashboard', false);
-  }
-});
 
 // -- DASHBOARD -----------------------------------------------------------------
 function renderDashboard(){
   const isAdmin=currentUser.role==='admin';
-  if(isAdmin){renderAdminDashboard();return;}
-  renderRepDashboard();
-}
-
-function renderRepDashboard(){
-  const myOrders=ORDERS.filter(o=>o.rep===currentUser.id);
-  const confirmed=myOrders.filter(o=>o.status==='delivered'||o.status==='confirmed');
-  const unconf=ORDERS.filter(o=>o.status==='unconfirmed'&&o.rep===currentUser.id);
+  const myOrders=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
+  const confirmed=myOrders.filter(o=>o.status==='confirmed');
+  const totalRev=confirmed.reduce((s,o)=>s+orderTotal(o),0);
+  const totalBtl=confirmed.reduce((s,o)=>s+o.items.reduce((ss,x)=>ss+itemTotalBottles(x),0),0);
+  const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
+  const low=[...lowStock(),...outOfStock()];
+  const monthlySales={};confirmed.forEach(o=>{const m=parseInt(o.date.split('-')[1])-1;monthlySales[m]=(monthlySales[m]||0)+orderTotal(o)});
   const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const curYear=new Date().getFullYear();
-  const lastYear=curYear-1;
-  const monthlySales={};const monthlyLastYear={};
-  confirmed.forEach(o=>{
-    const yr=parseInt(o.date.split('-')[0]);const m=parseInt(o.date.split('-')[1])-1;
-    if(yr===curYear)monthlySales[m]=(monthlySales[m]||0)+orderTotal(o);
-    else if(yr===lastYear)monthlyLastYear[m]=(monthlyLastYear[m]||0)+orderTotal(o);
-  });
-  const chartData=months.map((m,i)=>({month:m,cur:monthlySales[i]||0,prev:monthlyLastYear[i]||0}));
-  const maxVal=Math.max(...chartData.flatMap(d=>[d.cur,d.prev]),1);
-  const acctsByMonth={};const acctsByMonthLY={};
-  confirmed.forEach(o=>{
-    const yr=parseInt(o.date.split('-')[0]);const m=parseInt(o.date.split('-')[1])-1;
-    if(yr===curYear){if(!acctsByMonth[m])acctsByMonth[m]=new Set();acctsByMonth[m].add(o.acct);}
-    else if(yr===lastYear){if(!acctsByMonthLY[m])acctsByMonthLY[m]=new Set();acctsByMonthLY[m].add(o.acct);}
-  });
-  const acctChartData=months.map((m,i)=>({month:m,cur:(acctsByMonth[i]?.size||0),prev:(acctsByMonthLY[i]?.size||0)}));
-  const maxAcct=Math.max(...acctChartData.flatMap(d=>[d.cur,d.prev]),1);
-  const ytdRev=Object.values(monthlySales).reduce((a,b)=>a+b,0);
-  const ytdRevLY=Object.values(monthlyLastYear).reduce((a,b)=>a+b,0);
-  const ytdAccts=new Set(confirmed.filter(o=>parseInt(o.date.split('-')[0])===curYear).map(o=>o.acct)).size;
-  const ytdAcctsLY=new Set(confirmed.filter(o=>parseInt(o.date.split('-')[0])===lastYear).map(o=>o.acct)).size;
-  const revDiff=ytdRevLY>0?((ytdRev-ytdRevLY)/ytdRevLY*100):0;
-  const acctDiff=ytdAcctsLY>0?((ytdAccts-ytdAcctsLY)/ytdAcctsLY*100):0;
+  const chartData=months.map((m,i)=>({month:m,val:monthlySales[i]||0}));
+  const maxVal=Math.max(...chartData.map(d=>d.val),1);
   const acctMap={};confirmed.forEach(o=>{acctMap[o.acct]=(acctMap[o.acct]||0)+orderTotal(o)});
   const topAccts=Object.entries(acctMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,val])=>({acct:ACCOUNTS.find(a=>a.id===id),val}));
-
-  function barPair(cur,prev,maxV,fmtFn){
-    const hC=maxV>0?Math.round((cur/maxV)*90):0;
-    const hP=maxV>0?Math.round((prev/maxV)*90):0;
-    return '<div style="display:flex;gap:1px;align-items:flex-end">'+
-      '<div style="width:10px;background:'+(cur>0?'var(--gold)':'var(--bg3)')+';height:'+hC+'px;border-radius:2px 2px 0 0;min-height:'+(cur>0?'2px':'0')+'"></div>'+
-      '<div style="width:10px;background:'+(prev>0?'rgba(184,135,44,0.3)':'var(--bg3)')+';height:'+hP+'px;border-radius:2px 2px 0 0;min-height:'+(prev>0?'2px':'0')+'"></div>'+
-      '</div>';
-  }
-
+  const repMap={};(isAdmin?ORDERS.filter(o=>o.status==='confirmed'):confirmed).forEach(o=>{repMap[o.rep]=(repMap[o.rep]||0)+orderTotal(o)});
+  const repLB=Object.entries(repMap).sort((a,b)=>b[1]-a[1]).map(([id,val])=>({rep:USERS.find(u=>u.id===id),val}));
   document.getElementById('main-content').innerHTML=`
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px">
-    <div class="metric"><div class="metric-label">YTD Revenue ${curYear}</div><div class="metric-value gold">${fmt(ytdRev)}</div>
-      <div class="metric-sub" style="color:${revDiff>=0?'var(--green)':'var(--red)'}">${revDiff>=0?'▲':'▼'} ${Math.abs(revDiff).toFixed(1)}% vs ${lastYear}</div></div>
-    <div class="metric"><div class="metric-label">Accounts Sold ${curYear}</div><div class="metric-value">${ytdAccts}</div>
-      <div class="metric-sub" style="color:${acctDiff>=0?'var(--green)':'var(--red)'}">${acctDiff>=0?'▲':'▼'} ${Math.abs(acctDiff).toFixed(1)}% vs ${lastYear}</div></div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+    <div class="metric"><div class="metric-label">Total revenue</div><div class="metric-value gold">${fmt(totalRev)}</div><div class="metric-sub">Confirmed orders</div></div>
     <div class="metric"><div class="metric-label">Orders placed</div><div class="metric-value">${myOrders.length}</div><div class="metric-sub">${confirmed.length} confirmed</div></div>
+    <div class="metric"><div class="metric-label">Bottles sold</div><div class="metric-value">${totalBtl.toLocaleString()}</div><div class="metric-sub">Confirmed orders</div></div>
+    ${isAdmin?`<div class="metric" style="cursor:pointer;border-color:var(--amber-border)" onclick="showPage('unconfirmed')"><div class="metric-label">Pending confirmation</div><div class="metric-value" style="color:var(--amber)">${unconf.length}</div><div class="metric-sub" style="color:var(--gold)">Review </div></div>`:`<div class="metric"><div class="metric-label">My accounts</div><div class="metric-value">${myAccounts().length}</div></div>`}
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-    <div class="card" style="margin:0"><div class="card-header"><span class="card-title">Monthly Sales</span>
-      <div style="display:flex;gap:10px;font-size:11px">
-        <span><span style="display:inline-block;width:8px;height:8px;background:var(--gold);border-radius:2px;margin-right:3px"></span>${curYear}</span>
-        <span><span style="display:inline-block;width:8px;height:8px;background:rgba(184,135,44,0.3);border-radius:2px;margin-right:3px"></span>${lastYear}</span>
-      </div></div>
-      <div class="card-body">
-        <div style="display:flex;align-items:flex-end;gap:5px;height:100px">
-          ${chartData.map(d=>'<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+barPair(d.cur,d.prev,maxVal,fmt)+'<div style="font-size:9px;color:var(--text3)">'+d.month+'</div></div>').join('')}
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-          <span style="font-size:12px;color:var(--text2)">${curYear} YTD <strong style="color:var(--gold)">${fmt(ytdRev)}</strong></span>
-          <span style="font-size:12px;color:var(--text2)">${lastYear} YTD <strong>${fmt(ytdRevLY)}</strong></span>
-        </div>
-      </div>
+    <div class="card" style="margin:0"><div class="card-header"><span class="card-title">Monthly sales -- ${new Date().getFullYear()}</span></div>
+      <div class="card-body"><div style="display:flex;align-items:flex-end;gap:4px;height:130px">${chartData.map(d=>{const h=maxVal>0?Math.round((d.val/maxVal)*110):0;return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px"><div title="${fmt(d.val)}" style="width:100%;background:${h>0?'var(--gold)':'var(--bg3)'};height:${h}px;border-radius:3px 3px 0 0;min-height:${h>0?'3px':'0'}"></div><div style="font-size:9px;color:var(--text3)">${d.month}</div></div>`}).join('')}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)"><span style="font-size:12px;color:var(--text2)">YTD revenue</span><span style="font-size:14px;font-weight:700;color:var(--gold)">${fmt(totalRev)}</span></div></div>
     </div>
-    <div class="card" style="margin:0"><div class="card-header"><span class="card-title">Accounts Sold</span>
-      <div style="display:flex;gap:10px;font-size:11px">
-        <span><span style="display:inline-block;width:8px;height:8px;background:var(--gold);border-radius:2px;margin-right:3px"></span>${curYear}</span>
-        <span><span style="display:inline-block;width:8px;height:8px;background:rgba(184,135,44,0.3);border-radius:2px;margin-right:3px"></span>${lastYear}</span>
-      </div></div>
-      <div class="card-body">
-        <div style="display:flex;align-items:flex-end;gap:5px;height:100px">
-          ${acctChartData.map(d=>'<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+barPair(d.cur,d.prev,maxAcct,v=>v+' accts')+'<div style="font-size:9px;color:var(--text3)">'+d.month+'</div></div>').join('')}
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-          <span style="font-size:12px;color:var(--text2)">${curYear} YTD <strong style="color:var(--gold)">${ytdAccts} accts</strong></span>
-          <span style="font-size:12px;color:var(--text2)">${lastYear} YTD <strong>${ytdAcctsLY} accts</strong></span>
-        </div>
-      </div>
+    <div class="card" style="margin:0"><div class="card-header"><span class="card-title">${isAdmin?'Rep leaderboard':'Top accounts'}</span></div>
+      <table class="tbl">${isAdmin?(repLB.length?repLB.map((r,i)=>`<tr><td style="font-size:12px;color:var(--text3);width:24px;font-weight:700">${i+1}</td><td style="font-weight:500">${r.rep?r.rep.fname+' '+r.rep.lname:'--'}</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.val)}</td></tr>`).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data yet</td></tr>'):(topAccts.length?topAccts.map((r,i)=>`<tr><td style="font-size:12px;color:var(--text3);width:24px;font-weight:700">${i+1}</td><td style="font-weight:500">${r.acct?r.acct.name:'--'}</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.val)}</td></tr>`).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data yet</td></tr>')}</table>
     </div>
   </div>
-  <div class="card"><div class="card-header"><span class="card-title">Top Accounts</span></div>
-    <table class="tbl">${topAccts.length?topAccts.map((r,i)=>`<tr><td style="font-size:12px;color:var(--text3);width:24px;font-weight:700">${i+1}</td><td style="font-weight:500;cursor:pointer" onclick="openAccountDetail('${r.acct?.id}')">${r.acct?r.acct.name:'--'}</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.val)}</td></tr>`).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data yet</td></tr>'}
-    </table>
-  </div>
-  ${unconf.length?`<div class="card" style="margin-top:14px;border-color:var(--amber-border)"><div class="card-header" style="background:var(--amber-bg)"><span class="card-title" style="color:var(--amber)"><i class="ti ti-clock" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>My unconfirmed orders (${unconf.length})</span></div>
-  <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Date</th><th>Total</th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td>${acct?acct.name:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td></tr>`;}).join('')}</tbody></table></div>`:''}`;
-}
-
-function renderAdminDashboard(){
-  // State for chart period selector
-  const period = window._dashPeriod || 'thisYear';
-  const curYear = new Date().getFullYear();
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  // Calculate date range based on period
-  function getPeriodOrders(prd){
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    let from='', to='';
-    if(prd==='thisYear'){from=y+'-01-01';to=y+'-12-31';}
-    else if(prd==='lastYear'){from=(y-1)+'-01-01';to=(y-1)+'-12-31';}
-    else if(prd==='thisMonth'){from=y+'-'+String(m+1).padStart(2,'0')+'-01';to=y+'-'+String(m+1).padStart(2,'0')+'-31';}
-    else if(prd==='lastMonth'){const lm=m===0?12:m;const ly=m===0?y-1:y;from=ly+'-'+String(lm).padStart(2,'0')+'-01';to=ly+'-'+String(lm).padStart(2,'0')+'-31';}
-    else if(prd==='q1'){from=y+'-01-01';to=y+'-03-31';}
-    else if(prd==='q2'){from=y+'-04-01';to=y+'-06-30';}
-    else if(prd==='q3'){from=y+'-07-01';to=y+'-09-30';}
-    else if(prd==='q4'){from=y+'-10-01';to=y+'-12-31';}
-    else if(prd==='h1'){from=y+'-01-01';to=y+'-06-30';}
-    else if(prd==='h2'){from=y+'-07-01';to=y+'-12-31';}
-    return ORDERS.filter(o=>(o.status==='delivered'||o.status==='confirmed')&&(!from||o.date>=from)&&(!to||o.date<=to));
-  }
-
-  const orders = getPeriodOrders(period);
-  const lastYearOrders = getPeriodOrders('lastYear');
-  const unconf = ORDERS.filter(o=>o.status==='unconfirmed');
-  const low = [...lowStock(),...outOfStock()];
-
-  // Monthly chart data - current period vs prior year same months
-  const monthlyCur={};const monthlyPrior={};
-  orders.forEach(o=>{const m=parseInt(o.date.split('-')[1])-1;monthlyCur[m]=(monthlyCur[m]||0)+orderTotal(o);});
-  lastYearOrders.forEach(o=>{const m=parseInt(o.date.split('-')[1])-1;monthlyPrior[m]=(monthlyPrior[m]||0)+orderTotal(o);});
-  const chartData=months.map((m,i)=>({month:m,cur:monthlyCur[i]||0,prior:monthlyPrior[i]||0}));
-  const maxVal=Math.max(...chartData.flatMap(d=>[d.cur,d.prior]),1);
-
-  // KPIs
-  const totalRev=orders.reduce((s,o)=>s+orderTotal(o),0);
-  const priorRev=lastYearOrders.reduce((s,o)=>s+orderTotal(o),0);
-  const revChg=priorRev>0?((totalRev-priorRev)/priorRev*100):0;
-  const totalOrders=orders.length;
-  const activeAccts=new Set(orders.map(o=>o.acct)).size;
-  const openAR=ORDERS.filter(o=>o.status==='delivered'&&!o.paid).reduce((s,o)=>s+orderTotal(o),0);
-  const pastDue=ORDERS.filter(o=>{
-    if(o.status!=='delivered'||o.paid)return false;
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
-    const terms=parseInt((acct.terms||'Net 30').replace(/\D/g,''))||30;
-    const due=new Date(o.delivery||o.date);due.setDate(due.getDate()+terms);
-    return due.toISOString().slice(0,10)<new Date().toISOString().slice(0,10);
-  }).reduce((s,o)=>s+orderTotal(o),0);
-
-  // Rep leaderboard
-  const repMap={};
-  orders.forEach(o=>{repMap[o.rep]=(repMap[o.rep]||0)+orderTotal(o);});
-  const repLB=Object.entries(repMap).sort((a,b)=>b[1]-a[1]).map(([id,val])=>({rep:USERS.find(u=>u.id===id),val}));
-
-  // Top accounts
-  const acctMap={};
-  orders.forEach(o=>{acctMap[o.acct]=(acctMap[o.acct]||0)+orderTotal(o);});
-  const topAccts=Object.entries(acctMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,val])=>({acct:ACCOUNTS.find(a=>a.id===id),val}));
-
-  // Recent orders
-  const recentOrders=ORDERS.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
-
-  const periodLabels={thisYear:'This Year',lastYear:'Last Year',thisMonth:'This Month',lastMonth:'Last Month',q1:'Q1',q2:'Q2',q3:'Q3',q4:'Q4',h1:'H1',h2:'H2'};
-
-  document.getElementById('main-content').innerHTML=`
-
-  <!-- Period Selector -->
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    <span style="font-size:12px;color:var(--text2);font-weight:600">PERIOD:</span>
-    ${['thisYear','lastYear','thisMonth','lastMonth','q1','q2','q3','q4','h1','h2'].map(p=>`
-    <button class="btn btn-sm ${period===p?'btn-dark':''}" onclick="window._dashPeriod='${p}';renderDashboard()" style="font-size:11px;padding:4px 10px">${periodLabels[p]}</button>`).join('')}
-  </div>
-
-  <!-- KPI Cards -->
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
-    <div class="metric" style="cursor:pointer" onclick="showPage('ar')">
-      <div class="metric-label">Revenue</div>
-      <div class="metric-value gold">${fmt(totalRev)}</div>
-      <div class="metric-sub" style="color:${revChg>=0?'var(--green)':'var(--red)'}">${revChg>=0?'▲':'▼'} ${Math.abs(revChg).toFixed(1)}% vs prior yr</div>
-    </div>
-    <div class="metric" style="cursor:pointer" onclick="showPage('unconfirmed')">
-      <div class="metric-label">Pending</div>
-      <div class="metric-value" style="color:var(--amber)">${unconf.length}</div>
-      <div class="metric-sub">Unconfirmed orders</div>
-    </div>
-    <div class="metric">
-      <div class="metric-label">Active Accounts</div>
-      <div class="metric-value">${activeAccts}</div>
-      <div class="metric-sub">${totalOrders} orders</div>
-    </div>
-    <div class="metric" style="cursor:pointer" onclick="showPage('ar')">
-      <div class="metric-label">Open AR</div>
-      <div class="metric-value" style="color:var(--amber)">${fmt(openAR)}</div>
-      <div class="metric-sub">Unpaid invoices</div>
-    </div>
-    <div class="metric" style="cursor:pointer" onclick="showPage('ar')">
-      <div class="metric-label">Past Due</div>
-      <div class="metric-value" style="color:var(--red)">${fmt(pastDue)}</div>
-      <div class="metric-sub">Overdue invoices</div>
-    </div>
-  </div>
-
-  <!-- Main chart + Rep leaderboard -->
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
-
-    <!-- Sales Chart -->
-    <div class="card" style="margin:0">
-      <div class="card-header">
-        <span class="card-title">Sales — ${periodLabels[period]}</span>
-        <div style="display:flex;gap:10px;font-size:11px;color:var(--text2)">
-          <span><span style="display:inline-block;width:8px;height:8px;background:var(--gold);border-radius:2px;margin-right:3px"></span>${periodLabels[period]}</span>
-          <span><span style="display:inline-block;width:8px;height:8px;background:rgba(184,135,44,0.3);border-radius:2px;margin-right:3px"></span>Prior Year</span>
-        </div>
-      </div>
-      <div class="card-body">
-        <div style="display:flex;align-items:flex-end;gap:5px;height:130px;padding-bottom:4px">
-          ${chartData.map(d=>{
-            const hC=maxVal>0?Math.round((d.cur/maxVal)*115):0;
-            const hP=maxVal>0?Math.round((d.prior/maxVal)*115):0;
-            return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+
-              '<div style="display:flex;gap:1px;align-items:flex-end">'+
-              '<div title="'+d.month+' current: '+fmt(d.cur)+'" style="width:12px;background:'+(d.cur>0?'var(--gold)':'var(--bg3)')+';height:'+hC+'px;border-radius:2px 2px 0 0;min-height:'+(d.cur>0?'2px':'0')+'"></div>'+
-              '<div title="'+d.month+' prior: '+fmt(d.prior)+'" style="width:12px;background:'+(d.prior>0?'rgba(184,135,44,0.3)':'var(--bg3)')+';height:'+hP+'px;border-radius:2px 2px 0 0;min-height:'+(d.prior>0?'2px':'0')+'"></div>'+
-              '</div>'+
-              '<div style="font-size:9px;color:var(--text3)">'+d.month+'</div></div>';
-          }).join('')}
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-          <span style="font-size:12px;color:var(--text2)">Period Total <strong style="color:var(--gold)">${fmt(totalRev)}</strong></span>
-          <span style="font-size:12px;color:var(--text2)">Prior Year <strong>${fmt(priorRev)}</strong></span>
-          <span style="font-size:12px;color:${revChg>=0?'var(--green)':'var(--red)'}"><strong>${revChg>=0?'▲':'▼'} ${Math.abs(revChg).toFixed(1)}%</strong></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Rep Leaderboard -->
-    <div class="card" style="margin:0">
-      <div class="card-header"><span class="card-title">Rep Leaderboard</span><span style="font-size:11px;color:var(--text2)">${periodLabels[period]}</span></div>
-      <table class="tbl">
-        ${repLB.length?repLB.map((r,i)=>`<tr>
-          <td style="width:22px;font-size:12px;color:var(--text3);font-weight:700">${i+1}</td>
-          <td style="font-weight:500;font-size:13px">${r.rep?r.rep.fname+' '+(r.rep.lname||''):'--'}</td>
-          <td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.val)}</td>
-        </tr>`).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}
-      </table>
-    </div>
-  </div>
-
-  <!-- Bottom row: Top accounts + Recent orders + Alerts -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
-
-    <!-- Top Accounts -->
-    <div class="card" style="margin:0">
-      <div class="card-header"><span class="card-title">Top Accounts</span><span style="font-size:11px;color:var(--text2)">${periodLabels[period]}</span></div>
-      <table class="tbl">
-        ${topAccts.length?topAccts.map((r,i)=>`<tr>
-          <td style="width:22px;font-size:12px;color:var(--text3);font-weight:700">${i+1}</td>
-          <td style="font-weight:500;font-size:12px;cursor:pointer" onclick="openAccountDetail('${r.acct?.id||''}')">${r.acct?r.acct.name:'--'}</td>
-          <td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.val)}</td>
-        </tr>`).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data</td></tr>'}
-      </table>
-    </div>
-
-    <!-- Recent Orders -->
-    <div class="card" style="margin:0">
-      <div class="card-header"><span class="card-title">Recent Orders</span><button class="btn btn-sm" onclick="showPage('history')">View all</button></div>
-      <table class="tbl">
-        ${recentOrders.map(o=>{
-          const acct=ACCOUNTS.find(a=>a.id===o.acct);
-          const rep=USERS.find(u=>u.id===o.rep);
-          return `<tr style="cursor:pointer" onclick="viewInvoice('${o.id}')">
-            <td style="font-size:11px;color:var(--gold);font-weight:600">${o.id}</td>
-            <td style="font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${acct?acct.name:'--'}</td>
-            <td style="font-size:11px;color:var(--text2)">${rep?rep.fname:'--'}</td>
-            <td style="text-align:right;font-size:11px;font-weight:600">${fmt(orderTotal(o))}</td>
-            <td>${statusBadge(o.status)}</td>
-          </tr>`;
-        }).join('')}
-      </table>
-    </div>
-
-    <!-- Alerts -->
-    <div class="card" style="margin:0">
-      <div class="card-header"><span class="card-title">Alerts</span></div>
-      <div style="padding:8px 0">
-        ${unconf.length?`<div style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="showPage('unconfirmed')">
-          <div><i class="ti ti-clock" style="color:var(--amber);margin-right:6px;vertical-align:-2px"></i><span style="font-size:13px">Unconfirmed Orders</span></div>
-          <span style="font-weight:700;color:var(--amber)">${unconf.length}</span>
-        </div>`:''}
-        ${low.length?`<div style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="showPage('inventory')">
-          <div><i class="ti ti-alert-triangle" style="color:var(--red);margin-right:6px;vertical-align:-2px"></i><span style="font-size:13px">Low Stock Products</span></div>
-          <span style="font-weight:700;color:var(--red)">${low.length}</span>
-        </div>`:''}
-        ${pastDue>0?`<div style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="showPage('ar')">
-          <div><i class="ti ti-alert-circle" style="color:var(--red);margin-right:6px;vertical-align:-2px"></i><span style="font-size:13px">Past Due AR</span></div>
-          <span style="font-weight:700;color:var(--red)">${fmt(pastDue)}</span>
-        </div>`:''}
-        ${openAR>0?`<div style="padding:10px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="showPage('ar')">
-          <div><i class="ti ti-cash" style="color:var(--amber);margin-right:6px;vertical-align:-2px"></i><span style="font-size:13px">Open AR</span></div>
-          <span style="font-weight:700;color:var(--amber)">${fmt(openAR)}</span>
-        </div>`:''}
-        ${!unconf.length&&!low.length&&!pastDue?'<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">All clear ✓</div>':''}
-      </div>
-    </div>
-  </div>`;
+  ${isAdmin&&low.length?`<div class="card" style="margin-bottom:16px;border-color:var(--red-border)"><div class="card-header" style="background:var(--red-bg)"><span class="card-title" style="color:var(--red)"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>${low.length} product${low.length!==1?'s':''} at or below reorder point</span><button class="btn btn-sm" onclick="showPage('inventory')">View </button></div>
+  <table class="tbl"><thead><tr><th>Product</th><th>SKU</th><th>In stock</th><th>Reorder point</th><th>Status</th></tr></thead><tbody>${low.slice(0,4).map(p=>`<tr><td style="font-weight:500">${p.name}</td><td style="font-size:12px;color:var(--text2)">${p.sku}</td><td>${p.stock}</td><td>${p.reorder}</td><td>${stockBadge(p)}</td></tr>`).join('')}</tbody></table></div>`:''}
+  ${isAdmin&&unconf.length?`<div class="card" style="margin:0;border-color:var(--amber-border)"><div class="card-header" style="background:var(--amber-bg)"><span class="card-title" style="color:var(--amber)"><i class="ti ti-clock" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Awaiting confirmation (${unconf.length})</span><button class="btn btn-sm btn-dark" onclick="showPage('unconfirmed')">Review all </button></div>
+  <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Rep</th><th>Date</th><th>Total</th><th></th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td style="cursor:pointer" onclick="viewInvoice('${o.id}')">${acct?acct.name:'--'}</td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button></td></tr>`}).join('')}</tbody></table></div>`:''}`;
 }
 
 // -- NEW ORDER -----------------------------------------------------------------
 function renderNewOrder(){
   currentOrder={acct:null,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
-  const orderId='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  const orderId='ORD-2024-'+String(orderSeq).padStart(4,'0');
   document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">${orderId}</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
@@ -2034,7 +1766,7 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
     accountName:  acct.name||'--',
     placedBy:     placedByLabel,
     repName:      (rep.fname||'')+' '+(rep.lname||''),
-    repEmail:     placedByEmail||'',
+    repEmail:     rep.email||'',
     orderDate:    o.date,
     deliveryDate: o.delivery,
     orderType:    (o.orderType||'standard').charAt(0).toUpperCase()+(o.orderType||'standard').slice(1),
@@ -2065,9 +1797,8 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
   } else {
     // Fallback: mailto: — opens email client pre-filled
     const to = [...NOTIFY_ALWAYS];
-    // Only notify the person who PLACED the order (not the account's assigned rep)
-    if(placedByEmail && !to.map(e=>e.toLowerCase()).includes(placedByEmail.toLowerCase())){
-      to.push(placedByEmail);
+    if(rep.email && !to.map(e=>e.toLowerCase()).includes(rep.email.toLowerCase())){
+      to.push(rep.email);
     }
     const subject = encodeURIComponent('New Order Has Been Placed - '+(acct.name||'Unknown Account'));
     const bodyText = [
@@ -2119,7 +1850,7 @@ function submitOrder(){
   }
 
   const isSample=currentOrder.orderType==='sample';
-  const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  const id='ORD-2024-'+String(orderSeq++).padStart(4,'0');
   const newOrder={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
   ORDERS.push(newOrder);
   saveNewOrderToDB({...newOrder,placedByLabel:currentUser.fname+' '+(currentUser.lname||'')});
@@ -2155,7 +1886,7 @@ function renderDraftOrders(){
   const mine=currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>d.rep===currentUser.id);
   document.getElementById('main-content').innerHTML=`<div class="card">
     <div class="card-header"><span class="card-title">${mine.length} draft order${mine.length!==1?'s':''}</span></div>
-    ${mine.length?`<table class="tbl"><thead><tr><th>Saved</th><th>Account</th><th>Rep</th><th>Delivery</th><th>Items</th><th>Qty</th><th>Notes</th><th></th></tr></thead>
+    ${mine.length?`<table class="tbl"><thead><tr><th>Saved</th><th>Account</th><th>Rep</th><th>Delivery</th><th>Items</th><th>Bottles</th><th>Notes</th><th></th></tr></thead>
     <tbody>${mine.map(d=>{
       const acct=ACCOUNTS.find(a=>a.id===d.acct);const rep=USERS.find(u=>u.id===d.rep);
       const btl=d.items.reduce((s,x)=>s+(x._fee?0:itemTotalBottles(x)),0);
@@ -2166,13 +1897,207 @@ function renderDraftOrders(){
   </div>`;
 }
 
+// -- TASTINGS --------------------------------------------------------------------
+function renderTastings(){
+  const mine=currentUser.role==='admin'?TASTINGS:TASTINGS.filter(t=>t.rep===currentUser.id);
+  const sorted=[...mine].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  document.getElementById('main-content').innerHTML=`<div class="card">
+    <div class="card-header"><span class="card-title">${mine.length} tasting${mine.length!==1?'s':''}</span><button class="btn btn-sm btn-dark" onclick="openNewTasting()"><i class="ti ti-plus"></i> New Tasting</button></div>
+    ${sorted.length?`<table class="tbl"><thead><tr><th>Date</th><th>Account</th><th>Rep</th><th>Products</th><th>Notes</th><th></th></tr></thead>
+    <tbody>${sorted.map(t=>{
+      const acct=ACCOUNTS.find(a=>a.id===t.acct);const rep=USERS.find(u=>u.id===t.rep);
+      return`<tr><td style="color:var(--text2)">${t.date||'--'}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${t.items.length} product${t.items.length!==1?'s':''}</td><td style="font-size:12px;color:var(--text2);max-width:220px">${t.notes||'--'}</td>
+      <td style="display:flex;gap:6px"><button class="btn btn-sm btn-dark" onclick="openEditTasting('${t.id}')"><i class="ti ti-pencil"></i> Edit</button><button class="btn btn-sm btn-pdf" onclick="exportTastingPDF('${t.id}')"><i class="ti ti-file-download"></i> PDF</button><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteTasting('${t.id}')"><i class="ti ti-trash"></i></button></td></tr>`;
+    }).join('')}</tbody></table>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-glass" style="font-size:32px;display:block;margin-bottom:10px"></i>No tastings yet -- start one to build a pricing sheet for an account visit</div>`}
+  </div>`;
+}
+
+function openNewTasting(){
+  currentTasting={id:null,acct:null,date:today(),notes:'',items:[]};
+  showPage('newtasting');
+}
+function openEditTasting(id){
+  const t=TASTINGS.find(x=>x.id===id);if(!t)return;
+  currentTasting={id:t.id,acct:t.acct,date:t.date||today(),notes:t.notes||'',items:t.items.map(x=>({...x}))};
+  showPage('newtasting');
+}
+
+function renderNewTasting(){
+  document.getElementById('main-content').innerHTML=`
+  <div class="card"><div class="card-header"><span class="card-title">Tasting details</span></div><div class="card-body">
+    <div class="form-grid form-grid-4" style="gap:12px">
+      <div><label class="flabel">Account</label><select class="finput" id="ts-acct" onchange="currentTasting.acct=this.value">
+        <option value="">-- Select account --</option>${myAccounts().map(a=>`<option value="${a.id}" ${currentTasting.acct===a.id?'selected':''}>${a.name}</option>`).join('')}
+      </select></div>
+      <div><label class="flabel">Tasting date</label><input type="date" class="finput" id="ts-date" value="${currentTasting.date||today()}" onchange="currentTasting.date=this.value"/></div>
+      <div style="grid-column:span 2"><label class="flabel">Notes (optional)</label><input type="text" class="finput" id="ts-notes" placeholder="e.g. by-the-glass focus, new spring releases..." value="${(currentTasting.notes||'').replace(/"/g,'&quot;')}" onchange="currentTasting.notes=this.value"/></div>
+    </div>
+  </div></div>
+  <div class="card"><div class="card-header"><span class="card-title">Products being tasted</span><span id="ts-item-count" style="font-size:12px;color:var(--text2)">${currentTasting.items.length} product${currentTasting.items.length!==1?'s':''}</span></div>
+    <div style="padding:12px 18px;border-bottom:1px solid var(--border)">
+      <div class="search-wrap" style="max-width:500px"><i class="ti ti-search si"></i><input class="search-input" id="ts-prod-search" placeholder="Search by product name or SKU..." oninput="onTastingProdSearch(this.value)" onblur="setTimeout(closeTastingProdDD,200)"/><div class="dropdown-box" id="ts-prod-dd"></div></div>
+    </div>
+    <div id="ts-items-wrap"></div>
+  </div>
+  <div class="card"><div class="card-body" style="display:flex;justify-content:flex-end;gap:8px">
+    <button class="btn" onclick="showPage('tastings')">Cancel</button>
+    <button class="btn btn-pdf" onclick="saveTasting(true)"><i class="ti ti-file-download"></i> Save & Export PDF</button>
+    <button class="btn btn-dark" onclick="saveTasting(false)"><i class="ti ti-device-floppy"></i> Save tasting</button>
+  </div></div>`;
+  renderTastingItems();
+}
+
+function onTastingProdSearch(val){
+  const dd=document.getElementById('ts-prod-dd');
+  if(!val.trim()){dd.classList.remove('open');return}
+  const q=val.toLowerCase();
+  const matches=PRODUCTS.filter(p=>p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q)).slice(0,10);
+  if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
+  dd.innerHTML=matches.map(p=>`
+    <div class="dd-item" onmousedown="addTastingItem('${p.sku.replace(/'/g,"\\'")}')">
+      <div>
+        <div class="dd-name">${p.name}</div>
+        <div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div>
+        <div style="margin-top:2px">${stockChip(p)}</div>
+      </div>
+    </div>`).join('');
+  dd.classList.add('open');
+}
+function closeTastingProdDD(){const dd=document.getElementById('ts-prod-dd');if(dd)dd.classList.remove('open');const s=document.getElementById('ts-prod-search');if(s)s.value=''}
+function addTastingItem(sku){
+  if(currentTasting.items.find(x=>x.sku===sku)){toast('Already added');closeTastingProdDD();return}
+  currentTasting.items.push({sku,tier:'frontline'});
+  closeTastingProdDD();renderTastingItems();
+}
+function removeTastingItem(idx){currentTasting.items.splice(idx,1);renderTastingItems()}
+function updateTastingTier(idx,tier){currentTasting.items[idx].tier=tier;renderTastingItems()}
+
+function renderTastingItems(){
+  const wrap=document.getElementById('ts-items-wrap');if(!wrap)return;
+  const cnt=document.getElementById('ts-item-count');if(cnt)cnt.textContent=currentTasting.items.length+' product'+(currentTasting.items.length!==1?'s':'');
+  if(!currentTasting.items.length){
+    wrap.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-glass" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products to this tasting</div>`;
+    return;
+  }
+  wrap.innerHTML=`<table class="tbl"><thead><tr><th>Product</th><th>Category</th><th>Pack</th><th>Pricing tier</th><th style="text-align:right">Price /btl</th><th style="text-align:right">Price /case</th><th></th></tr></thead><tbody>
+    ${currentTasting.items.map((item,idx)=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+      const price=itemPrice(p,item.tier);
+      return`<tr><td><div style="font-weight:500">${p.name}</div><div style="font-size:11px;color:var(--text2)">${p.sku} · ${p.producer}</div></td>
+      <td>${catBadge(p.cat)}</td>
+      <td style="color:var(--text2)">${p.btl}pk</td>
+      <td><select class="finput" style="padding:5px 8px;font-size:12px" onchange="updateTastingTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td>
+      <td style="text-align:right;font-weight:600">${fmt(price)}</td>
+      <td style="text-align:right;font-weight:600">${fmt(price*p.btl)}</td>
+      <td><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="removeTastingItem(${idx})"><i class="ti ti-x"></i></button></td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+function saveTasting(thenExport){
+  if(!currentTasting.acct){toast('Select an account first');return}
+  if(!currentTasting.items.length){toast('Add at least one product');return}
+  const id=currentTasting.id||('t'+Date.now());
+  currentTasting.id=id;
+  const rec={id,acct:currentTasting.acct,rep:currentUser.id,date:currentTasting.date||today(),notes:currentTasting.notes||'',items:currentTasting.items.map(x=>({...x})),createdAt:today()};
+  const idx=TASTINGS.findIndex(t=>t.id===id);
+  if(idx>=0)TASTINGS[idx]=rec;else TASTINGS.push(rec);
+  saveTastingToDB(rec);
+  updateBadges();
+  toast('Tasting saved');
+  if(thenExport){exportTastingPDF(id);}
+  else showPage('tastings');
+}
+
+function deleteTasting(id){
+  if(!confirm('Delete this tasting?'))return;
+  TASTINGS=TASTINGS.filter(t=>t.id!==id);
+  deleteTastingFromDB(id);
+  updateBadges();
+  toast('Tasting deleted');
+  renderTastings();
+}
+
+function exportTastingPDF(id){
+  const t=TASTINGS.find(x=>x.id===id);if(!t){toast('Save the tasting first');return}
+  const acct=ACCOUNTS.find(a=>a.id===t.acct);
+  const rep=USERS.find(u=>u.id===t.rep);
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'pt',format:'letter'});
+  const W=612,M=40;let y=M;
+
+  doc.setFillColor(26,30,46);doc.rect(0,0,W,58,'F');
+  doc.setFontSize(15);doc.setFont('helvetica','bold');doc.setTextColor(232,201,122);
+  doc.text('TASTING SHEET',M,26);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(200,200,200);
+  doc.text(COMPANY.name,M,42);
+  doc.setFontSize(8);doc.setTextColor(160,160,160);
+  doc.text('Generated '+today(),W-M,42,{align:'right'});
+  y=80;
+
+  doc.setFontSize(12);doc.setFont('helvetica','bold');doc.setTextColor(26,30,46);
+  doc.text(acct?acct.name:'--',M,y);
+  y+=15;
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(90,90,90);
+  if(acct&&acct.address){doc.text(acct.address,M,y);y+=13;}
+  doc.text('Tasting date: '+(t.date||'--')+'   ·   Rep: '+(rep?rep.fname+' '+rep.lname:'--'),M,y);
+  y+=13;
+  if(t.notes){doc.setFont('helvetica','italic');doc.text('Notes: '+t.notes,M,y);y+=13;doc.setFont('helvetica','normal');}
+  y+=10;
+
+  const drawHeader=()=>{
+    doc.setFillColor(240,238,233);doc.rect(M,y-11,W-M*2,17,'F');
+    doc.setFontSize(8.5);doc.setFont('helvetica','bold');doc.setTextColor(70,70,70);
+    doc.text('PRODUCT',M+4,y);
+    doc.text('CATEGORY',M+250,y);
+    doc.text('PACK',M+340,y);
+    doc.text('PRICE / BTL',W-M-100,y,{align:'right'});
+    doc.text('PRICE / CASE',W-M-4,y,{align:'right'});
+    y+=16;
+  };
+  drawHeader();
+
+  doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);
+  t.items.forEach(item=>{
+    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+    if(y>720){doc.addPage();y=M;drawHeader();}
+    const price=itemPrice(p,item.tier);
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
+    const nm=p.name.length>42?p.name.substring(0,40)+'...':p.name;
+    doc.text(nm,M+4,y);
+    doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(130,130,130);
+    doc.text(p.sku+' · '+p.producer,M+4,y+10);
+    doc.setFontSize(8.5);doc.setTextColor(60,60,60);
+    doc.text(p.cat,M+250,y);
+    doc.text(p.btl+'pk',M+340,y);
+    doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
+    doc.text(fmt(price),W-M-100,y,{align:'right'});
+    doc.text(fmt(price*p.btl),W-M-4,y,{align:'right'});
+    doc.setDrawColor(225,222,214);doc.line(M,y+16,W-M,y+16);
+    y+=26;
+  });
+
+  const pc=doc.getNumberOfPages();
+  for(let i=1;i<=pc;i++){
+    doc.setPage(i);doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(150,150,150);
+    doc.text(COMPANY.name+' · '+(COMPANY.website||''),M,785);
+    doc.text('Page '+i+' of '+pc,W-M,785,{align:'right'});
+  }
+  doc.save('Tasting-'+(acct?acct.name.replace(/[^a-z0-9]+/gi,'-'):id)+'-'+(t.date||today())+'.pdf');
+  toast('Tasting PDF exported');
+}
+
 // -- UNCONFIRMED ----------------------------------------------------------------
 function renderUnconfirmed(){
   const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
   document.getElementById('main-content').innerHTML=`<div class="card">
     <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
-    ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
-    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
+    ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Bottles</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
+      return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
       <td style="display:flex;gap:6px"><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
     </tbody></table>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
@@ -2271,7 +2196,7 @@ function renderHistory(){
     ${isAdmin?`<select class="finput" id="hist-rep" onchange="filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
   </div>
   <div class="card"><div class="card-header"><span class="card-title" id="hist-count">${mine.length} orders</span></div>
-  <table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
+  <table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Bottles</th><th>Total</th><th>Status</th><th></th></tr></thead>
   <tbody id="hist-body"></tbody></table></div>`;
   window._histOrders=mine;filterHistory();
 }
@@ -2284,7 +2209,7 @@ function filterHistory(){
     const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
-    return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
+    return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       ${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
@@ -3489,12 +3414,11 @@ function _buildInvoicePDF(o,callback){
 
   // Left: summary
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  doc.text('Full Cases: '+Math.floor(totalCases)+'cs',ML,y);
-  if(totalCases%1>0) doc.text('Loose Bottles: '+Math.round(totalCases%1*12)+' btl',ML,y+11);
+  doc.text('Total cases: '+Math.floor(totalCases)+(totalCases%1>0?' + '+Math.round(totalCases%1*12)+' loose':''),ML,y);
+  doc.text('Total bottles: '+totalBtl,ML,y+11);
   if(o.notes){
-    const notesY=totalCases%1>0?y+22:y+11;
     doc.setFontSize(7.5);
-    doc.text('Notes: '+o.notes,ML,notesY,{maxWidth:CW*0.5});
+    doc.text('Notes: '+o.notes,ML,y+22,{maxWidth:CW*0.5});
   }
 
   // Right: totals box - lines only, no fill
@@ -3566,7 +3490,7 @@ function renderDeliveries(){
         <th style="color:#B03A2E">Delivery Date</th>
         <th>Order Date</th>
         <th>Sales Rep</th>
-        <th>Qty</th>
+        <th>Bottles</th>
         <th>Total</th>
         <th>Notes</th>
         <th>Actions</th>
@@ -4718,141 +4642,63 @@ function renderRA2(el, orders, producerFilter){
 
 // RA5 - Depletion by Producer
 function renderRA5(el, orders, producerFilter){
-  // Build detailed line items
-  const rows=[];
+  const prodMap={};
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
     o.items.filter(i=>!i._fee).forEach(item=>{
       const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
-      const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
-      rows.push({
-        wineName:p.name,
-        wineCode:item.sku,
-        producer:p.producer||'',
-        account:acct.name||'',
-        salesRep:rep.fname+' '+(rep.lname||''),
-        date:o.date,
-        quantity:qty,
-        invoice:o.id,
-        poNumber:o.po||'',
-        warehouse:'ACS Warehouse',
-        warehouseCode:acct.warehouseCode||'',
-        sampleOrder:o.isSample?'Yes':'',
-        abcNumber:acct.lic||acct.abcNum||'',
-        shipStreet:acct.shipStreet||'',
-        shipCity:acct.shipCity||'',
-        shipState:acct.shipState||'',
-        shipZip:acct.shipZip||'',
-        bottleSize:p._details?.bottleSize||'',
-        packSize:p.btl||'',
-        accountId:acct.id||'',
-      });
+      if(!prodMap[p.producer])prodMap[p.producer]={producer:p.producer,cases:0,bottles:0,revenue:0,skus:{}};
+      const btl=itemTotalBottles(item);
+      const total=itemLineTotal(item);
+      prodMap[p.producer].cases+=item.cases;
+      prodMap[p.producer].bottles+=btl;
+      prodMap[p.producer].revenue+=total;
+      if(!prodMap[p.producer].skus[item.sku])prodMap[p.producer].skus[item.sku]={name:p.name,cases:0,bottles:0,revenue:0};
+      prodMap[p.producer].skus[item.sku].cases+=item.cases;
+      prodMap[p.producer].skus[item.sku].bottles+=btl;
+      prodMap[p.producer].skus[item.sku].revenue+=total;
     });
   });
-
-  // Summary by producer for display
-  const prodMap={};
-  rows.forEach(r=>{
-    if(!prodMap[r.producer])prodMap[r.producer]={producer:r.producer,lines:0,cases:0,revenue:0};
-    prodMap[r.producer].lines++;
-    prodMap[r.producer].cases+=r.quantity;
-  });
-  const summary=Object.values(prodMap).sort((a,b)=>b.cases-a.cases);
-  const totalCases=rows.reduce((s,r)=>s+r.quantity,0);
-
+  const rows=Object.values(prodMap).sort((a,b)=>b.revenue-a.revenue);
+  const grandRev=rows.reduce((s,r)=>s+r.revenue,0);
+  const grandCases=rows.reduce((s,r)=>s+r.cases,0);
   el.innerHTML+=`
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="display:flex;gap:12px">
-      <div class="card" style="padding:12px 20px;text-align:center">
-        <div style="font-size:20px;font-weight:700;color:var(--gold)">${rows.length}</div>
-        <div style="font-size:11px;color:var(--text2)">Line Items</div>
-      </div>
-      <div class="card" style="padding:12px 20px;text-align:center">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${totalCases.toFixed(2)}</div>
-        <div style="font-size:11px;color:var(--text2)">Total Cases</div>
-      </div>
-      <div class="card" style="padding:12px 20px;text-align:center">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${summary.length}</div>
-        <div style="font-size:11px;color:var(--text2)">Producers</div>
-      </div>
-    </div>
-    <button class="btn btn-sm btn-dark" onclick="exportRA5CSV()"><i class="ti ti-download"></i> Export CSV</button>
-  </div>
-
-  <!-- Summary by producer -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-header"><span class="card-title">Summary by Producer</span></div>
-    <table class="tbl">
-      <thead><tr><th>Producer</th><th style="text-align:right">Line Items</th><th style="text-align:right">Total Cases</th><th style="text-align:right">% of Total</th></tr></thead>
-      <tbody>
-      ${summary.map(s=>`<tr>
-        <td style="font-weight:600">${s.producer||'Unknown'}</td>
-        <td style="text-align:right;font-size:12px">${s.lines}</td>
-        <td style="text-align:right;font-weight:600">${s.cases.toFixed(2)}</td>
-        <td style="text-align:right;font-size:12px;color:var(--text2)">${totalCases>0?(s.cases/totalCases*100).toFixed(1):0}%</td>
-      </tr>`).join('')}
-      </tbody>
-      <tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${totalCases.toFixed(2)}</td><td></td></tr></tfoot>
-    </table>
-  </div>
-
-  <!-- Detailed line items -->
   <div class="card">
-    <div class="card-header"><span class="card-title">Line Item Detail</span><span style="font-size:12px;color:var(--text2)">${rows.length} rows</span></div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+    <div class="card-header">
+      <span class="card-title">RA5 — Depletion by Producer</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} producers · ${grandCases} cases · ${fmt(grandRev)}</span>
+    </div>
+    <div style="overflow-x:auto">
       <table class="tbl">
-        <thead><tr>
-          <th>Wine Name</th><th>Wine Code</th><th>Producer</th>
-          <th>Account</th><th>Sales Rep</th><th>Date</th>
-          <th style="text-align:right">Quantity (cs)</th>
-          <th>Invoice #</th><th>PO #</th><th>Sample?</th>
-          <th>ABC #</th><th>City</th><th>State</th>
-          <th style="text-align:right">Bottle Size</th><th style="text-align:right">Pack</th>
-        </tr></thead>
+        <thead><tr><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead>
         <tbody>
-        ${rows.map(r=>`<tr>
-          <td style="font-weight:600;font-size:12px;min-width:200px">${r.wineName}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.wineCode}</td>
-          <td style="font-size:12px;color:var(--text2)">${r.producer}</td>
-          <td style="font-size:12px">${r.account}</td>
-          <td style="font-size:12px;color:var(--text2)">${r.salesRep}</td>
-          <td style="font-size:12px">${r.date}</td>
-          <td style="text-align:right;font-weight:600">${r.quantity.toFixed(4)}</td>
-          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.poNumber}</td>
-          <td style="font-size:12px;color:${r.sampleOrder?'var(--amber)':'var(--text3)'}">${r.sampleOrder||'--'}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.abcNumber}</td>
-          <td style="font-size:12px">${r.shipCity}</td>
-          <td style="font-size:12px">${r.shipState}</td>
-          <td style="text-align:right;font-size:12px">${r.bottleSize}</td>
-          <td style="text-align:right;font-size:12px">${r.packSize}</td>
-        </tr>`).join('')||'<tr><td colspan="15" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>'}
+        ${rows.length?rows.map(r=>`
+          <tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+            <td style="font-weight:600">${r.producer} <i class="ti ti-chevron-down" style="font-size:11px;color:var(--text3)"></i></td>
+            <td style="text-align:right">${r.cases}</td>
+            <td style="text-align:right;color:var(--text2)">${r.bottles}</td>
+            <td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td>
+            <td style="text-align:right;color:var(--text2)">${grandRev>0?(r.revenue/grandRev*100).toFixed(1):0}%</td>
+          </tr>
+          <tr style="display:none;background:var(--bg2)">
+            <td colspan="5" style="padding:0 24px 12px">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                ${Object.values(r.skus).sort((a,b)=>b.revenue-a.revenue).map(s=>`<tr>
+                  <td style="padding:4px 0;color:var(--text2)">${s.name}</td>
+                  <td style="text-align:right;padding:4px 0">${s.cases}cs</td>
+                  <td style="text-align:right;padding:4px 0;color:var(--text2)">${s.bottles}btl</td>
+                  <td style="text-align:right;padding:4px 0;font-weight:600">${fmt(s.revenue)}</td>
+                </tr>`).join('')}
+              </table>
+            </td>
+          </tr>`).join(''):`<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>`}
         </tbody>
+        ${rows.length?`<tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700">${grandCases}</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandRev)}</td><td></td></tr></tfoot>`:''}
       </table>
     </div>
   </div>`;
-
-  window._ra5Rows=rows;
-  window._lastReportRows=summary;
-  window._lastReportCols=['producer','lines','cases'];
-}
-
-function exportRA5CSV(){
-  const rows=window._ra5Rows||[];
-  if(!rows.length){toast('No data to export');return;}
-  const from=window._rptFrom||'';const to=window._rptTo||'';
-  const cols=['Wine Name','Wine Code','Producer','Account','Account ID','Sales Rep','Date','Quantity','Invoice Number','PO Number','Warehouse','Warehouse Code','Sample Order','ABC Number','Shipping Street','Shipping City','Shipping State','Shipping Zip Code','Bottle Size','Pack Size'];
-  const data=rows.map(r=>[r.wineName,r.wineCode,r.producer,r.account,r.accountId,r.salesRep,r.date,r.quantity.toFixed(4),r.invoice,r.poNumber,r.warehouse,r.warehouseCode,r.sampleOrder,r.abcNumber,r.shipStreet,r.shipCity,r.shipState,r.shipZip,r.bottleSize,r.packSize]);
-  const csv=[cols,...data].map(r=>r.map(v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.download=`RA5_Depletions_${from}_${to}.csv`;
-  document.body.appendChild(a);a.click();
-  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
-  toast('RA5 exported!');
+  window._lastReportRows=rows;
+  window._lastReportCols=['producer','cases','bottles','revenue'];
 }
 
 // RA40 - CRV
@@ -5841,205 +5687,20 @@ function renderRC5(el, orders){
 
 // RC6 - Commissions Calculator
 function renderRC6(el, orders){
-  const reps = USERS.filter(u=>u.role==='rep');
-
-  // Rep filter UI
-  const selectedReps = window._rc6Reps || reps.map(r=>r.id);
-
-  el.innerHTML += `
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-body" style="padding:14px 18px">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div>
-          <label class="flabel">Sales Rep Filter</label>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
-            <button class="btn btn-sm ${selectedReps.length===reps.length?'btn-dark':''}" 
-              onclick="window._rc6Reps=null;renderActiveReport('RC6')">All Reps</button>
-            ${reps.map(r=>`
-            <button class="btn btn-sm ${selectedReps.includes(r.id)&&selectedReps.length<reps.length?'btn-dark':''}" 
-              onclick="window._rc6Reps=window._rc6Reps&&window._rc6Reps.length<${reps.length}?
-                (window._rc6Reps.includes('${r.id}')?window._rc6Reps.filter(x=>x!=='${r.id}'):[...window._rc6Reps,'${r.id}']):
-                ['${r.id}'];renderActiveReport('RC6')">
-              ${r.fname} ${r.lname||''}
-            </button>`).join('')}
-          </div>
-        </div>
-        <div style="margin-left:auto">
-          <button class="btn btn-sm btn-dark" onclick="exportRC6Excel()">
-            <i class="ti ti-download"></i> Export Excel
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>`;
-
-  // Filter orders by selected reps
-  const filteredOrders = orders.filter(o=>selectedReps.includes(o.rep));
-
-  // Build detailed line items grouped by rep
-  const repData = {};
-  selectedReps.forEach(rid=>{
-    const rep=USERS.find(u=>u.id===rid);if(!rep)return;
-    repData[rid]={rep,lines:[],totalRevenue:0,totalCommission:0};
-  });
-
-  filteredOrders.forEach(o=>{
-    if(!repData[o.rep])return;
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:'',commission:5};
-    const rate=(rep.commission||5)/100;
-
-    o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
-      const qty=item.cases+(item.bottles>0?item.bottles/p.btl:0);
-      const lineAmt=itemLineTotal(item);
-      const commission=lineAmt*rate;
-      const discPct=parseFloat(item.discountPct)||0;
-
-      repData[o.rep].lines.push({
-        supplier:'ACS Beverage Co. LLC',
-        deliveryDate:o.delivery||o.date,
-        paidDate:o.paid?(o.paidDate||o.delivery||o.date):'',
-        repName:rep.fname+' '+(rep.lname||''),
-        account:acct.name,
-        wine:p.name,
-        quantity:qty,
-        lineItemAmount:lineAmt,
-        orderDate:o.date,
-        commission,
-        rate,
-        rateSource:'Sales Rep',
-        invoice:o.id,
-        discountPct:discPct,
-        importer:'',
-      });
-      repData[o.rep].totalRevenue+=lineAmt;
-      repData[o.rep].totalCommission+=commission;
-    });
-  });
-
-  const grandRevenue=Object.values(repData).reduce((s,r)=>s+r.totalRevenue,0);
-  const grandCommission=Object.values(repData).reduce((s,r)=>s+r.totalCommission,0);
-
-  // Summary cards
-  el.innerHTML+=`
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(grandRevenue)}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Revenue</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--gold)">${fmt(grandCommission)}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Commission</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--text)">${selectedReps.length}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Reps</div>
-    </div>
-  </div>`;
-
-  // Detailed table grouped by rep
-  Object.values(repData).forEach(rd=>{
-    if(!rd.lines.length)return;
-    const rep=rd.rep;
-    el.innerHTML+=`
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-header" style="background:var(--navy)">
-        <span class="card-title" style="color:#fff">${rep.fname} ${rep.lname||''}</span>
-        <span style="font-size:12px;color:rgba(255,255,255,0.7)">
-          ${rd.lines.length} line items &nbsp;·&nbsp; 
-          Revenue: ${fmt(rd.totalRevenue)} &nbsp;·&nbsp; 
-          Commission: <strong style="color:var(--gold)">${fmt(rd.totalCommission)}</strong> 
-          (${(rep.commission||5)}%)
-        </span>
-      </div>
-      <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
-        <table class="tbl">
-          <thead><tr>
-            <th>Supplier</th>
-            <th>Delivery Date</th>
-            <th>Paid Date</th>
-            <th>Account</th>
-            <th>Wine</th>
-            <th style="text-align:right">Qty (cs)</th>
-            <th style="text-align:right">Line Amount</th>
-            <th>Order Date</th>
-            <th style="text-align:right">Commission</th>
-            <th style="text-align:right">Rate</th>
-            <th>Invoice #</th>
-            <th style="text-align:right">Discount %</th>
-          </tr></thead>
-          <tbody>
-          ${rd.lines.map(l=>`<tr>
-            <td style="font-size:11px;color:var(--text2)">${l.supplier}</td>
-            <td style="font-size:12px">${l.deliveryDate}</td>
-            <td style="font-size:12px;color:${l.paidDate?'var(--green)':'var(--text3)'}">${l.paidDate||'Unpaid'}</td>
-            <td style="font-size:12px;font-weight:600">${l.account}</td>
-            <td style="font-size:12px">${l.wine}</td>
-            <td style="text-align:right;font-size:12px">${l.quantity.toFixed(2)}</td>
-            <td style="text-align:right;font-weight:600">${fmt(l.lineItemAmount)}</td>
-            <td style="font-size:12px">${l.orderDate}</td>
-            <td style="text-align:right;font-weight:600;color:var(--gold)">${fmt(l.commission)}</td>
-            <td style="text-align:right;font-size:12px;color:var(--text2)">${(l.rate*100).toFixed(0)}%</td>
-            <td style="font-size:11px;color:var(--gold)">${l.invoice}</td>
-            <td style="text-align:right;font-size:12px">${l.discountPct>0?l.discountPct+'%':'--'}</td>
-          </tr>`).join('')}
-          </tbody>
-          <tfoot><tr>
-            <td colspan="6" style="padding:10px 12px;font-weight:700">Subtotal — ${rep.fname} ${rep.lname||''}</td>
-            <td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(rd.totalRevenue)}</td>
-            <td></td>
-            <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(rd.totalCommission)}</td>
-            <td colspan="3"></td>
-          </tr></tfoot>
-        </table>
-      </div>
-    </div>`;
-  });
-
-  // Store data for Excel export
-  window._rc6Data = repData;
-  window._rc6DateRange = {from:window._rptFrom||'', to:window._rptTo||''};
-}
-
-function exportRC6Excel(){
-  const data = window._rc6Data;
-  if(!data){toast('Run the report first');return;}
-  const from = window._rc6DateRange?.from||'';
-  const to   = window._rc6DateRange?.to||'';
-
-  // Build CSV in the same format as the example
-  const rows = [];
-
-  // Header row with date range
-  rows.push([`${from} to ${to}`,'','','','','','','','','','','','','','','']);
-  rows.push(['','Supplier','Delivery Date','Paid Date','Sales Rep','Account','Wine','Quantity','Line Item Amount','Order Date','Commission','Rate','Rate Source','Invoice Number','Discount %','Importer']);
-
-  Object.values(data).forEach(rd=>{
-    if(!rd.lines.length)return;
-    // Rep section header
-    rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','']);
-    rd.lines.forEach(l=>{
-      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),(l.rate*100).toFixed(0)+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer]);
-    });
-    // Rep subtotal
-    rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','']);
-    rows.push(['','','','','','','','','','','','','','','','']);
-  });
-
-  const csv = rows.map(r=>r.map(v=>{
-    const s=String(v||'');
-    return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;
-  }).join(',')).join('\n');
-
-  const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=`RC6_Commissions_${from}_${to}.csv`;
-  document.body.appendChild(a);a.click();
-  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
-  toast('Commission report exported!');
+  const reps=USERS.filter(u=>u.role==='rep');
+  const rows=reps.map(r=>{
+    const repOrders=orders.filter(o=>o.rep===r.id);
+    const revenue=repOrders.reduce((s,o)=>s+orderTotal(o),0);
+    const commission=revenue*(r.commission||5)/100;
+    return{rep:r.fname+' '+r.lname,orders:repOrders.length,revenue,rate:r.commission||5,commission};
+  }).sort((a,b)=>b.revenue-a.revenue);
+  const grandRev=rows.reduce((s,r)=>s+r.revenue,0);
+  const grandComm=rows.reduce((s,r)=>s+r.commission,0);
+  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC6 — Commissions Calculator</span><span style="font-size:12px;color:var(--text2)">Total commissions: ${fmt(grandComm)}</span></div>
+  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right;font-size:12px">${r.orders}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${r.rate}%</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.commission)}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(grandRev)}</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandComm)}</td></tr></tfoot></table></div>`;
+  window._lastReportRows=rows;window._lastReportCols=['rep','orders','revenue','rate','commission'];
 }
 
 // RC7 - Simple Sales Rep Activity
@@ -7514,13 +7175,7 @@ function deleteOrder(orderId){
 
 // -- PDF SAVE HELPER (mobile-friendly) ----------------------------------------
 function savePDF(doc, filename){
-  // Not used directly anymore
-  _openPDFWindow(doc, filename);
-}
-
-function _openPDFWindow(doc, filename){
-  const b64 = doc.output('datauristring').split(',')[1];
-  _renderInvoiceHTML(filename.replace('-invoice.pdf',''), b64);
+  doc.save(filename);
 }
 
 function _renderInvoiceHTML(orderId, b64){
@@ -7700,9 +7355,9 @@ function _renderInvoiceHTML(orderId, b64){
 
       <div class="totals-row">
         <div class="totals-summary">
-          <strong>Full Cases:</strong> ${Math.floor(totalCases)}cs<br>
-          ${totalCases%1>0?`<strong>Loose Bottles:</strong> ${Math.round(totalCases%1*12)} btl<br>`:''} 
-          ${o.notes?'<strong>Notes:</strong> '+o.notes:''}
+          Total cases: ${Math.floor(totalCases)}${totalCases%1>0?' + '+Math.round(totalCases%1*12)+' loose':''}<br>
+          Total bottles: ${totalBtl}<br>
+          ${o.notes?'Notes: '+o.notes:''}
         </div>
         <div class="totals-box">
           <div class="total-label">Total Due</div>
