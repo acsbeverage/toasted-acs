@@ -4083,6 +4083,9 @@ const REPORT_CATEGORIES = [
 // Flat list for easy lookup
 const ACS_REPORTS = REPORT_CATEGORIES.flatMap(c=>c.reports);
 
+// Add Fintech report separately
+const FINTECH_REPORT = {id:'FINTECH', name:'Fintech Report', icon:'ti-credit-card', desc:'All accounts with Fintech as payment method — invoices, balances and history', available:true};
+
 
 let activeReportId = null;
 
@@ -4102,6 +4105,38 @@ function renderReportsList(){
       oninput="window._reportSearch=this.value;renderReportsList()" style="max-width:300px"/>
     <span style="font-size:12px;color:var(--text2)">${ACS_REPORTS.filter(r=>r.available).length} available · ${ACS_REPORTS.filter(r=>!r.available).length} coming soon</span>
   </div>
+
+  <!-- Fintech Report — always shown at top -->
+  ${!search||'fintech'.includes(search)||'payment'.includes(search)?`
+  <div style="margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <i class="ti ti-credit-card" style="color:var(--gold);font-size:16px"></i>
+      <span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2)">Fintech</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
+      <div class="card" style="cursor:pointer;transition:box-shadow 0.15s"
+           onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)'" 
+           onmouseout="this.style.boxShadow=''"
+           onclick="openReport('FINTECH')">
+        <div class="card-body" style="padding:14px 16px">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <div style="width:34px;height:34px;background:rgba(184,135,44,0.12);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-credit-card" style="font-size:16px;color:var(--gold)"></i>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px">Fintech Report</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.4">All accounts with Fintech as payment method — invoices, balances and history</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <button class="btn btn-sm btn-dark" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();openReport('FINTECH')"><i class="ti ti-play"></i> Run</button>
+            <button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();openSchedModal(null,'FINTECH')"><i class="ti ti-clock-play"></i> Schedule</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`:''}
+
   ${REPORT_CATEGORIES.map(cat=>{
     const filtered = cat.reports.filter(r=>
       !search || r.name.toLowerCase().includes(search) || r.desc.toLowerCase().includes(search)
@@ -4328,6 +4363,7 @@ function renderActiveReport(reportId){
   else if(reportId==='RH1') renderRH1(el);
   else if(reportId==='RH2') renderRH2(el);
   else if(reportId==='RI1') renderRI1(el);
+  else if(reportId==='FINTECH') renderFINTECH(el, from, to);
   else {
     el.innerHTML+=`<div class="card"><div class="card-body" style="padding:60px;text-align:center;color:var(--text3)">
       <i class="ti ti-tools" style="font-size:48px;display:block;margin-bottom:14px;color:var(--gold)"></i>
@@ -4699,7 +4735,163 @@ function exportReportCSV(reportId){
   toast('CSV exported!');
 }
 
-// ── OLD REPORTS (kept for reference) ─────────────────────────────────────────
+// FINTECH Report
+function renderFINTECH(el, from, to){
+  // Get all Fintech accounts
+  const fintechAccounts = ACCOUNTS.filter(a=>a.paymentProvider==='Fintech');
+
+  if(!fintechAccounts.length){
+    el.innerHTML+=`<div class="card"><div class="card-body" style="padding:60px;text-align:center;color:var(--text3)">
+      <i class="ti ti-credit-card" style="font-size:48px;display:block;margin-bottom:14px;color:var(--gold)"></i>
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">No Fintech Accounts</div>
+      <div style="font-size:13px">No accounts have Fintech set as their payment method yet.</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:8px">Go to an account detail page and set Payment Method to "Fintech" to see them here.</div>
+    </div></div>`;
+    return;
+  }
+
+  // Build invoice data for Fintech accounts
+  const rows = [];
+  let totalRevenue = 0, totalUnpaid = 0;
+
+  fintechAccounts.forEach(a => {
+    const rep = USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
+    let acctOrders = ORDERS.filter(o=>o.acct===a.id&&(o.status==='delivered'||o.status==='confirmed'));
+    if(from) acctOrders = acctOrders.filter(o=>o.date>=from);
+    if(to)   acctOrders = acctOrders.filter(o=>o.date<=to);
+
+    const acctRevenue = acctOrders.reduce((s,o)=>s+orderTotal(o),0);
+    const acctUnpaid  = acctOrders.filter(o=>!o.paid).reduce((s,o)=>s+orderTotal(o),0);
+    totalRevenue += acctRevenue;
+    totalUnpaid  += acctUnpaid;
+
+    acctOrders.forEach(o=>{
+      const total = orderTotal(o);
+      const terms = parseInt((a.terms||'Net 30').replace(/\D/g,''))||30;
+      const dueDate = new Date(o.delivery||o.date);
+      dueDate.setDate(dueDate.getDate()+terms);
+      const dueDateStr = dueDate.toISOString().slice(0,10);
+      const pastDue = !o.paid && dueDateStr < today();
+      rows.push({
+        acct: a.name,
+        acctId: a.id,
+        rep: rep.fname+' '+(rep.lname||''),
+        terms: a.terms||'Net 30',
+        invoice: o.id,
+        date: o.date,
+        delivery: o.delivery||o.date,
+        dueDate: dueDateStr,
+        total,
+        paid: o.paid,
+        paidDate: o.paidDate||'',
+        pastDue,
+      });
+    });
+  });
+
+  rows.sort((a,b)=>a.acct.localeCompare(b.acct)||b.date.localeCompare(a.date));
+
+  el.innerHTML+=`
+  <!-- Summary Stats -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--gold)">${fintechAccounts.length}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Fintech Accounts</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text)">${rows.length}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Invoices</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(totalRevenue)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Revenue</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:${totalUnpaid>0?'var(--red)':'var(--green)'}">${fmt(totalUnpaid)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Open Balance</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:var(--red)">${fmt(rows.filter(r=>r.pastDue).reduce((s,r)=>s+r.total,0))}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Past Due</div>
+    </div>
+  </div>
+
+  <!-- Fintech Accounts List -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-header">
+      <span class="card-title"><i class="ti ti-credit-card" style="color:var(--gold);margin-right:6px"></i>Fintech Accounts</span>
+      <span style="font-size:12px;color:var(--text2)">${fintechAccounts.length} accounts</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr>
+          <th>Account</th><th>Rep</th><th>Terms</th>
+          <th style="text-align:right">Total Revenue</th>
+          <th style="text-align:right">Open Balance</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody>
+        ${fintechAccounts.map(a=>{
+          const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
+          const acctRows=rows.filter(r=>r.acctId===a.id);
+          const rev=acctRows.reduce((s,r)=>s+r.total,0);
+          const unpaid=acctRows.filter(r=>!r.paid).reduce((s,r)=>s+r.total,0);
+          const hasPastDue=acctRows.some(r=>r.pastDue);
+          return`<tr>
+            <td style="font-weight:600;cursor:pointer;color:var(--gold)" onclick="openAccountDetail('${a.id}')">${a.name}</td>
+            <td style="font-size:12px;color:var(--text2)">${rep.fname} ${rep.lname||''}</td>
+            <td style="font-size:12px">${a.terms||'Net 30'}</td>
+            <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
+            <td style="text-align:right;font-weight:600;color:${unpaid>0?'var(--red)':'var(--green)'}">${fmt(unpaid)}</td>
+            <td><span style="font-size:11px;font-weight:700;color:${hasPastDue?'var(--red)':unpaid>0?'var(--amber)':'var(--green)'}">${hasPastDue?'PAST DUE':unpaid>0?'OPEN':'CURRENT'}</span></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Invoice Detail -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Invoice Detail</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} invoices</span>
+    </div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr>
+          <th>Invoice</th><th>Account</th><th>Rep</th>
+          <th>Invoice Date</th><th>Delivery</th><th>Due Date</th>
+          <th style="text-align:right">Amount</th><th>Status</th><th>Paid Date</th>
+        </tr></thead>
+        <tbody>
+        ${rows.length?rows.map(r=>`<tr>
+          <td style="font-size:11px;color:var(--gold);cursor:pointer" onclick="viewInvoice('${r.invoice}')">${r.invoice}</td>
+          <td style="font-weight:600;font-size:12px">${r.acct}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.rep}</td>
+          <td style="font-size:12px">${r.date}</td>
+          <td style="font-size:12px">${r.delivery}</td>
+          <td style="font-size:12px;color:${r.pastDue?'var(--red)':'var(--text)'}">${r.dueDate}</td>
+          <td style="text-align:right;font-weight:600">${fmt(r.total)}</td>
+          <td><span style="font-size:11px;font-weight:700;color:${r.paid?'var(--green)':r.pastDue?'var(--red)':'var(--amber)'}">${r.paid?'PAID':r.pastDue?'PAST DUE':'OPEN'}</span></td>
+          <td style="font-size:12px;color:var(--green)">${r.paidDate||'—'}</td>
+        </tr>`).join(''):`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No invoices for Fintech accounts in selected period</td></tr>`}
+        </tbody>
+        ${rows.length?`<tfoot><tr>
+          <td colspan="6" style="padding:10px 12px;font-weight:700">Total</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalRevenue)}</td>
+          <td colspan="2"></td>
+        </tr></tfoot>`:''}
+      </table>
+    </div>
+  </div>`;
+
+  window._lastReportRows = rows;
+  window._lastReportCols = ['invoice','acct','rep','date','delivery','dueDate','total','paid','paidDate'];
+}
+
+// FINTECH Report end ──────────────────────────────────────────────────────────
+
 
 // RA1 - Basic Sales
 function renderRA1(el, orders, producerFilter){
@@ -5968,6 +6160,7 @@ function renderScheduledReports(){
           <label class="flabel">Report type</label>
           <select class="finput" id="sched-type" onchange="onSchedTypeChange()">
             <option value="RA2">RA2 - Invoice Line Item</option>
+            <option value="FINTECH">Fintech Report</option>
             <option value="RA5">RA5 - Depletion by Producer</option>
             <option value="RA40">RA40 - CRV</option>
             <option value="RB1">RB1 - Inventory by Supplier</option>
