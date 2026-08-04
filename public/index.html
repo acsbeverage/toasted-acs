@@ -8270,6 +8270,42 @@ function updatePPNet(sku,tierId,btl){
   if(el)el.parentElement.innerHTML=(net>0?'<span style="font-weight:700;color:#1a6a3a">$'+net.toFixed(2)+'</span>':'<span style="color:#aaa">--</span>');
 }
 
+function _filterProductsList(){
+  const q=_prodSearch.toLowerCase();
+  return PRODUCTS.filter(p=>{
+    const matchQ=!q||(p.name||'').toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q);
+    const matchCat=!_prodCat||p.cat===_prodCat;
+    return matchQ&&matchCat;
+  }).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+}
+function _renderProductRows(filtered){
+  return filtered.map(p=>{
+    ensureProductDetails(p);
+    const d=p._details;
+    const fl=(p.prices?.frontline||0)*p.btl;
+    return`<tr style="cursor:pointer" onclick="openProductPricing('${p.sku}')" title="Click to edit pricing">
+      <td style="font-weight:500;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
+      <td style="font-size:12px;color:var(--text2)">${p.sku}</td>
+      <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
+      <td><span class="tier-pill" style="font-size:11px">${p.cat||'--'}</span></td>
+      <td style="font-size:12px;color:var(--text2)">${d.bottleSize||'--'}</td>
+      <td style="font-size:12px;text-align:center">${p.btl||'--'}</td>
+      <td style="font-weight:600;font-size:13px">${fl>0?fmt(fl)+'/cs':'--'}</td>
+      <td><span class="badge" style="background:${d.active==='Yes'?'var(--green-bg)':'var(--red-bg)'};color:${d.active==='Yes'?'var(--green)':'var(--red)'};font-size:11px">${d.active}</span></td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="btn btn-sm btn-warning" onclick="event.stopPropagation();openEditProduct('${p.sku}')"><i class="ti ti-edit"></i> Edit</button>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No products match</td></tr>';
+}
+function filterProducts(val){
+  if(val!==undefined)_prodSearch=val;
+  const filtered=_filterProductsList();
+  const tbody=document.getElementById('products-tbody');
+  if(tbody)tbody.innerHTML=_renderProductRows(filtered);
+  const count=document.getElementById('products-count');
+  if(count)count.textContent=filtered.length+' product'+(filtered.length!==1?'s':'');
+}
 function renderProducts(){
   const isAdmin=currentUser&&currentUser.role==='admin';
   if(!isAdmin){document.getElementById('main-content').innerHTML='<div style="padding:60px;text-align:center;color:var(--text3)">Admin access required.</div>';return;}
@@ -8278,12 +8314,7 @@ function renderProducts(){
     <button class="btn btn-sm btn-success" onclick="openNewProduct()"><i class="ti ti-plus"></i> Add Product</button>`;
 
   const cats=[...new Set(PRODUCTS.map(p=>p.cat))].sort();
-  const filtered=PRODUCTS.filter(p=>{
-    const q=_prodSearch.toLowerCase();
-    const matchQ=!q||(p.name||'').toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q);
-    const matchCat=!_prodCat||p.cat===_prodCat;
-    return matchQ&&matchCat;
-  }).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const filtered=_filterProductsList();
 
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-end;flex-wrap:wrap">
@@ -8292,19 +8323,19 @@ function renderProducts(){
       <div style="position:relative">
         <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3)"></i>
         <input id="prod-search" type="text" class="finput" value="${_prodSearch}"
-          oninput="_prodSearch=this.value;renderProducts()"
+          oninput="filterProducts(this.value)"
           placeholder="Name, SKU, producer..." style="padding-left:32px;width:100%"/>
       </div>
     </div>
     <div>
       <div class="flabel" style="margin-bottom:4px">Category</div>
-      <select class="finput" onchange="_prodCat=this.value;renderProducts()" style="padding:7px 10px;width:160px">
+      <select class="finput" onchange="_prodCat=this.value;filterProducts()" style="padding:7px 10px;width:160px">
         <option value="">All categories</option>
         ${cats.map(c=>`<option value="${c}" ${_prodCat===c?'selected':''}>${c}</option>`).join('')}
       </select>
     </div>
-    <button class="btn btn-sm" onclick="_prodSearch='';_prodCat='';renderProducts()">Clear</button>
-    <span style="font-size:12px;color:var(--text2);align-self:flex-end">${filtered.length} product${filtered.length!==1?'s':''}</span>
+    <button class="btn btn-sm" onclick="document.getElementById('prod-search').value='';_prodSearch='';_prodCat='';renderProducts()">Clear</button>
+    <span id="products-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${filtered.length} product${filtered.length!==1?'s':''}</span>
   </div>
 
   <div class="card">
@@ -8313,24 +8344,7 @@ function renderProducts(){
         <th>Name</th><th>SKU / Code</th><th>Producer</th><th>Category</th>
         <th>Bottle Size</th><th>Pack</th><th>Frontline</th><th>Active</th><th></th>
       </tr></thead>
-      <tbody>${filtered.map(p=>{
-        ensureProductDetails(p);
-        const d=p._details;
-        const fl=(p.prices?.frontline||0)*p.btl;
-        return`<tr style="cursor:pointer" onclick="openProductPricing('${p.sku}')" title="Click to edit pricing">
-          <td style="font-weight:500;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
-          <td style="font-size:12px;color:var(--text2)">${p.sku}</td>
-          <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
-          <td><span class="tier-pill" style="font-size:11px">${p.cat||'--'}</span></td>
-          <td style="font-size:12px;color:var(--text2)">${d.bottleSize||'--'}</td>
-          <td style="font-size:12px;text-align:center">${p.btl||'--'}</td>
-          <td style="font-weight:600;font-size:13px">${fl>0?fmt(fl)+'/cs':'--'}</td>
-          <td><span class="badge" style="background:${d.active==='Yes'?'var(--green-bg)':'var(--red-bg)'};color:${d.active==='Yes'?'var(--green)':'var(--red)'};font-size:11px">${d.active}</span></td>
-          <td style="white-space:nowrap;text-align:right">
-            <button class="btn btn-sm btn-warning" onclick="event.stopPropagation();openEditProduct('${p.sku}')"><i class="ti ti-edit"></i> Edit</button>
-          </td>
-        </tr>`;
-      }).join('')||'<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No products match</td></tr>'}</tbody>
+      <tbody id="products-tbody">${_renderProductRows(filtered)}</tbody>
     </table></div>
   </div>
 
