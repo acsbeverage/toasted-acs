@@ -225,7 +225,10 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-
+app.get('/api/set-fintech', async (req, res) => {
+  if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
+  const {query} = require('./db');
+  const ids =
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
