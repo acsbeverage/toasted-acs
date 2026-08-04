@@ -15,24 +15,51 @@ router.get('/accounts', requireAuth, async (req, res) => {
       phone: r.phone, email: r.email, address: r.address,
       shipStreet: r.ship_street, shipCity: r.ship_city, shipState: r.ship_state, shipZip: r.ship_zip,
       billStreet: r.bill_street, billCity: r.bill_city, billState: r.bill_state, billZip: r.bill_zip,
-      terms: r.terms, rep: r.rep, qboId: r.qbo_id,
+      terms: r.terms, rep: r.rep, qboId: r.qbo_id,paymentProvider: r.payment_provider||'',
+onlinePayments: r.online_payments||'No',
+redemption: r.redemption||'No',
+taxId: r.tax_id||'',
+resaleNum: r.resale_num||'',
+warehouseCode: r.warehouse_code||'',
+licExpiry: r.lic_expiry||'',
+abcDetail: r.abc_detail||'',
+creditLimit: parseFloat(r.credit_limit)||0,
+creditBalance: parseFloat(r.credit_balance)||0,
+avgDaysToPay: parseFloat(r.avg_days_to_pay)||0,
+commissionPct: parseFloat(r.commission_pct)||0,
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
-
 router.patch('/accounts/:id', requireAdmin, async (req, res) => {
   try {
-    const { name, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip } = req.body;
-    await query(`UPDATE accounts SET name=$1,contact=$2,phone=$3,email=$4,terms=$5,
-      rep=$6,ship_street=$7,ship_city=$8,ship_state=$9,ship_zip=$10 WHERE id=$11`,
-      [name,contact,phone,email,terms,rep,shipStreet,shipCity,shipState,shipZip,req.params.id]);
+    const { name, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip,
+            paymentProvider, onlinePayments, redemption, taxId, resaleNum, warehouseCode,
+            licExpiry, abcDetail, creditLimit, creditBalance, avgDaysToPay, commissionPct } = req.body;
+    await query(`UPDATE accounts SET
+      name=COALESCE($1,name), contact=COALESCE($2,contact),
+      phone=COALESCE($3,phone), email=COALESCE($4,email),
+      terms=COALESCE($5,terms), rep=COALESCE($6,rep),
+      ship_street=COALESCE($7,ship_street), ship_city=COALESCE($8,ship_city),
+      ship_state=COALESCE($9,ship_state), ship_zip=COALESCE($10,ship_zip),
+      payment_provider=$11, online_payments=$12, redemption=$13,
+      tax_id=$14, resale_num=$15, warehouse_code=$16, lic_expiry=$17,
+      abc_detail=$18, credit_limit=$19, credit_balance=$20,
+      avg_days_to_pay=$21, commission_pct=$22
+      WHERE id=$23`,
+      [name,contact,phone,email,terms,rep,shipStreet,shipCity,shipState,shipZip,
+       paymentProvider||'',onlinePayments||'No',redemption||'No',taxId||'',
+       resaleNum||'',warehouseCode||'',licExpiry||'',abcDetail||'',
+       creditLimit||0,creditBalance||0,avgDaysToPay||0,commissionPct||0,
+       req.params.id]);
     res.json({ ok: true });
   } catch (err) {
+    console.error('Update account error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
+
 
 router.get('/products', requireAuth, async (req, res) => {
   try {
