@@ -1406,7 +1406,7 @@ function renderDashboard(){
   ${isAdmin&&low.length?`<div class="card" style="margin-bottom:16px;border-color:var(--red-border)"><div class="card-header" style="background:var(--red-bg)"><span class="card-title" style="color:var(--red)"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>${low.length} product${low.length!==1?'s':''} at or below reorder point</span><button class="btn btn-sm" onclick="showPage('inventory')">View </button></div>
   <table class="tbl"><thead><tr><th>Product</th><th>SKU</th><th>In stock</th><th>Reorder point</th><th>Status</th></tr></thead><tbody>${low.slice(0,4).map(p=>`<tr><td style="font-weight:500">${p.name}</td><td style="font-size:12px;color:var(--text2)">${p.sku}</td><td>${p.stock}</td><td>${p.reorder}</td><td>${stockBadge(p)}</td></tr>`).join('')}</tbody></table></div>`:''}
   ${isAdmin&&unconf.length?`<div class="card" style="margin:0;border-color:var(--amber-border)"><div class="card-header" style="background:var(--amber-bg)"><span class="card-title" style="color:var(--amber)"><i class="ti ti-clock" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Awaiting confirmation (${unconf.length})</span><button class="btn btn-sm btn-dark" onclick="showPage('unconfirmed')">Review all </button></div>
-  <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Rep</th><th>Date</th><th>Total</th><th></th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold)">${o.id}</td><td>${acct?acct.name:'--'}</td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button></td></tr>`}).join('')}</tbody></table></div>`:''}`;
+  <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Rep</th><th>Date</th><th>Total</th><th></th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td style="cursor:pointer" onclick="viewInvoice('${o.id}')">${acct?acct.name:'--'}</td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button></td></tr>`}).join('')}</tbody></table></div>`:''}`;
 }
 
 // -- NEW ORDER -----------------------------------------------------------------
@@ -1879,7 +1879,7 @@ function renderUnconfirmed(){
     <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
     ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Bottles</th><th>Total</th><th>Notes</th><th></th></tr></thead>
     <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
-      return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold)">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
+      return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
       <td style="display:flex;gap:6px"><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
     </tbody></table>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
@@ -1991,7 +1991,7 @@ function filterHistory(){
     const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
-    return`<tr><td style="font-weight:600;color:var(--gold)">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
+    return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       ${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
@@ -2386,6 +2386,44 @@ function renderAccountsPage(){
   });
 }
 
+function saveAccountDetails(acctId){
+  const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
+  const rep=document.getElementById('acct-rep-select')?.value;
+  const terms=document.getElementById('acct-terms')?.value;
+  let paymentProvider=document.getElementById('acct-payment-provider')?.value;
+  if(paymentProvider==='Other'){
+    const other=(document.getElementById('acct-payment-other')?.value||'').trim();
+    if(other)paymentProvider=other;
+  }
+  const onlinePayments=document.getElementById('acct-online-payments')?.value;
+  const redemption=document.getElementById('acct-redemption')?.value;
+  const taxId=document.getElementById('acct-tax-id')?.value||'';
+  const resaleNum=document.getElementById('acct-resale')?.value||'';
+  const warehouseCode=document.getElementById('acct-warehouse')?.value||'';
+  const licExpiry=document.getElementById('acct-lic-expiry')?.value||'';
+  const creditLimit=parseFloat(document.getElementById('acct-credit-limit')?.value)||0;
+  const creditBalance=parseFloat(document.getElementById('acct-credit-balance')?.value)||0;
+  const avgDaysToPay=parseFloat(document.getElementById('acct-avg-days')?.value)||0;
+  const commissionPct=parseFloat(document.getElementById('acct-commission')?.value)||0;
+
+  // Update in memory
+  Object.assign(a,{rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct});
+
+  // Save to database
+  if(TOASTED_BACKEND_URL&&window._authToken){
+    fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct})
+    }).then(r=>r.json()).then(d=>{
+      if(d.ok)toast('Account saved');
+      else toast('Error saving account');
+    }).catch(()=>toast('Error saving account'));
+  } else {
+    toast('Account updated');
+  }
+}
+
 function saveAccountRep(acctId){
   const sel=document.getElementById('acct-rep-select');
   if(!sel)return;
@@ -2464,16 +2502,45 @@ function openAccountDetail(acctId){
   if(a.email)html+='<div><span style="color:var(--text2)">Email:</span> '+a.email+'</div>';
   if(a.phone)html+='<div><span style="color:var(--text2)">Phone:</span> '+a.phone+'</div>';
   if(a.lic)html+='<div><span style="color:var(--text2)">ABC Lic:</span> '+a.lic+'</div>';
+  if(a.abcDetail)html+='<div><span style="color:var(--text2)">ABC Detail:</span> '+a.abcDetail+'</div>';
   if(a.id)html+='<div><span style="color:var(--text2)">Account ID:</span> '+a.id+'</div>';
+  if(a.warehouseCode)html+='<div><span style="color:var(--text2)">Warehouse Code:</span> '+a.warehouseCode+'</div>';
+  if(a.taxId)html+='<div><span style="color:var(--text2)">Tax ID #:</span> '+a.taxId+'</div>';
+  if(a.resaleNum)html+='<div><span style="color:var(--text2)">Resale #:</span> '+a.resaleNum+'</div>';
+  if(a.licExpiry)html+='<div><span style="color:var(--text2)">License Expiry:</span> '+a.licExpiry+'</div>';
   html+='<div><span style="color:var(--text2)">Terms:</span> '+(a.terms||'Net 30')+'</div>';
+  if(a.paymentProvider)html+='<div><span style="color:var(--text2)">Payment Method:</span> <strong>'+a.paymentProvider+'</strong></div>';
+  if(a.prefMethod)html+='<div><span style="color:var(--text2)">Pref Method:</span> '+a.prefMethod+'</div>';
+  if(a.onlinePayments)html+='<div><span style="color:var(--text2)">Online Payments:</span> '+a.onlinePayments+'</div>';
+  if(a.redemption)html+='<div><span style="color:var(--text2)">Redemption:</span> '+a.redemption+'</div>';
+  if(a.avgDaysToPay)html+='<div><span style="color:var(--text2)">Avg Days to Pay:</span> '+a.avgDaysToPay+'</div>';
+  if(a.creditLimit)html+='<div><span style="color:var(--text2)">Credit Limit:</span> '+fmt(a.creditLimit)+'</div>';
+  if(a.creditBalance)html+='<div><span style="color:var(--text2);color:var(--red)">Credit Balance:</span> <strong style="color:var(--red)">'+fmt(a.creditBalance)+'</strong></div>';
   if(a.shipStreet)html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><div style="color:var(--text2)">Address:</div><div>'+a.shipStreet+'</div><div>'+[a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div></div>';
   if(isAdmin){
-    const repOptions=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${u.id===a.rep?'selected':''}>${u.fname} ${u.lname}</option>`).join('');
+    const repOptions=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${u.id===a.rep?'selected':''}>${u.fname} ${u.lname||''}</option>`).join('');
+    const paymentOptions=['ACS ACH','Melio','Fintech','Bill.com','ACH','Other'].map(p=>`<option value="${p}" ${a.paymentProvider===p?'selected':''}>${p}</option>`).join('');
     html+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
-    html+='<div style="color:var(--text2);margin-bottom:6px;font-size:12px">Assigned Rep</div>';
-    html+='<select id="acct-rep-select" class="finput" style="width:100%;font-size:13px">'+repOptions+'</select>';
-    html+='<button class="btn btn-sm btn-dark" style="width:100%;margin-top:8px" onclick="saveAccountRep(\''+a.id+'\')"><i class="ti ti-device-floppy"></i> Save Rep</button>';
+    html+='<div style="color:var(--text2);margin-bottom:8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Edit Account</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:8px">';
+    html+='<div><label class="flabel">Assigned Rep</label><select id="acct-rep-select" class="finput" style="width:100%;font-size:13px">'+repOptions+'</select></div>';
+    html+='<div><label class="flabel">Terms</label><select id="acct-terms" class="finput" style="width:100%;font-size:13px"><option value="Net 30" '+(a.terms==='Net 30'?'selected':'')+'>Net 30</option><option value="Net 15" '+(a.terms==='Net 15'?'selected':'')+'>Net 15</option><option value="Net 45" '+(a.terms==='Net 45'?'selected':'')+'>Net 45</option><option value="Net 60" '+(a.terms==='Net 60'?'selected':'')+'>Net 60</option><option value="COD" '+(a.terms==='COD'?'selected':'')+'>COD</option><option value="Prepaid" '+(a.terms==='Prepaid'?'selected':'')+'>Prepaid</option><option value="Default" '+(a.terms==='Default'?'selected':'')+'>Default</option></select></div>';
+    html+='<div><label class="flabel">Payment Method</label><select id="acct-payment-provider" class="finput" style="width:100%;font-size:13px" onchange="document.getElementById(\'acct-payment-other\').style.display=this.value===\'Other\'?\'block\':\'none\'"><option value="">-- Select --</option>'+paymentOptions+'</select>';
+    html+='<input type="text" id="acct-payment-other" class="finput" placeholder="Specify payment method..." style="width:100%;font-size:13px;margin-top:6px;display:'+(a.paymentProvider==='Other'?'block':'none')+'"/></div>';
+    html+='<div><label class="flabel">Online Payments</label><select id="acct-online-payments" class="finput" style="width:100%;font-size:13px"><option value="Yes" '+(a.onlinePayments==='Yes'?'selected':'')+'>Yes</option><option value="No" '+((!a.onlinePayments||a.onlinePayments==='No')?'selected':'')+'>No</option></select></div>';
+    html+='<div><label class="flabel">Redemption</label><select id="acct-redemption" class="finput" style="width:100%;font-size:13px"><option value="Yes" '+(a.redemption==='Yes'?'selected':'')+'>Yes</option><option value="No" '+((!a.redemption||a.redemption==='No')?'selected':'')+'>No</option></select></div>';
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+    html+='<div><label class="flabel">Tax ID #</label><input class="finput" id="acct-tax-id" value="'+(a.taxId||'')+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Resale #</label><input class="finput" id="acct-resale" value="'+(a.resaleNum||'')+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Warehouse Code</label><input class="finput" id="acct-warehouse" value="'+(a.warehouseCode||'')+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">License Expiry</label><input type="date" class="finput" id="acct-lic-expiry" value="'+(a.licExpiry||'')+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Credit Limit</label><input type="number" class="finput" id="acct-credit-limit" value="'+(a.creditLimit||0)+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Credit Balance</label><input type="number" class="finput" id="acct-credit-balance" value="'+(a.creditBalance||0)+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Avg Days to Pay</label><input type="number" class="finput" id="acct-avg-days" value="'+(a.avgDaysToPay||0)+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Commission %</label><input type="number" class="finput" id="acct-commission" value="'+(a.commissionPct||0)+'" style="font-size:13px"/></div>';
     html+='</div>';
+    html+='<button class="btn btn-sm btn-dark" style="width:100%;margin-top:4px" onclick="saveAccountDetails(\''+a.id+'\')"><i class="ti ti-device-floppy"></i> Save Changes</button>';
+    html+='</div></div>';
   }
   html+='</div></div>';
 
