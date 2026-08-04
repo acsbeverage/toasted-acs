@@ -5496,20 +5496,205 @@ function renderRC5(el, orders){
 
 // RC6 - Commissions Calculator
 function renderRC6(el, orders){
-  const reps=USERS.filter(u=>u.role==='rep');
-  const rows=reps.map(r=>{
-    const repOrders=orders.filter(o=>o.rep===r.id);
-    const revenue=repOrders.reduce((s,o)=>s+orderTotal(o),0);
-    const commission=revenue*(r.commission||5)/100;
-    return{rep:r.fname+' '+r.lname,orders:repOrders.length,revenue,rate:r.commission||5,commission};
-  }).sort((a,b)=>b.revenue-a.revenue);
-  const grandRev=rows.reduce((s,r)=>s+r.revenue,0);
-  const grandComm=rows.reduce((s,r)=>s+r.commission,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC6 — Commissions Calculator</span><span style="font-size:12px;color:var(--text2)">Total commissions: ${fmt(grandComm)}</span></div>
-  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right;font-size:12px">${r.orders}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${r.rate}%</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.commission)}</td></tr>`).join('')}
-  </tbody><tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(grandRev)}</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandComm)}</td></tr></tfoot></table></div>`;
-  window._lastReportRows=rows;window._lastReportCols=['rep','orders','revenue','rate','commission'];
+  const reps = USERS.filter(u=>u.role==='rep');
+
+  // Rep filter UI
+  const selectedReps = window._rc6Reps || reps.map(r=>r.id);
+
+  el.innerHTML += `
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-body" style="padding:14px 18px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <label class="flabel">Sales Rep Filter</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+            <button class="btn btn-sm ${selectedReps.length===reps.length?'btn-dark':''}" 
+              onclick="window._rc6Reps=null;renderActiveReport('RC6')">All Reps</button>
+            ${reps.map(r=>`
+            <button class="btn btn-sm ${selectedReps.includes(r.id)&&selectedReps.length<reps.length?'btn-dark':''}" 
+              onclick="window._rc6Reps=window._rc6Reps&&window._rc6Reps.length<${reps.length}?
+                (window._rc6Reps.includes('${r.id}')?window._rc6Reps.filter(x=>x!=='${r.id}'):[...window._rc6Reps,'${r.id}']):
+                ['${r.id}'];renderActiveReport('RC6')">
+              ${r.fname} ${r.lname||''}
+            </button>`).join('')}
+          </div>
+        </div>
+        <div style="margin-left:auto">
+          <button class="btn btn-sm btn-dark" onclick="exportRC6Excel()">
+            <i class="ti ti-download"></i> Export Excel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // Filter orders by selected reps
+  const filteredOrders = orders.filter(o=>selectedReps.includes(o.rep));
+
+  // Build detailed line items grouped by rep
+  const repData = {};
+  selectedReps.forEach(rid=>{
+    const rep=USERS.find(u=>u.id===rid);if(!rep)return;
+    repData[rid]={rep,lines:[],totalRevenue:0,totalCommission:0};
+  });
+
+  filteredOrders.forEach(o=>{
+    if(!repData[o.rep])return;
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:'',commission:5};
+    const rate=(rep.commission||5)/100;
+
+    o.items.filter(i=>!i._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const qty=item.cases+(item.bottles>0?item.bottles/p.btl:0);
+      const lineAmt=itemLineTotal(item);
+      const commission=lineAmt*rate;
+      const discPct=parseFloat(item.discountPct)||0;
+
+      repData[o.rep].lines.push({
+        supplier:'ACS Beverage Co. LLC',
+        deliveryDate:o.delivery||o.date,
+        paidDate:o.paid?(o.paidDate||o.delivery||o.date):'',
+        repName:rep.fname+' '+(rep.lname||''),
+        account:acct.name,
+        wine:p.name,
+        quantity:qty,
+        lineItemAmount:lineAmt,
+        orderDate:o.date,
+        commission,
+        rate,
+        rateSource:'Sales Rep',
+        invoice:o.id,
+        discountPct:discPct,
+        importer:'',
+      });
+      repData[o.rep].totalRevenue+=lineAmt;
+      repData[o.rep].totalCommission+=commission;
+    });
+  });
+
+  const grandRevenue=Object.values(repData).reduce((s,r)=>s+r.totalRevenue,0);
+  const grandCommission=Object.values(repData).reduce((s,r)=>s+r.totalCommission,0);
+
+  // Summary cards
+  el.innerHTML+=`
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(grandRevenue)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Revenue</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:var(--gold)">${fmt(grandCommission)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Commission</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:var(--text)">${selectedReps.length}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">Reps</div>
+    </div>
+  </div>`;
+
+  // Detailed table grouped by rep
+  Object.values(repData).forEach(rd=>{
+    if(!rd.lines.length)return;
+    const rep=rd.rep;
+    el.innerHTML+=`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header" style="background:var(--navy)">
+        <span class="card-title" style="color:#fff">${rep.fname} ${rep.lname||''}</span>
+        <span style="font-size:12px;color:rgba(255,255,255,0.7)">
+          ${rd.lines.length} line items &nbsp;·&nbsp; 
+          Revenue: ${fmt(rd.totalRevenue)} &nbsp;·&nbsp; 
+          Commission: <strong style="color:var(--gold)">${fmt(rd.totalCommission)}</strong> 
+          (${(rep.commission||5)}%)
+        </span>
+      </div>
+      <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Supplier</th>
+            <th>Delivery Date</th>
+            <th>Paid Date</th>
+            <th>Account</th>
+            <th>Wine</th>
+            <th style="text-align:right">Qty (cs)</th>
+            <th style="text-align:right">Line Amount</th>
+            <th>Order Date</th>
+            <th style="text-align:right">Commission</th>
+            <th style="text-align:right">Rate</th>
+            <th>Invoice #</th>
+            <th style="text-align:right">Discount %</th>
+          </tr></thead>
+          <tbody>
+          ${rd.lines.map(l=>`<tr>
+            <td style="font-size:11px;color:var(--text2)">${l.supplier}</td>
+            <td style="font-size:12px">${l.deliveryDate}</td>
+            <td style="font-size:12px;color:${l.paidDate?'var(--green)':'var(--text3)'}">${l.paidDate||'Unpaid'}</td>
+            <td style="font-size:12px;font-weight:600">${l.account}</td>
+            <td style="font-size:12px">${l.wine}</td>
+            <td style="text-align:right;font-size:12px">${l.quantity.toFixed(2)}</td>
+            <td style="text-align:right;font-weight:600">${fmt(l.lineItemAmount)}</td>
+            <td style="font-size:12px">${l.orderDate}</td>
+            <td style="text-align:right;font-weight:600;color:var(--gold)">${fmt(l.commission)}</td>
+            <td style="text-align:right;font-size:12px;color:var(--text2)">${(l.rate*100).toFixed(0)}%</td>
+            <td style="font-size:11px;color:var(--gold)">${l.invoice}</td>
+            <td style="text-align:right;font-size:12px">${l.discountPct>0?l.discountPct+'%':'--'}</td>
+          </tr>`).join('')}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="6" style="padding:10px 12px;font-weight:700">Subtotal — ${rep.fname} ${rep.lname||''}</td>
+            <td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(rd.totalRevenue)}</td>
+            <td></td>
+            <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(rd.totalCommission)}</td>
+            <td colspan="3"></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  // Store data for Excel export
+  window._rc6Data = repData;
+  window._rc6DateRange = {from:window._rptFrom||'', to:window._rptTo||''};
+}
+
+function exportRC6Excel(){
+  const data = window._rc6Data;
+  if(!data){toast('Run the report first');return;}
+  const from = window._rc6DateRange?.from||'';
+  const to   = window._rc6DateRange?.to||'';
+
+  // Build CSV in the same format as the example
+  const rows = [];
+
+  // Header row with date range
+  rows.push([`${from} to ${to}`,'','','','','','','','','','','','','','','']);
+  rows.push(['','Supplier','Delivery Date','Paid Date','Sales Rep','Account','Wine','Quantity','Line Item Amount','Order Date','Commission','Rate','Rate Source','Invoice Number','Discount %','Importer']);
+
+  Object.values(data).forEach(rd=>{
+    if(!rd.lines.length)return;
+    // Rep section header
+    rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','']);
+    rd.lines.forEach(l=>{
+      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),(l.rate*100).toFixed(0)+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer]);
+    });
+    // Rep subtotal
+    rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','']);
+    rows.push(['','','','','','','','','','','','','','','','']);
+  });
+
+  const csv = rows.map(r=>r.map(v=>{
+    const s=String(v||'');
+    return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;
+  }).join(',')).join('\n');
+
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`RC6_Commissions_${from}_${to}.csv`;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
+  toast('Commission report exported!');
 }
 
 // RC7 - Simple Sales Rep Activity
