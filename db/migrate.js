@@ -102,6 +102,15 @@ async function migrate() {
     items JSONB DEFAULT '[]'
   )`);
 
+  await query(`CREATE TABLE IF NOT EXISTS tastings (
+    id TEXT PRIMARY KEY,
+    acct_id TEXT, rep_id TEXT,
+    date DATE NOT NULL,
+    notes TEXT,
+    items JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
   await query(`CREATE TABLE IF NOT EXISTS shared_docs (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL, category TEXT,
