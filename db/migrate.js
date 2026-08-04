@@ -102,6 +102,8 @@ async function migrate() {
     items JSONB DEFAULT '[]'
   )`);
 
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT`);
+
   await query(`CREATE TABLE IF NOT EXISTS tastings (
     id TEXT PRIMARY KEY,
     acct_id TEXT, rep_id TEXT,
