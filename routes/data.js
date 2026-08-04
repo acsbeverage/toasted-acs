@@ -213,6 +213,51 @@ router.delete('/drafts/:id', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/tastings', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.user.role === 'admin';
+    const rows = isAdmin
+      ? await getAll('SELECT * FROM tastings ORDER BY created_at DESC')
+      : await getAll('SELECT * FROM tastings WHERE rep_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    res.json({ ok: true, tastings: rows.map(r => ({
+      id: r.id, acct: r.acct_id, rep: r.rep_id,
+      date: r.date?.toISOString().slice(0,10),
+      notes: r.notes||'',
+      createdAt: r.created_at?.toISOString().slice(0,10),
+      items: r.items||[]
+    }))});
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/tastings', requireAuth, async (req, res) => {
+  try {
+    const { id, acct, date, notes, items } = req.body;
+    if (!acct) return res.status(400).json({ ok: false, error: 'Account required' });
+    const tid = id || ('t'+Date.now());
+    await query(
+      `INSERT INTO tastings (id,acct_id,rep_id,date,notes,items)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (id) DO UPDATE SET acct_id=$2,date=$4,notes=$5,items=$6`,
+      [tid,acct,req.user.id,date||null,notes||'',JSON.stringify(items||[])]
+    );
+    res.json({ ok: true, id: tid });
+  } catch (err) {
+    console.error('Save tasting error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.delete('/tastings/:id', requireAuth, async (req, res) => {
+  try {
+    await query('DELETE FROM tastings WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.get('/docs', requireAuth, async (req, res) => {
   try {
     const rows = await getAll('SELECT * FROM shared_docs ORDER BY created_at DESC');
