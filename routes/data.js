@@ -89,7 +89,8 @@ router.get('/products', requireAuth, async (req, res) => {
         laidInCost: parseFloat(r.laid_in_cost)||0,
         active: r.active||'Yes',
         core: r.core||'No',
-      }
+      },
+      image: r.image_url||'',
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -98,20 +99,41 @@ router.get('/products', requireAuth, async (req, res) => {
 
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
-    const { prices, da, stock, _details } = req.body;
+    const { name, producer, cat, btl, prices, da, stock, _details, image } = req.body;
     await query(`UPDATE products SET
-      price_frontline=$1,price_mix12=$2,price_acs3=$3,price_brand3=$4,price_brand5=$5,
-      da_frontline=$6,da_mix12=$7,da_acs3=$8,da_brand3=$9,da_brand5=$10,
-      stock=$11,fob_price=$12,laid_in_cost=$13,active=$14,core=$15,
-      redemption_entry=$16,bottle_size=$17,upc=$18 WHERE sku=$19`,
-      [prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
+      name=COALESCE($1,name), producer=COALESCE($2,producer), cat=COALESCE($3,cat), btl=COALESCE($4,btl),
+      price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
+      da_frontline=$10,da_mix12=$11,da_acs3=$12,da_brand3=$13,da_brand5=$14,
+      stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
+      redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23 WHERE sku=$24`,
+      [name,producer,cat,btl,
+       prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
        da?.frontline||0,da?.mix12||0,da?.acs3||0,da?.brand3||0,da?.brand5||0,
        stock||0,_details?.fobPrice||0,_details?.laidInCost||0,
        _details?.active||'Yes',_details?.core||'No',
        _details?.redemptionEntry||'',_details?.bottleSize||'',_details?.upc||'',
+       image||'',
        req.params.sku]);
     res.json({ ok: true });
   } catch (err) {
+    console.error('Update product error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/products', requireAdmin, async (req, res) => {
+  try {
+    const { sku, name, producer, cat, btl, image } = req.body;
+    if (!sku || !name) return res.status(400).json({ ok: false, error: 'SKU and name required' });
+    await query(
+      `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,image_url)
+       VALUES ($1,$2,$3,$4,$5,0,6,$6)
+       ON CONFLICT (sku) DO UPDATE SET name=$2,producer=$3,cat=$4,btl=$5,image_url=$6`,
+      [sku, name, producer||'', cat||'Spirits', btl||6, image||'']
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Create product error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
