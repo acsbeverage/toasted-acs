@@ -1177,7 +1177,7 @@ function submitPortalOrder(){
   }
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
   const repId=acct.rep||'u1';
-  const id='ORD-'+today().replace(/-/g,'')+'-'+String(orderSeq++).padStart(4,'0');
+  const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   ORDERS.push({
     id, acct:currentOrder.acct, rep:repId,
     date:currentOrder.date||today(),
@@ -1424,7 +1424,7 @@ function renderDashboard(){
 // -- NEW ORDER -----------------------------------------------------------------
 function renderNewOrder(){
   currentOrder={acct:null,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
-  const orderId='ORD-2024-'+String(orderSeq).padStart(4,'0');
+  const orderId='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">${orderId}</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
@@ -1838,7 +1838,7 @@ function submitOrder(){
   }
 
   const isSample=currentOrder.orderType==='sample';
-  const id='ORD-2024-'+String(orderSeq++).padStart(4,'0');
+  const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   const newOrder={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
   ORDERS.push(newOrder);
   saveNewOrderToDB({...newOrder,placedByLabel:currentUser.fname+' '+(currentUser.lname||'')});
