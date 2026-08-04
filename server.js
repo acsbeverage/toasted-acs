@@ -244,7 +244,15 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-
+app.get('/api/migrate-products', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-products') return res.status(403).json({ok:false});
+  try {
+    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
+    res.json({ok:true, message:'Migration complete -- image_url column added'});
+  } catch (err) {
+    res.status(500).json({ok:false, error: err.message});
+  }
+});
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
