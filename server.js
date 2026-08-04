@@ -225,24 +225,7 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/migrate-accounts', async (req, res) => {
-  if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
-  const {query} = require('./db');
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS warehouse_code TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS tax_id TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS resale_num TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS lic_expiry TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS abc_detail TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(5,2) DEFAULT 0`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS payment_provider TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS pref_method TEXT DEFAULT ''`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS online_payments TEXT DEFAULT 'No'`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS redemption TEXT DEFAULT 'No'`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS avg_days_to_pay NUMERIC(5,1) DEFAULT 0`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(10,2) DEFAULT 0`);
-  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
-  res.json({ok:true, message:'Account columns added successfully'});
-});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
