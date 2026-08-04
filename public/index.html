@@ -765,8 +765,16 @@ function saveProductToDB(sku){
   fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify({prices:p.prices,da:p.da,stock:p.stock,_details:p._details})
+    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||''})
   }).catch(e=>console.error('Save product error:',e.message));
+}
+function saveNewProductToDB(p){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/products',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({sku:p.sku,name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image||''})
+  }).catch(e=>console.error('Create product error:',e.message));
 }
 
 function saveNewOrderToDB(order){
@@ -2257,9 +2265,12 @@ function onTastingProdSearch(val){
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addTastingItem('${p.sku.replace(/'/g,"\\'")}')">
-      <div>
-        <div class="dd-name">${p.name}</div>
-        <div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:4px;background:var(--bg3);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:contain"/>`:`<i class="ti ti-bottle" style="font-size:15px;color:var(--text3)"></i>`}</div>
+        <div>
+          <div class="dd-name">${p.name}</div>
+          <div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div>
+        </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div>
@@ -2271,11 +2282,10 @@ function onTastingProdSearch(val){
 function closeTastingProdDD(){const dd=document.getElementById('ts-prod-dd');if(dd)dd.classList.remove('open');const s=document.getElementById('ts-prod-search');if(s)s.value=''}
 function addTastingItem(sku){
   if(currentTasting.items.find(x=>x.sku===sku)){toast('Already added');closeTastingProdDD();return}
-  currentTasting.items.push({sku,tier:'frontline'});
+  currentTasting.items.push({sku});
   closeTastingProdDD();renderTastingItems();
 }
 function removeTastingItem(idx){currentTasting.items.splice(idx,1);renderTastingItems()}
-function updateTastingTier(idx,tier){currentTasting.items[idx].tier=tier;renderTastingItems()}
 
 function renderTastingItems(){
   const wrap=document.getElementById('ts-items-wrap');if(!wrap)return;
@@ -2284,19 +2294,22 @@ function renderTastingItems(){
     wrap.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-glass" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products to this tasting</div>`;
     return;
   }
-  wrap.innerHTML=`<table class="tbl"><thead><tr><th>Product</th><th>Category</th><th>Pack</th><th>Pricing tier</th><th style="text-align:right">Price /btl</th><th style="text-align:right">Price /case</th><th></th></tr></thead><tbody>
-    ${currentTasting.items.map((item,idx)=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
-      const price=itemPrice(p,item.tier);
-      return`<tr><td><div style="font-weight:500">${p.name}</div><div style="font-size:11px;color:var(--text2)">${p.sku} · ${p.producer}</div></td>
-      <td>${catBadge(p.cat)}</td>
-      <td style="color:var(--text2)">${p.btl}pk</td>
-      <td><select class="finput" style="padding:5px 8px;font-size:12px" onchange="updateTastingTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td>
-      <td style="text-align:right;font-weight:600">${fmt(price)}</td>
-      <td style="text-align:right;font-weight:600">${fmt(price*p.btl)}</td>
-      <td><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="removeTastingItem(${idx})"><i class="ti ti-x"></i></button></td></tr>`;
-    }).join('')}
-  </tbody></table>`;
+  wrap.innerHTML=currentTasting.items.map((item,idx)=>{
+    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+    const tierRows=TIERS.filter(t=>(p.prices[t.id]||0)>0).map(t=>{
+      const price=p.prices[t.id];
+      return `<div style="margin-bottom:6px"><div style="font-size:12px;font-weight:700;color:var(--text)">${t.name.toUpperCase()}: ${fmt(price*p.btl)}</div><div style="font-size:11px;color:var(--text2);font-style:italic">Bottle: ${fmt(price)}</div></div>`;
+    }).join('');
+    return `<div style="display:flex;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border)">
+      <div style="width:56px;height:56px;border-radius:6px;background:var(--bg3);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:contain"/>`:`<i class="ti ti-bottle" style="font-size:24px;color:var(--text3)"></i>`}</div>
+      <div style="flex:1">
+        <div style="font-weight:600">${p.name}</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${p.sku} · ${p.producer} · ${p.btl}pk ${(p._details&&p._details.bottleSize)?'· '+p._details.bottleSize:''}</div>
+        ${tierRows||'<div style="font-size:12px;color:var(--text3)">No pricing set for this product</div>'}
+      </div>
+      <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);align-self:flex-start" onclick="removeTastingItem(${idx})"><i class="ti ti-x"></i></button>
+    </div>`;
+  }).join('');
 }
 
 function saveTasting(thenExport){
@@ -2323,70 +2336,124 @@ function deleteTasting(id){
   renderTastings();
 }
 
-function exportTastingPDF(id){
+// Preloads natural width/height for a base64 image so it can be placed in the PDF without distortion.
+function _loadImgDims(dataUrl){
+  return new Promise(resolve=>{
+    if(!dataUrl){resolve(null);return;}
+    const img=new Image();
+    img.onload=()=>resolve({w:img.naturalWidth||1,h:img.naturalHeight||1});
+    img.onerror=()=>resolve(null);
+    img.src=dataUrl;
+  });
+}
+function _imgFormatFromDataUrl(dataUrl){
+  const m=/^data:image\/(png|jpeg|jpg|webp)/i.exec(dataUrl||'');
+  if(!m)return'PNG';
+  const f=m[1].toUpperCase();
+  return f==='JPG'?'JPEG':f;
+}
+
+async function exportTastingPDF(id){
   const t=TASTINGS.find(x=>x.id===id);if(!t){toast('Save the tasting first');return}
   const acct=ACCOUNTS.find(a=>a.id===t.acct);
   const rep=USERS.find(u=>u.id===t.rep);
+  toast('Generating PDF...');
+
+  // Preload image dimensions for every product with an image so they render without distortion
+  const dims={};
+  for(const item of t.items){
+    const p=PRODUCTS.find(x=>x.sku===item.sku);
+    if(p&&p.image){ dims[item.sku]=await _loadImgDims(p.image); }
+  }
+
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'pt',format:'letter'});
   const W=612,M=40;let y=M;
+  const IMG_BOX=64;
 
-  doc.setFillColor(26,30,46);doc.rect(0,0,W,58,'F');
-  doc.setFontSize(15);doc.setFont('helvetica','bold');doc.setTextColor(232,201,122);
-  doc.text('TASTING SHEET',M,26);
-  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(200,200,200);
-  doc.text(COMPANY.name,M,42);
-  doc.setFontSize(8);doc.setTextColor(160,160,160);
-  doc.text('Generated '+today(),W-M,42,{align:'right'});
-  y=80;
+  // -- Header: logo + company info (left), account + date (right) --------------
+  try{doc.addImage('data:image/png;base64,'+ACS_LOGO_B64,'PNG',M,y,52,52);}catch(e){}
+  doc.setFontSize(16);doc.setFont('helvetica','bold');doc.setTextColor(26,30,46);
+  doc.text('Tasting Sheet',M+62,y+20);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(120,120,120);
+  doc.text(COMPANY.name,M+62,y+35);
 
-  doc.setFontSize(12);doc.setFont('helvetica','bold');doc.setTextColor(26,30,46);
-  doc.text(acct?acct.name:'--',M,y);
-  y+=15;
-  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(90,90,90);
-  if(acct&&acct.address){doc.text(acct.address,M,y);y+=13;}
-  doc.text('Tasting date: '+(t.date||'--')+'   ·   Rep: '+(rep?rep.fname+' '+rep.lname:'--'),M,y);
-  y+=13;
-  if(t.notes){doc.setFont('helvetica','italic');doc.text('Notes: '+t.notes,M,y);y+=13;doc.setFont('helvetica','normal');}
-  y+=10;
+  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(26,30,46);
+  doc.text(acct?acct.name:'--',W-M,y+8,{align:'right'});
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(120,120,120);
+  doc.text('Tasting date: '+(t.date||'--'),W-M,y+21,{align:'right'});
+  doc.text('Rep: '+(rep?rep.fname+' '+(rep.lname||''):'--'),W-M,y+34,{align:'right'});
+  y+=64;
 
-  const drawHeader=()=>{
-    doc.setFillColor(240,238,233);doc.rect(M,y-11,W-M*2,17,'F');
-    doc.setFontSize(8.5);doc.setFont('helvetica','bold');doc.setTextColor(70,70,70);
-    doc.text('PRODUCT',M+4,y);
-    doc.text('CATEGORY',M+250,y);
-    doc.text('PACK',M+340,y);
-    doc.text('PRICE / BTL',W-M-100,y,{align:'right'});
-    doc.text('PRICE / CASE',W-M-4,y,{align:'right'});
-    y+=16;
-  };
-  drawHeader();
+  if(t.notes){
+    doc.setFontSize(9);doc.setFont('helvetica','italic');doc.setTextColor(90,90,90);
+    doc.text('Notes: '+t.notes,M,y);
+    y+=14;
+  }
+  doc.setDrawColor(220,216,208);doc.line(M,y,W-M,y);
+  y+=18;
 
-  doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);
+  // -- Product rows --------------------------------------------------------------
+  const ensureSpace=(h)=>{ if(y+h>760){doc.addPage();y=M;} };
+
   t.items.forEach(item=>{
     const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
-    if(y>720){doc.addPage();y=M;drawHeader();}
-    const price=itemPrice(p,item.tier);
-    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
-    const nm=p.name.length>42?p.name.substring(0,40)+'...':p.name;
-    doc.text(nm,M+4,y);
-    doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(130,130,130);
-    doc.text(p.sku+' · '+p.producer,M+4,y+10);
-    doc.setFontSize(8.5);doc.setTextColor(60,60,60);
-    doc.text(p.cat,M+250,y);
-    doc.text(p.btl+'pk',M+340,y);
-    doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
-    doc.text(fmt(price),W-M-100,y,{align:'right'});
-    doc.text(fmt(price*p.btl),W-M-4,y,{align:'right'});
-    doc.setDrawColor(225,222,214);doc.line(M,y+16,W-M,y+16);
-    y+=26;
+    const tiers=TIERS.filter(tr=>(p.prices[tr.id]||0)>0);
+    const rowH=Math.max(IMG_BOX+14, 24+tiers.length*28);
+    ensureSpace(rowH);
+    const rowTop=y;
+
+    // Bottle image (or placeholder box)
+    if(p.image&&dims[p.sku]){
+      const d=dims[p.sku];
+      const scale=Math.min(IMG_BOX/d.w,IMG_BOX/d.h);
+      const dw=d.w*scale,dh=d.h*scale;
+      try{doc.addImage(p.image,_imgFormatFromDataUrl(p.image),M+((IMG_BOX-dw)/2),rowTop+((IMG_BOX-dh)/2),dw,dh);}catch(e){}
+    } else {
+      doc.setDrawColor(225,222,214);doc.setFillColor(247,246,243);
+      doc.roundedRect(M,rowTop,IMG_BOX,IMG_BOX,4,4,'FD');
+    }
+
+    // Name / size
+    const textX=M+IMG_BOX+14;
+    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(26,30,46);
+    const nm=p.name.length>48?p.name.substring(0,46)+'...':p.name;
+    doc.text(nm,textX,rowTop+13);
+    doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(130,130,130);
+    const sizeLabel='Size: '+(p._details&&p._details.bottleSize?p._details.bottleSize:'750ml')+' x '+p.btl;
+    doc.text(sizeLabel,textX,rowTop+25);
+
+    // All pricing tiers, right-aligned, stacked
+    let ty=rowTop+13;
+    const priceX=W-M;
+    if(tiers.length){
+      tiers.forEach(tr=>{
+        const price=p.prices[tr.id];
+        doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
+        doc.text(tr.name.toUpperCase()+': '+fmt(price*p.btl),priceX,ty,{align:'right'});
+        ty+=11;
+        doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(120,120,120);
+        doc.text('Bottle: '+fmt(price),priceX,ty,{align:'right'});
+        ty+=16;
+      });
+    } else {
+      doc.setFontSize(9);doc.setFont('helvetica','italic');doc.setTextColor(150,150,150);
+      doc.text('No pricing set',priceX,ty,{align:'right'});
+    }
+
+    y=rowTop+rowH;
+    doc.setDrawColor(230,228,222);doc.line(M,y,W-M,y);
+    y+=14;
   });
 
+  // -- Footer on every page -------------------------------------------------------
   const pc=doc.getNumberOfPages();
   for(let i=1;i<=pc;i++){
-    doc.setPage(i);doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(150,150,150);
-    doc.text(COMPANY.name+' · '+(COMPANY.website||''),M,785);
-    doc.text('Page '+i+' of '+pc,W-M,785,{align:'right'});
+    doc.setPage(i);
+    doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(150,150,150);
+    doc.text('To place an order, please contact your local sales rep, or email orders@acsbeverage.com',W/2,782,{align:'center'});
+    doc.setFontSize(7.5);doc.setFont('helvetica','normal');
+    doc.text('Page '+i+' of '+pc,W-M,782,{align:'right'});
   }
   doc.save('Tasting-'+(acct?acct.name.replace(/[^a-z0-9]+/gi,'-'):id)+'-'+(t.date||today())+'.pdf');
   toast('Tasting PDF exported');
@@ -8288,6 +8355,25 @@ function openEditProduct(sku){
   document.getElementById('modal-product').style.display='block';
 }
 
+function onProductImageSelect(input){
+  const file=input.files?.[0];if(!file)return;
+  if(file.size>3*1024*1024){toast('Image too large -- please use a file under 3MB');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    window._pfImageData=e.target.result;
+    const wrap=document.getElementById('pf-image-preview-wrap');
+    if(wrap)wrap.innerHTML=`<img id="pf-image-preview" src="${window._pfImageData}" style="width:100%;height:100%;object-fit:contain"/>`;
+  };
+  reader.onerror=()=>toast('Could not read image file');
+  reader.readAsDataURL(file);
+}
+function removeProductImage(){
+  window._pfImageData='';
+  const wrap=document.getElementById('pf-image-preview-wrap');
+  if(wrap)wrap.innerHTML=`<i id="pf-image-preview-icon" class="ti ti-bottle" style="font-size:26px;color:var(--text3)"></i>`;
+  const fileInput=document.getElementById('pf-image-file');if(fileInput)fileInput.value='';
+}
+
 function openNewProduct(){
   _editingProductSku=null;
   const blank={sku:'',name:'',producer:'',cat:'Spirits',btl:6,stock:0,reorder:6,prices:{},_details:{
@@ -8309,8 +8395,22 @@ function closeProdModal(){
 
 function renderProductForm(p,isNew){
   const d=p._details||{};
+  window._pfImageData=p.image||'';
   document.getElementById('prod-modal-title').textContent=isNew?'Add New Product':'Edit Product -- '+p.name;
   document.getElementById('prod-modal-body').innerHTML=`
+  <div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text3);letter-spacing:0.6px;margin:16px 0 10px">Product Image</div>
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+    <div id="pf-image-preview-wrap" style="width:72px;height:72px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+      ${p.image?`<img id="pf-image-preview" src="${p.image}" style="width:100%;height:100%;object-fit:contain"/>`:`<i id="pf-image-preview-icon" class="ti ti-bottle" style="font-size:26px;color:var(--text3)"></i>`}
+    </div>
+    <div>
+      <input type="file" id="pf-image-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onProductImageSelect(this)"/>
+      <button type="button" class="btn btn-sm" onclick="document.getElementById('pf-image-file').click()"><i class="ti ti-upload"></i> Upload image</button>
+      <button type="button" class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="removeProductImage()"><i class="ti ti-trash"></i> Remove</button>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">PNG, JPEG, or WEBP. Used on Tasting sheet PDFs.</div>
+    </div>
+  </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px">
 
     <!-- -- LEFT COL ----------------------------------- -->
@@ -8454,13 +8554,16 @@ function saveProduct(){
   };
 
   if(isNew){
-    PRODUCTS.push({
+    const newProduct={
       sku,name,producer:document.getElementById('pf-producer').value.trim(),
       cat:document.getElementById('pf-cat').value,
       btl:parseInt(document.getElementById('pf-btl').value)||6,
       stock:0,reorder:6,prices:{},
+      image:window._pfImageData||'',
       _details:details
-    });
+    };
+    PRODUCTS.push(newProduct);
+    saveNewProductToDB(newProduct);
     toast('Product added -- '+name);
   } else {
     const p=PRODUCTS.find(x=>x.sku===_editingProductSku);
@@ -8469,7 +8572,9 @@ function saveProduct(){
     p.producer=document.getElementById('pf-producer').value.trim();
     p.cat=document.getElementById('pf-cat').value;
     p.btl=parseInt(document.getElementById('pf-btl').value)||6;
+    p.image=window._pfImageData||'';
     p._details=details;
+    saveProductToDB(p.sku);
     toast('Product saved -- '+name);
   }
 
