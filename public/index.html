@@ -1373,14 +1373,28 @@ accounting@acsbeverage.com`
 })()
 
 // -- NAV -----------------------------------------------------------------------
-function showPage(page){
+function showPage(page, pushState=true){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
   const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   document.getElementById('topbar-right').innerHTML='';
+  // Push to browser history so back button works within app
+  if(pushState){
+    history.pushState({page}, '', '#'+page);
+  }
   ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts}[page]||(() => {}))();
 }
+
+// Handle browser back/forward buttons
+window.addEventListener('popstate', function(e){
+  if(e.state&&e.state.page){
+    showPage(e.state.page, false);
+  } else {
+    // If no state, go to dashboard
+    showPage('dashboard', false);
+  }
+});
 
 // -- DASHBOARD -----------------------------------------------------------------
 function renderDashboard(){
