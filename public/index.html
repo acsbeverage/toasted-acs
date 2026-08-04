@@ -575,7 +575,19 @@ const today=()=>new Date().toISOString().split('T')[0];
 const plusDays=(d,n)=>{const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().split('T')[0]};
 const tierName=id=>{const t=TIERS.find(x=>x.id===id);return t?t.name:id};
 const myAccounts=()=>currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id);
-const itemTotalBottles=item=>item.cases*((PRODUCTS.find(y=>y.sku===item.sku)||{btl:6}).btl)+item.bottles;
+const itemTotalBottles=item=>{const p=PRODUCTS.find(y=>y.sku===item.sku);return(item.cases||0)*((p&&p.btl)||12)+(item.bottles||0);};
+
+// Format order quantity as "Xcs Ybtl" or just "Xcs" or "Ybtl"
+function orderQtyLabel(items){
+  if(!items||!items.length)return'--';
+  const prodItems=items.filter(i=>!i._fee);
+  const cases=prodItems.reduce((s,x)=>s+(x.cases||0),0);
+  const loose=prodItems.reduce((s,x)=>s+(x.bottles||0),0);
+  if(cases>0&&loose>0)return`${cases}cs ${loose}btl`;
+  if(cases>0)return`${cases}cs`;
+  if(loose>0)return`${loose}btl`;
+  return'--';
+}
 const itemPrice=(p,tier)=>p.prices[tier]||0;
 const DELIVERY_FEE_SKU='__DELIVERY__';
 const BROKEN_CASE_SKU='__BROKEN_CASE__';
@@ -1376,7 +1388,7 @@ function renderDashboard(){
   const myOrders=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
   const confirmed=myOrders.filter(o=>o.status==='confirmed');
   const totalRev=confirmed.reduce((s,o)=>s+orderTotal(o),0);
-  const totalBtl=confirmed.reduce((s,o)=>s+o.items.reduce((ss,x)=>ss+itemTotalBottles(x),0),0);
+  const totalBtl=confirmed.reduce((s,o)=>s+o.items.reduce((ss,x)=>ss+x.cases,0),0); const totalLoose=confirmed.reduce((s,o)=>s+o.items.reduce((ss,x)=>ss+x.bottles,0),0);
   const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
   const low=[...lowStock(),...outOfStock()];
   const monthlySales={};confirmed.forEach(o=>{const m=parseInt(o.date.split('-')[1])-1;monthlySales[m]=(monthlySales[m]||0)+orderTotal(o)});
@@ -1741,7 +1753,7 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
     accountName:  acct.name||'--',
     placedBy:     placedByLabel,
     repName:      (rep.fname||'')+' '+(rep.lname||''),
-    repEmail:     rep.email||'',
+    repEmail:     placedByEmail||'',
     orderDate:    o.date,
     deliveryDate: o.delivery,
     orderType:    (o.orderType||'standard').charAt(0).toUpperCase()+(o.orderType||'standard').slice(1),
@@ -1772,8 +1784,9 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
   } else {
     // Fallback: mailto: — opens email client pre-filled
     const to = [...NOTIFY_ALWAYS];
-    if(rep.email && !to.map(e=>e.toLowerCase()).includes(rep.email.toLowerCase())){
-      to.push(rep.email);
+    // Only notify the person who PLACED the order (not the account's assigned rep)
+    if(placedByEmail && !to.map(e=>e.toLowerCase()).includes(placedByEmail.toLowerCase())){
+      to.push(placedByEmail);
     }
     const subject = encodeURIComponent('New Order Has Been Placed - '+(acct.name||'Unknown Account'));
     const bodyText = [
@@ -1861,7 +1874,7 @@ function renderDraftOrders(){
   const mine=currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>d.rep===currentUser.id);
   document.getElementById('main-content').innerHTML=`<div class="card">
     <div class="card-header"><span class="card-title">${mine.length} draft order${mine.length!==1?'s':''}</span></div>
-    ${mine.length?`<table class="tbl"><thead><tr><th>Saved</th><th>Account</th><th>Rep</th><th>Delivery</th><th>Items</th><th>Bottles</th><th>Notes</th><th></th></tr></thead>
+    ${mine.length?`<table class="tbl"><thead><tr><th>Saved</th><th>Account</th><th>Rep</th><th>Delivery</th><th>Items</th><th>Qty</th><th>Notes</th><th></th></tr></thead>
     <tbody>${mine.map(d=>{
       const acct=ACCOUNTS.find(a=>a.id===d.acct);const rep=USERS.find(u=>u.id===d.rep);
       const btl=d.items.reduce((s,x)=>s+(x._fee?0:itemTotalBottles(x)),0);
@@ -1877,9 +1890,8 @@ function renderUnconfirmed(){
   const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
   document.getElementById('main-content').innerHTML=`<div class="card">
     <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
-    ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Bottles</th><th>Total</th><th>Notes</th><th></th></tr></thead>
-    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
-      return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
+    ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
       <td style="display:flex;gap:6px"><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
     </tbody></table>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
@@ -1978,7 +1990,7 @@ function renderHistory(){
     ${isAdmin?`<select class="finput" id="hist-rep" onchange="filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
   </div>
   <div class="card"><div class="card-header"><span class="card-title" id="hist-count">${mine.length} orders</span></div>
-  <table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Bottles</th><th>Total</th><th>Status</th><th></th></tr></thead>
+  <table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
   <tbody id="hist-body"></tbody></table></div>`;
   window._histOrders=mine;filterHistory();
 }
@@ -1991,7 +2003,7 @@ function filterHistory(){
     const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
-    return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${btl} btl</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
+    return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       ${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
@@ -3196,11 +3208,12 @@ function _buildInvoicePDF(o,callback){
 
   // Left: summary
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  doc.text('Total cases: '+Math.floor(totalCases)+(totalCases%1>0?' + '+Math.round(totalCases%1*12)+' loose':''),ML,y);
-  doc.text('Total bottles: '+totalBtl,ML,y+11);
+  doc.text('Full Cases: '+Math.floor(totalCases)+'cs',ML,y);
+  if(totalCases%1>0) doc.text('Loose Bottles: '+Math.round(totalCases%1*12)+' btl',ML,y+11);
   if(o.notes){
+    const notesY=totalCases%1>0?y+22:y+11;
     doc.setFontSize(7.5);
-    doc.text('Notes: '+o.notes,ML,y+22,{maxWidth:CW*0.5});
+    doc.text('Notes: '+o.notes,ML,notesY,{maxWidth:CW*0.5});
   }
 
   // Right: totals box - lines only, no fill
@@ -3272,7 +3285,7 @@ function renderDeliveries(){
         <th style="color:#B03A2E">Delivery Date</th>
         <th>Order Date</th>
         <th>Sales Rep</th>
-        <th>Bottles</th>
+        <th>Qty</th>
         <th>Total</th>
         <th>Notes</th>
         <th>Actions</th>
@@ -7143,9 +7156,9 @@ function _renderInvoiceHTML(orderId, b64){
 
       <div class="totals-row">
         <div class="totals-summary">
-          Total cases: ${Math.floor(totalCases)}${totalCases%1>0?' + '+Math.round(totalCases%1*12)+' loose':''}<br>
-          Total bottles: ${totalBtl}<br>
-          ${o.notes?'Notes: '+o.notes:''}
+          <strong>Full Cases:</strong> ${Math.floor(totalCases)}cs<br>
+          ${totalCases%1>0?`<strong>Loose Bottles:</strong> ${Math.round(totalCases%1*12)} btl<br>`:''} 
+          ${o.notes?'<strong>Notes:</strong> '+o.notes:''}
         </div>
         <div class="totals-box">
           <div class="total-label">Total Due</div>
