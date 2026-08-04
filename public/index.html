@@ -4451,63 +4451,141 @@ function renderRA2(el, orders, producerFilter){
 
 // RA5 - Depletion by Producer
 function renderRA5(el, orders, producerFilter){
-  const prodMap={};
+  // Build detailed line items
+  const rows=[];
   orders.forEach(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
+    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
     o.items.filter(i=>!i._fee).forEach(item=>{
       const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
-      if(!prodMap[p.producer])prodMap[p.producer]={producer:p.producer,cases:0,bottles:0,revenue:0,skus:{}};
-      const btl=itemTotalBottles(item);
-      const total=itemLineTotal(item);
-      prodMap[p.producer].cases+=item.cases;
-      prodMap[p.producer].bottles+=btl;
-      prodMap[p.producer].revenue+=total;
-      if(!prodMap[p.producer].skus[item.sku])prodMap[p.producer].skus[item.sku]={name:p.name,cases:0,bottles:0,revenue:0};
-      prodMap[p.producer].skus[item.sku].cases+=item.cases;
-      prodMap[p.producer].skus[item.sku].bottles+=btl;
-      prodMap[p.producer].skus[item.sku].revenue+=total;
+      const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
+      rows.push({
+        wineName:p.name,
+        wineCode:item.sku,
+        producer:p.producer||'',
+        account:acct.name||'',
+        salesRep:rep.fname+' '+(rep.lname||''),
+        date:o.date,
+        quantity:qty,
+        invoice:o.id,
+        poNumber:o.po||'',
+        warehouse:'ACS Warehouse',
+        warehouseCode:acct.warehouseCode||'',
+        sampleOrder:o.isSample?'Yes':'',
+        abcNumber:acct.lic||acct.abcNum||'',
+        shipStreet:acct.shipStreet||'',
+        shipCity:acct.shipCity||'',
+        shipState:acct.shipState||'',
+        shipZip:acct.shipZip||'',
+        bottleSize:p._details?.bottleSize||'',
+        packSize:p.btl||'',
+        accountId:acct.id||'',
+      });
     });
   });
-  const rows=Object.values(prodMap).sort((a,b)=>b.revenue-a.revenue);
-  const grandRev=rows.reduce((s,r)=>s+r.revenue,0);
-  const grandCases=rows.reduce((s,r)=>s+r.cases,0);
+
+  // Summary by producer for display
+  const prodMap={};
+  rows.forEach(r=>{
+    if(!prodMap[r.producer])prodMap[r.producer]={producer:r.producer,lines:0,cases:0,revenue:0};
+    prodMap[r.producer].lines++;
+    prodMap[r.producer].cases+=r.quantity;
+  });
+  const summary=Object.values(prodMap).sort((a,b)=>b.cases-a.cases);
+  const totalCases=rows.reduce((s,r)=>s+r.quantity,0);
+
   el.innerHTML+=`
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">RA5 — Depletion by Producer</span>
-      <span style="font-size:12px;color:var(--text2)">${rows.length} producers · ${grandCases} cases · ${fmt(grandRev)}</span>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="display:flex;gap:12px">
+      <div class="card" style="padding:12px 20px;text-align:center">
+        <div style="font-size:20px;font-weight:700;color:var(--gold)">${rows.length}</div>
+        <div style="font-size:11px;color:var(--text2)">Line Items</div>
+      </div>
+      <div class="card" style="padding:12px 20px;text-align:center">
+        <div style="font-size:20px;font-weight:700;color:var(--text)">${totalCases.toFixed(2)}</div>
+        <div style="font-size:11px;color:var(--text2)">Total Cases</div>
+      </div>
+      <div class="card" style="padding:12px 20px;text-align:center">
+        <div style="font-size:20px;font-weight:700;color:var(--text)">${summary.length}</div>
+        <div style="font-size:11px;color:var(--text2)">Producers</div>
+      </div>
     </div>
-    <div style="overflow-x:auto">
+    <button class="btn btn-sm btn-dark" onclick="exportRA5CSV()"><i class="ti ti-download"></i> Export CSV</button>
+  </div>
+
+  <!-- Summary by producer -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-header"><span class="card-title">Summary by Producer</span></div>
+    <table class="tbl">
+      <thead><tr><th>Producer</th><th style="text-align:right">Line Items</th><th style="text-align:right">Total Cases</th><th style="text-align:right">% of Total</th></tr></thead>
+      <tbody>
+      ${summary.map(s=>`<tr>
+        <td style="font-weight:600">${s.producer||'Unknown'}</td>
+        <td style="text-align:right;font-size:12px">${s.lines}</td>
+        <td style="text-align:right;font-weight:600">${s.cases.toFixed(2)}</td>
+        <td style="text-align:right;font-size:12px;color:var(--text2)">${totalCases>0?(s.cases/totalCases*100).toFixed(1):0}%</td>
+      </tr>`).join('')}
+      </tbody>
+      <tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${totalCases.toFixed(2)}</td><td></td></tr></tfoot>
+    </table>
+  </div>
+
+  <!-- Detailed line items -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Line Item Detail</span><span style="font-size:12px;color:var(--text2)">${rows.length} rows</span></div>
+    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
       <table class="tbl">
-        <thead><tr><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead>
+        <thead><tr>
+          <th>Wine Name</th><th>Wine Code</th><th>Producer</th>
+          <th>Account</th><th>Sales Rep</th><th>Date</th>
+          <th style="text-align:right">Quantity (cs)</th>
+          <th>Invoice #</th><th>PO #</th><th>Sample?</th>
+          <th>ABC #</th><th>City</th><th>State</th>
+          <th style="text-align:right">Bottle Size</th><th style="text-align:right">Pack</th>
+        </tr></thead>
         <tbody>
-        ${rows.length?rows.map(r=>`
-          <tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-            <td style="font-weight:600">${r.producer} <i class="ti ti-chevron-down" style="font-size:11px;color:var(--text3)"></i></td>
-            <td style="text-align:right">${r.cases}</td>
-            <td style="text-align:right;color:var(--text2)">${r.bottles}</td>
-            <td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td>
-            <td style="text-align:right;color:var(--text2)">${grandRev>0?(r.revenue/grandRev*100).toFixed(1):0}%</td>
-          </tr>
-          <tr style="display:none;background:var(--bg2)">
-            <td colspan="5" style="padding:0 24px 12px">
-              <table style="width:100%;border-collapse:collapse;font-size:12px">
-                ${Object.values(r.skus).sort((a,b)=>b.revenue-a.revenue).map(s=>`<tr>
-                  <td style="padding:4px 0;color:var(--text2)">${s.name}</td>
-                  <td style="text-align:right;padding:4px 0">${s.cases}cs</td>
-                  <td style="text-align:right;padding:4px 0;color:var(--text2)">${s.bottles}btl</td>
-                  <td style="text-align:right;padding:4px 0;font-weight:600">${fmt(s.revenue)}</td>
-                </tr>`).join('')}
-              </table>
-            </td>
-          </tr>`).join(''):`<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>`}
+        ${rows.map(r=>`<tr>
+          <td style="font-weight:600;font-size:12px;min-width:200px">${r.wineName}</td>
+          <td style="font-size:11px;color:var(--text2)">${r.wineCode}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.producer}</td>
+          <td style="font-size:12px">${r.account}</td>
+          <td style="font-size:12px;color:var(--text2)">${r.salesRep}</td>
+          <td style="font-size:12px">${r.date}</td>
+          <td style="text-align:right;font-weight:600">${r.quantity.toFixed(4)}</td>
+          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
+          <td style="font-size:11px;color:var(--text2)">${r.poNumber}</td>
+          <td style="font-size:12px;color:${r.sampleOrder?'var(--amber)':'var(--text3)'}">${r.sampleOrder||'--'}</td>
+          <td style="font-size:11px;color:var(--text2)">${r.abcNumber}</td>
+          <td style="font-size:12px">${r.shipCity}</td>
+          <td style="font-size:12px">${r.shipState}</td>
+          <td style="text-align:right;font-size:12px">${r.bottleSize}</td>
+          <td style="text-align:right;font-size:12px">${r.packSize}</td>
+        </tr>`).join('')||'<tr><td colspan="15" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>'}
         </tbody>
-        ${rows.length?`<tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700">${grandCases}</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandRev)}</td><td></td></tr></tfoot>`:''}
       </table>
     </div>
   </div>`;
-  window._lastReportRows=rows;
-  window._lastReportCols=['producer','cases','bottles','revenue'];
+
+  window._ra5Rows=rows;
+  window._lastReportRows=summary;
+  window._lastReportCols=['producer','lines','cases'];
+}
+
+function exportRA5CSV(){
+  const rows=window._ra5Rows||[];
+  if(!rows.length){toast('No data to export');return;}
+  const from=window._rptFrom||'';const to=window._rptTo||'';
+  const cols=['Wine Name','Wine Code','Producer','Account','Account ID','Sales Rep','Date','Quantity','Invoice Number','PO Number','Warehouse','Warehouse Code','Sample Order','ABC Number','Shipping Street','Shipping City','Shipping State','Shipping Zip Code','Bottle Size','Pack Size'];
+  const data=rows.map(r=>[r.wineName,r.wineCode,r.producer,r.account,r.accountId,r.salesRep,r.date,r.quantity.toFixed(4),r.invoice,r.poNumber,r.warehouse,r.warehouseCode,r.sampleOrder,r.abcNumber,r.shipStreet,r.shipCity,r.shipState,r.shipZip,r.bottleSize,r.packSize]);
+  const csv=[cols,...data].map(r=>r.map(v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`RA5_Depletions_${from}_${to}.csv`;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
+  toast('RA5 exported!');
 }
 
 // RA40 - CRV
