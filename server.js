@@ -245,59 +245,8 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-po-email', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-poemail') return res.status(403).json({ok:false});
-  try {
-    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- email tracking columns added'});
-  } catch (err) {
-    res.status(500).json({ok:false, error: err.message});
-  }
-});
-app.get('/api/import-po-catalog', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-pocat') return res.status(403).json({ok:false});
-  try {
-    const { query, getOne, getAll } = require('./db');
-    const seedData = require('./db/seed-po-data');
-    let suppliersCreated = 0, suppliersExisting = 0, productsCreated = 0, productsSkipped = 0;
 
-    for (const supplier of seedData) {
-      let supplierRow = await getOne('SELECT id FROM po_suppliers WHERE name=$1', [supplier.name]);
-      let supplierId;
-      if (supplierRow) {
-        supplierId = supplierRow.id;
-        suppliersExisting++;
-      } else {
-        const inserted = await getOne(
-          'INSERT INTO po_suppliers (name, payment_terms) VALUES ($1,$2) RETURNING id',
-          [supplier.name, supplier.paymentTerms]
-        );
-        supplierId = inserted.id;
-        suppliersCreated++;
-      }
 
-      for (const p of supplier.products) {
-        const existing = await getOne(
-          'SELECT id FROM po_products WHERE supplier_id=$1 AND LOWER(description)=LOWER($2)',
-          [supplierId, p.description]
-        );
-        if (existing) { productsSkipped++; continue; }
-        await query(
-          `INSERT INTO po_products (supplier_id,brand_name,vintage,type,bottle_size,bottles_per_case,description,case_price,bottle_price)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [supplierId, p.brandName||'', p.vintage||null, p.type||'Spirits', p.bottleSize||'750ml',
-           p.bottlesPerCase||6, p.description, p.casePrice||0, p.bottlePrice||0]
-        );
-        productsCreated++;
-      }
-    }
-
-    res.json({ ok: true, suppliersCreated, suppliersExisting, productsCreated, productsSkipped });
-  } catch (err) {
-    console.error('PO catalog import error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
