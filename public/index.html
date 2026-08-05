@@ -2046,6 +2046,12 @@ const NOTIFY_ALWAYS = ['kevin@acsbeverage.com', 'jessica@acsbeverage.com'];
 // TOASTED_BACKEND_URL defined at top of script
 
 function sendOrderNotification(orderId, placedByLabel, placedByEmail){
+  // The backend already sends the order-confirmation email automatically
+  // as soon as the order is created (see routes/orders.js on the server).
+  // Sending it again from here caused duplicate, differently-formatted emails.
+  const backendUrl = (TOASTED_BACKEND_URL||'').trim();
+  if(backendUrl){ return; }
+
   const o = ORDERS.find(x=>x.id===orderId); if(!o) return;
   const acct = ACCOUNTS.find(a=>a.id===o.acct)||{};
   const rep  = USERS.find(u=>u.id===o.rep)||{};
@@ -2086,24 +2092,10 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
     orderTotal:   fmt(total),
   };
 
-  // Use backend API if configured, otherwise fall back to mailto:
-  const backendUrl = (TOASTED_BACKEND_URL||'').trim();
-  if(backendUrl){
-    fetch(backendUrl+'/api/notify/order', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    })
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.ok){
-        toast('Notifications sent to: '+(data.sentTo||[]).join(', '));
-      } else {
-        console.warn('Email notification failed:', data.error);
-      }
-    })
-    .catch(err=>console.warn('Email notification error:', err.message));
-  } else {
+  // No backend configured -- fall back to mailto: (dev/offline use only).
+  // When a backend IS configured, the function already returned above,
+  // since the backend sends this notification automatically.
+  {
     // Fallback: mailto: — opens email client pre-filled
     const to = [...NOTIFY_ALWAYS];
     // Only notify the person who PLACED the order (not the account's assigned rep)
@@ -2462,11 +2454,12 @@ async function exportTastingPDF(id){
 // -- UNCONFIRMED ----------------------------------------------------------------
 function renderUnconfirmed(){
   const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
+  const isAdmin=currentUser.role==='admin';
   document.getElementById('main-content').innerHTML=`<div class="card">
     <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
     ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
-    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
-      <td style="display:flex;gap:6px"><button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
+    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
+      <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
     </tbody></table>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
 }
@@ -2577,7 +2570,8 @@ function filterHistory(){
     const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
-    return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
+    const idClick=o.status==='unconfirmed'?(canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''):`onclick="viewInvoice('${o.id}')" title="Click to view invoice"`;
+    return`<tr><td style="font-weight:600;color:var(--gold);${(canEdit||o.status!=='unconfirmed')?'cursor:pointer':''}" ${idClick}>${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       ${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
@@ -3130,6 +3124,28 @@ function openAccountDetail(acctId){
   }
   html+='</div></div>';
 
+  // -- Purchase history (product-level): what has this account bought, and at what price --
+  const purchaseLines=[];
+  allOrders.forEach(o=>{
+    o.items.filter(x=>!x._fee).forEach(item=>{
+      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const price=itemPrice(p,item.tier);
+      purchaseLines.push({
+        date:o.date,orderId:o.id,status:o.status,
+        name:p.name,sku:p.sku,
+        qtyLabel:orderQtyLabel([item]),
+        price,caseTotal:price*p.btl,
+        tier:item.tier
+      });
+    });
+  });
+  purchaseLines.sort((a,b)=>b.date.localeCompare(a.date));
+  window._acctPurchaseLines=purchaseLines;
+
+  html+='<div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Purchase History ('+purchaseLines.length+' items)</span>';
+  html+='<div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="acct-purchase-search" placeholder="Search product or SKU..." oninput="filterAcctPurchases()"/></div>';
+  html+='</div><div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Qty</th><th>Tier</th><th>Price /case</th><th>Price /btl</th><th></th></tr></thead><tbody id="acct-purchase-body"></tbody></table></div></div>';
+
   html+='<div class="card"><div class="card-header"><span class="card-title">Order History ('+allOrders.length+')</span></div>';
   html+='<div style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="tbl"><thead><tr>';
   html+='<th>Order ID</th><th>Date</th><th>Delivery</th><th>Status</th><th>Total</th><th>Paid</th><th></th>';
@@ -3137,6 +3153,22 @@ function openAccountDetail(acctId){
   html+='</div>';
 
   document.getElementById('main-content').innerHTML=html;
+  filterAcctPurchases();
+}
+function filterAcctPurchases(){
+  const q=(document.getElementById('acct-purchase-search')?.value||'').toLowerCase();
+  const lines=(window._acctPurchaseLines||[]).filter(l=>!q||l.name.toLowerCase().includes(q)||l.sku.toLowerCase().includes(q));
+  const tbody=document.getElementById('acct-purchase-body');if(!tbody)return;
+  tbody.innerHTML=lines.length?lines.map(l=>`<tr>
+    <td style="font-size:12px;color:var(--text2)">${l.date}</td>
+    <td style="font-weight:500">${l.name}</td>
+    <td style="font-size:11px;color:var(--text2)">${l.sku}</td>
+    <td style="font-size:12px">${l.qtyLabel}</td>
+    <td style="font-size:11px;color:var(--text2)">${tierName(l.tier)}</td>
+    <td style="font-weight:600">${fmt(l.caseTotal)}</td>
+    <td style="font-size:11px;color:var(--text2)">${fmt(l.price)}</td>
+    <td><button class="btn btn-sm" onclick="viewInvoice('${l.orderId}')" title="View invoice"><i class="ti ti-file-invoice"></i></button></td>
+  </tr>`).join(''):`<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text3)">No purchase history${q?' matching &quot;'+q+'&quot;':''}</td></tr>`;
 }
 
 function startOrderForAccount(acctId){
@@ -8018,6 +8050,16 @@ function _renderInvoiceHTML(orderId, b64){
   const overlay = document.createElement('div');
   overlay.id = 'inv-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
+
+  // Reliable close button living in the PARENT document (not the iframe).
+  // The invoice HTML's own close button lives inside the iframe's own document,
+  // so its inline onclick can't reach this overlay directly -- it only works
+  // via a best-effort patch below. This button always works regardless.
+  const reliableClose = document.createElement('button');
+  reliableClose.textContent = '✕ Close';
+  reliableClose.style.cssText = 'position:fixed;top:10px;left:10px;z-index:10001;background:#222;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.3)';
+  reliableClose.onclick = function(){ overlay.remove(); };
+  overlay.appendChild(reliableClose);
 
   // Write the HTML into a srcdoc iframe - renders fully, respects print, no popup needed
   const iframe = document.createElement('iframe');
