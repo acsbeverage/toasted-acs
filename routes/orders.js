@@ -158,43 +158,76 @@ async function sendOrderNotification(orderId, placedByLabel, placedByEmail) {
     if (order.rep_email && !to.map(e=>e.toLowerCase()).includes(order.rep_email.toLowerCase())) {
       to.push(order.rep_email);
     }
+
     const prodLines = items.filter(i => !i.is_fee);
-    const linesHtml = prodLines.map(l =>
-      `<tr>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${l.sku}</td>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:center">${l.cases}cs${l.bottles>0?'+'+l.bottles+'btl':''}</td>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right">${l.tier}</td>
-      </tr>`).join('');
+    const feeLines   = items.filter(i => i.is_fee);
+    const skus = [...new Set(prodLines.map(l => l.sku))];
+    const products = skus.length ? await getAll('SELECT sku,name,btl FROM products WHERE sku = ANY($1)', [skus]) : [];
+    const prodBySku = {};
+    products.forEach(p => { prodBySku[p.sku] = p; });
+
+    let subtotal = 0;
+    const linesHtml = prodLines.map(l => {
+      const prod = prodBySku[l.sku];
+      const name = prod ? prod.name : l.sku;
+      const btl = prod ? prod.btl : 1;
+      const qtyLabel = (l.cases||0) + ' cs' + (l.bottles>0 ? ' + '+l.bottles+' btl' : '');
+      const rate = l.rate!==null && l.rate!==undefined ? parseFloat(l.rate) : 0;
+      const totalBottles = (l.cases||0)*btl + (l.bottles||0);
+      const discount = parseFloat(l.discount_pct)||0;
+      const lineTotal = rate * totalBottles * (1 - discount/100);
+      subtotal += lineTotal;
+      return `<tr>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${name}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:center">${qtyLabel}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:600">$${lineTotal.toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+
+    const feeLabels = { '__DELIVERY__':'Delivery fee', '__BROKEN_CASE__':'Broken case fee', '__CRV__':'CA CRV' };
+    const feesHtml = feeLines.map(f => {
+      const label = feeLabels[f.sku] || f.sku;
+      const amt = parseFloat(f.fee_amt)||0;
+      const count = f.fee_count||1;
+      const total = f.sku==='__BROKEN_CASE__' ? amt*count : amt;
+      subtotal += total;
+      return `<tr><td colspan="2" style="padding:4px 12px;color:#888;font-style:italic">${label}</td><td style="padding:4px 12px;text-align:right;color:#888">$${total.toFixed(2)}</td></tr>`;
+    }).join('');
+
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
     await sgMail.sendMultiple({
       to,
       from: { email: FROM_EMAIL, name: FROM_NAME },
       subject: `New Order Has Been Placed - ${order.acct_name}`,
-      text: `New order ${orderId} placed by ${placedByLabel} for ${order.acct_name}.`,
+      text: `New order ${orderId} placed by ${placedByLabel} for ${order.acct_name}. Total: $${subtotal.toFixed(2)}`,
       html: `<div style="font-family:system-ui;max-width:600px;margin:32px auto">
         <div style="background:#1a1a1a;padding:20px 32px;border-radius:12px 12px 0 0">
           <span style="font-size:20px;font-weight:800;color:#fff">Toast<span style="color:#B8872C;font-weight:400;font-style:italic">ed</span></span>
         </div>
         <div style="background:#B8872C;padding:14px 32px">
           <div style="color:#fff;font-size:16px;font-weight:700">New Order — ${order.acct_name}</div>
-          <div style="color:rgba(255,255,255,0.85);font-size:13px">Order ID: ${orderId} &bull; Placed by: ${placedByLabel}</div>
+          <div style="color:rgba(255,255,255,0.85);font-size:13px">Order ID: ${orderId} &bull; Placed by: ${placedByLabel} (Sales Rep)</div>
         </div>
         <div style="background:#fff;padding:24px 32px;border:1px solid #eee">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <tr><td style="color:#888;padding:4px 0;width:140px">Account</td><td style="font-weight:600">${order.acct_name}</td></tr>
             <tr><td style="color:#888;padding:4px 0">Order Date</td><td>${order.date?new Date(order.date).toLocaleDateString():''}</td></tr>
             <tr><td style="color:#888;padding:4px 0">Delivery Date</td><td>${order.delivery?new Date(order.delivery).toLocaleDateString():''}</td></tr>
-            <tr><td style="color:#888;padding:4px 0">Sales Rep</td><td>${order.rep_fname||''} ${order.rep_lname||''}</td></tr>
+            <tr><td style="color:#888;padding:4px 0">Sales Rep</td><td>${order.rep_fname||''} ${order.rep_lname||''}${order.rep_email?' &lt;'+order.rep_email+'&gt;':''}</td></tr>
             ${order.po?`<tr><td style="color:#888;padding:4px 0">PO #</td><td>${order.po}</td></tr>`:''}
           </table>
           <div style="margin-top:20px">
             <table style="width:100%;border-collapse:collapse;font-size:13px">
               <thead><tr style="background:#f9f9f9">
-                <th style="padding:8px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase">SKU</th>
+                <th style="padding:8px 12px;text-align:left;color:#888;font-size:11px;text-transform:uppercase">Product</th>
                 <th style="padding:8px 12px;text-align:center;color:#888;font-size:11px;text-transform:uppercase">Qty</th>
-                <th style="padding:8px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase">Tier</th>
+                <th style="padding:8px 12px;text-align:right;color:#888;font-size:11px;text-transform:uppercase">Total</th>
               </tr></thead>
-              <tbody>${linesHtml}</tbody>
+              <tbody>${linesHtml}${feesHtml}</tbody>
+              <tfoot><tr style="border-top:2px solid #222">
+                <td colspan="2" style="padding:10px 12px;font-weight:700;font-size:15px">Order Total</td>
+                <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;color:#B8872C">$${subtotal.toFixed(2)}</td>
+              </tr></tfoot>
             </table>
           </div>
           ${order.notes?`<div style="margin-top:16px;padding:12px;background:#fffbe8;border-radius:8px;font-size:13px"><strong>Notes:</strong> ${order.notes}</div>`:''}
