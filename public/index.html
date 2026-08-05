@@ -714,8 +714,8 @@ function saveOrderStatusToDB(orderId, updates){
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(updates)
   }).then(r=>r.json()).then(d=>{
-    if(!d.ok) console.error('Failed to save order status:',d.error);
-  }).catch(e=>console.error('Save order error:',e.message));
+    if(!d.ok){console.error('Failed to save order status:',d.error);toast('Could not save order changes -- please try again');}
+  }).catch(e=>{console.error('Save order error:',e.message);toast('Could not save order changes -- please try again');});
 }
 
 function deleteOrderFromDB(orderId){
@@ -2543,7 +2543,7 @@ function saveEditOrder(){
   o.date=document.getElementById('edit-date').value;o.delivery=document.getElementById('edit-delivery').value;
   o.po=document.getElementById('edit-po').value;o.notes=document.getElementById('edit-notes').value;
   o.items=window._editItems.map(x=>({...x}));
-  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes});
+  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items});
   closeModal('modal-edit-order');toast('Order updated');
   const active=document.querySelector('.nav-item.active');if(active){const p=active.id.replace('nav-','');showPage(p)}
 }
