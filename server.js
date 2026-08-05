@@ -10,6 +10,7 @@ app.use(express.json({ limit: '50mb' }));
 
 app.use('/api/auth',   require('./routes/auth'));
 app.use('/api/orders', require('./routes/orders'));
+app.use('/api/po',     require('./routes/purchaseOrders'));
 app.use('/api',        require('./routes/data'));
 
 app.get('/health', (req, res) => res.json({
@@ -244,7 +245,6 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
