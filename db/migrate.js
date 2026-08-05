@@ -104,6 +104,57 @@ async function migrate() {
 
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT`);
 
+  await query(`CREATE TABLE IF NOT EXISTS po_suppliers (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    payment_terms TEXT DEFAULT 'Net 30',
+    contact_name TEXT, contact_email TEXT, contact_phone TEXT,
+    address TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
+  await query(`CREATE TABLE IF NOT EXISTS po_products (
+    id SERIAL PRIMARY KEY,
+    supplier_id INTEGER REFERENCES po_suppliers(id) ON DELETE CASCADE,
+    brand_name TEXT, vintage TEXT, type TEXT DEFAULT 'Spirits',
+    bottle_size TEXT DEFAULT '750ml', bottles_per_case INTEGER DEFAULT 6,
+    description TEXT NOT NULL,
+    case_price NUMERIC(10,2) DEFAULT 0, bottle_price NUMERIC(10,2) DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
+  await query(`CREATE TABLE IF NOT EXISTS purchase_orders (
+    id SERIAL PRIMARY KEY,
+    po_number TEXT UNIQUE,
+    po_date DATE DEFAULT CURRENT_DATE,
+    payment_terms TEXT,
+    supplier_id INTEGER REFERENCES po_suppliers(id),
+    delivery_address TEXT,
+    total_bottles INTEGER DEFAULT 0,
+    total_cases NUMERIC(10,2) DEFAULT 0,
+    grand_total NUMERIC(10,2) DEFAULT 0,
+    notes TEXT,
+    created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
+  await query(`CREATE TABLE IF NOT EXISTS po_line_items (
+    id SERIAL PRIMARY KEY,
+    po_id INTEGER REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    product_id INTEGER,
+    brand_name TEXT, vintage TEXT, type TEXT, bottle_size TEXT, bottles_per_case INTEGER,
+    description TEXT,
+    quantity_bottles INTEGER DEFAULT 0, quantity_cases NUMERIC(10,2) DEFAULT 0,
+    case_price NUMERIC(10,2), bottle_price NUMERIC(10,2),
+    line_total NUMERIC(10,2) DEFAULT 0,
+    is_no_charge BOOLEAN DEFAULT FALSE,
+    sort_order INTEGER DEFAULT 0
+  )`);
+
+  await query(`CREATE TABLE IF NOT EXISTS po_sequence (id INTEGER PRIMARY KEY DEFAULT 1, next_seq INTEGER DEFAULT 1)`);
+  await query(`INSERT INTO po_sequence (id, next_seq) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
+
   await query(`CREATE TABLE IF NOT EXISTS tastings (
     id TEXT PRIMARY KEY,
     acct_id TEXT, rep_id TEXT,
