@@ -108,7 +108,8 @@ router.post('/', requireAuth, async (req, res) => {
 
 router.patch('/:id', requireAuth, async (req, res) => {
   try {
-    const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId } = req.body;
+    const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
+            date, delivery, po, notes, items } = req.body;
     const updates = [], values = [];
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
@@ -118,9 +119,31 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (qboInvoiceId !== undefined) { updates.push(`qbo_invoice_id=$${idx++}`); values.push(qboInvoiceId); }
     if (qboSyncedAt !== undefined)  { updates.push(`qbo_synced_at=$${idx++}`);  values.push(qboSyncedAt); }
     if (qboPaymentId !== undefined) { updates.push(`qbo_payment_id=$${idx++}`); values.push(qboPaymentId); }
-    if (updates.length === 0) return res.status(400).json({ ok: false, error: 'Nothing to update' });
-    values.push(req.params.id);
-    await query(`UPDATE orders SET ${updates.join(',')} WHERE id=$${idx}`, values);
+    if (date !== undefined)         { updates.push(`date=$${idx++}`);           values.push(date); }
+    if (delivery !== undefined)     { updates.push(`delivery=$${idx++}`);       values.push(delivery); }
+    if (po !== undefined)           { updates.push(`po=$${idx++}`);             values.push(po); }
+    if (notes !== undefined)        { updates.push(`notes=$${idx++}`);          values.push(notes); }
+    if (updates.length > 0) {
+      values.push(req.params.id);
+      await query(`UPDATE orders SET ${updates.join(',')} WHERE id=$${idx}`, values);
+    }
+    // Replace line items if a new set was provided (order-edit flow)
+    if (Array.isArray(items)) {
+      await query('DELETE FROM order_items WHERE order_id=$1', [req.params.id]);
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        await query(`
+          INSERT INTO order_items (order_id,sku,cases,bottles,tier,discount_pct,
+            is_fee,fee_amt,fee_count,is_manual,rate,sort_order)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        `, [req.params.id, item.sku, item.cases||0, item.bottles||0, item.tier||'frontline',
+            item.discountPct||0, !!item._fee, item.feeAmt||null, item.count||null,
+            !!item._manual, item.rate||null, i]);
+      }
+    }
+    if (updates.length === 0 && !Array.isArray(items)) {
+      return res.status(400).json({ ok: false, error: 'Nothing to update' });
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error('Update order error:', err.message);
