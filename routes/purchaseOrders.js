@@ -4,8 +4,8 @@ const { query, getOne, getAll } = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 const sgMail = require('@sendgrid/mail');
 
-const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
-const FROM_NAME = process.env.FROM_NAME || 'Toasted — ACS Beverage Co.';
+const FROM_EMAIL = process.env.PO_FROM_EMAIL || 'purchasing@acsbeverage.com';
+const FROM_NAME = process.env.PO_FROM_NAME || 'ACS Beverage Co. Purchasing';
 const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessica@acsbeverage.com')
   .split(',').map(e => e.trim()).filter(Boolean);
 
