@@ -194,16 +194,25 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:none}
 .sidebar-overlay.open{display:block}
 .hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;font-size:22px;padding:4px 8px;align-items:center;justify-content:center}
+.dash-grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+.dash-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+.dash-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.dash-grid-2-1{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
+.btn-delete-item{background:var(--red);color:#fff;border:none;border-radius:7px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:14px}
+.btn-delete-item:hover{opacity:0.85}
 @media(max-width:768px){
   .hamburger{display:flex}
   .sidebar{position:fixed;left:0;top:0;height:100vh;z-index:300;transform:translateX(-100%);transition:transform 0.22s ease;width:210px!important;min-width:210px!important}
   .sidebar.mobile-open{transform:translateX(0)}
   .content{padding:12px 14px}
   .topbar{padding:0 12px}
-  .form-grid-2,.form-grid-3,.form-grid-4{grid-template-columns:1fr!important}
+  .form-grid-2,.form-grid-3,.form-grid-4,.dash-grid-5,.dash-grid-3,.dash-grid-2,.dash-grid-2-1{grid-template-columns:1fr!important}
   /* New Order: hide desktop table, show mobile cards */
   #line-items-table-view{display:none!important}
   #line-items-cards-view{display:block!important}
+  /* Edit Order modal: same treatment */
+  #edit-items-table-view{display:none!important}
+  #edit-items-cards-view{display:block!important}
   .li-card{background:var(--bg2,#fff);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;position:relative}
   .li-card-fee{padding:14px 16px;border-radius:12px;margin-bottom:14px;font-size:14px;font-weight:600}
   .li-label{font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px;display:block}
@@ -215,7 +224,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   .li-field input,.li-field select{width:100%;font-size:17px!important;padding:12px 10px!important;border-radius:10px!important;min-height:46px}
   .li-qty-input{font-size:17px!important;padding:12px!important;text-align:center;min-height:46px;border-radius:10px!important;width:100%}
   .li-total{font-size:20px;font-weight:800;color:var(--gold)}
-  .li-trash{position:absolute;top:14px;right:14px;color:var(--red);background:none;border:none;font-size:20px;padding:6px;cursor:pointer}
+  .li-trash{position:absolute;top:14px;right:14px;background:var(--red);color:#fff;border:none;border-radius:8px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer}
   .li-disc-input{font-size:17px!important;padding:12px!important;min-height:46px;border-radius:10px!important;width:90px}
   /* Sticky totals bar at bottom on mobile */
   .order-totals-bar{position:sticky;bottom:0;z-index:50;box-shadow:0 -4px 16px rgba(0,0,0,0.12)}
@@ -228,6 +237,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 }
 @media(min-width:769px){
   #line-items-cards-view{display:none!important}
+  #edit-items-cards-view{display:none!important}
 }
 .portal-nav-btn{background:none;border:none;border-bottom:3px solid transparent;padding:14px 20px;font-size:14px;font-weight:500;color:#666;cursor:pointer;white-space:nowrap;transition:all 0.15s}
 .portal-nav-btn.active{color:#B8872C;border-bottom-color:#B8872C;font-weight:700}
@@ -1486,14 +1496,14 @@ function renderRepDashboard(){
   }
 
   document.getElementById('main-content').innerHTML=`
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px">
+  <div class="dash-grid-3">
     <div class="metric"><div class="metric-label">YTD Revenue ${curYear}</div><div class="metric-value gold">${fmt(ytdRev)}</div>
       <div class="metric-sub" style="color:${revDiff>=0?'var(--green)':'var(--red)'}">${revDiff>=0?'▲':'▼'} ${Math.abs(revDiff).toFixed(1)}% vs ${lastYear}</div></div>
     <div class="metric"><div class="metric-label">Accounts Sold ${curYear}</div><div class="metric-value">${ytdAccts}</div>
       <div class="metric-sub" style="color:${acctDiff>=0?'var(--green)':'var(--red)'}">${acctDiff>=0?'▲':'▼'} ${Math.abs(acctDiff).toFixed(1)}% vs ${lastYear}</div></div>
     <div class="metric"><div class="metric-label">Orders placed</div><div class="metric-value">${myOrders.length}</div><div class="metric-sub">${confirmed.length} confirmed</div></div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+  <div class="dash-grid-2">
     <div class="card" style="margin:0"><div class="card-header"><span class="card-title">Monthly Sales</span>
       <div style="display:flex;gap:10px;font-size:11px">
         <span><span style="display:inline-block;width:8px;height:8px;background:var(--gold);border-radius:2px;margin-right:3px"></span>${curYear}</span>
@@ -1610,7 +1620,7 @@ function renderAdminDashboard(){
   </div>
 
   <!-- KPI Cards -->
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+  <div class="dash-grid-5">
     <div class="metric" style="cursor:pointer" onclick="showPage('ar')">
       <div class="metric-label">Revenue</div>
       <div class="metric-value gold">${fmt(totalRev)}</div>
@@ -1639,7 +1649,7 @@ function renderAdminDashboard(){
   </div>
 
   <!-- Main chart + Rep leaderboard -->
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
+  <div class="dash-grid-2-1">
 
     <!-- Sales Chart -->
     <div class="card" style="margin:0">
@@ -1685,7 +1695,7 @@ function renderAdminDashboard(){
   </div>
 
   <!-- Bottom row: Top accounts + Recent orders + Alerts -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+  <div class="dash-grid-3">
 
     <!-- Top Accounts -->
     <div class="card" style="margin:0">
@@ -1916,7 +1926,7 @@ function renderLineItems(){
       <td id="tb-${idx}" style="font-size:12px;color:var(--text2);white-space:nowrap">${itemTotalBottles(item)} btl</td>
       <td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateItemDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td>
       <td id="lt-${idx}" style="font-weight:600;white-space:nowrap">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td>
-      <td><button class="btn btn-sm" style="padding:4px 7px;color:var(--red);border-color:transparent;background:none" onclick="removeLineItem(${idx})"><i class="ti ti-x"></i></button></td>
+      <td><button class="btn-delete-item" onclick="removeLineItem(${idx})"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   }).join('')+'</tbody></table></div>';
 
@@ -2299,7 +2309,7 @@ function renderTastingItems(){
         <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${p.sku} · ${p.producer} · ${p.btl}pk ${(p._details&&p._details.bottleSize)?'· '+p._details.bottleSize:''}</div>
         ${tierRows||'<div style="font-size:12px;color:var(--text3)">No pricing set for this product</div>'}
       </div>
-      <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);align-self:flex-start" onclick="removeTastingItem(${idx})"><i class="ti ti-x"></i></button>
+      <button class="btn-delete-item" style="align-self:flex-start" onclick="removeTastingItem(${idx})"><i class="ti ti-trash"></i></button>
     </div>`;
   }).join('');
 }
@@ -2528,9 +2538,58 @@ function updateEditDiscount(idx,val){
 function renderEditItems(){
   const wrap=document.getElementById('edit-line-items');
   if(!window._editItems.length){wrap.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No products -- search above to add</div>';document.getElementById('edit-total').textContent='';return}
-  wrap.innerHTML=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead><tbody>`+
+
+  const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead><tbody>`+
   window._editItems.map((item,idx)=>{const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
-    return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn btn-sm" style="padding:4px 7px;color:var(--red);border-color:transparent;background:none" onclick="removeEditItem(${idx})"><i class="ti ti-x"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+    return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+
+  const cardsHtml=window._editItems.map((item,idx)=>{
+    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+    const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
+    const grossTotal=price*itemTotalBottles(item);
+    return`<div class="li-card">
+      <button class="li-trash" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button>
+      <div class="li-name">${p.name}</div>
+      <div class="li-meta">${p.sku} · ${p.producer} · ${stockChip(p)}</div>
+
+      <label class="li-label">Price</label>
+      <div class="li-row">
+        <select class="finput" style="font-size:16px;padding:12px 10px;min-height:46px;border-radius:10px" onchange="updateEditTier(${idx},this.value)">
+          ${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})</option>`).join('')}
+        </select>
+      </div>
+
+      <label class="li-label">% Disc.</label>
+      <div class="li-row">
+        <input type="number" class="li-disc-input" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/>
+      </div>
+
+      <div class="li-field-row">
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">Avail.</label>
+          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
+        </div>
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">Cases</label>
+          <input type="number" class="li-qty-input" value="${item.cases}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/>
+        </div>
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">+ Loose</label>
+          <input type="number" class="li-qty-input" value="${item.bottles}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:13px;color:var(--text2)">${itemTotalBottles(item)} total btl</div>
+        <div style="text-align:right">
+          ${item.discountPct>0?`<div style="font-size:12px;color:var(--text3);text-decoration:line-through">${fmt(grossTotal)}</div>`:''}
+          <div class="li-total">${fmt(itemLineTotal(item))}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.innerHTML=`<div id="edit-items-table-view">${tableHtml}</div><div id="edit-items-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`;
   renderEditTotal();
 }
 function renderEditTotal(){
