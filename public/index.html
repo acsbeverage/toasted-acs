@@ -389,6 +389,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div class="nav-item admin-only hidden" onclick="showPage('ar')" id="nav-ar"><i class="ti ti-receipt"></i> Accounts Receivable <span class="nav-badge red hidden" id="ar-badge">0</span></div>
     <div class="nav-item admin-only hidden" onclick="showPage('products')" id="nav-products"><i class="ti ti-adjustments"></i> Manage Products</div>
     <div class="nav-item admin-only hidden" onclick="showPage('reports')" id="nav-reports"><i class="ti ti-chart-bar"></i> Reports</div>
+    <div class="nav-item admin-only hidden" onclick="showPage('po')" id="nav-po"><i class="ti ti-truck"></i> Purchase Orders</div>
     <div class="nav-item admin-only hidden" onclick="showPage('import')" id="nav-import"><i class="ti ti-upload"></i> Import Data</div>
     </div>
     <div class="sidebar-bottom">
@@ -571,6 +572,8 @@ const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
 let PRODUCTS=[];
 let DRAFT_ORDERS=[];
 let TASTINGS=[];
+let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[];
+let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false;
 // SHARED_DOCS declared at top
 // -- CONFIG & STATIC DATA ------------------------------------------------------
 let COMPANY={name:'ACS Beverage Co. LLC',address:'6680 Alhambra Ave. #505, Martinez, CA 94553',phone:'',email:'accounting@acsbeverage.com',license:'CA-DIS-00421',website:'acsbeverageco.com'};
@@ -1437,14 +1440,14 @@ accounting@acsbeverage.com`
 function showPage(page, pushState=true){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
-  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products'};
+  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   document.getElementById('topbar-right').innerHTML='';
   // Push to browser history so back button works within app
   if(pushState){
     history.pushState({page}, '', '#'+page);
   }
-  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts}[page]||(() => {}))();
+  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO}[page]||(() => {}))();
 }
 
 // Handle browser back/forward buttons
@@ -2469,6 +2472,508 @@ async function exportTastingPDF(id){
   }
   doc.save('Tasting-'+(acct?acct.name.replace(/[^a-z0-9]+/gi,'-'):id)+'-'+(t.date||today())+'.pdf');
   toast('Tasting PDF exported');
+}
+
+// -- PURCHASE ORDERS (admin only) ------------------------------------------------
+async function loadPOData(force){
+  if(_poDataLoaded && !force) return;
+  const headers={'Authorization':'Bearer '+window._authToken};
+  try{
+    const [supRes,ordRes]=await Promise.all([
+      fetch(TOASTED_BACKEND_URL+'/api/po/suppliers',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/po/orders',{headers}).then(r=>r.json())
+    ]);
+    if(supRes.ok) PO_SUPPLIERS=supRes.suppliers;
+    if(ordRes.ok) PO_ORDERS=ordRes.orders;
+    _poDataLoaded=true;
+  }catch(e){console.error('Failed to load PO data:',e.message);toast('Could not load Purchase Orders -- check connection');}
+}
+async function loadPOProducts(supplierId){
+  const headers={'Authorization':'Bearer '+window._authToken};
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/products?supplierId='+supplierId,{headers}).then(r=>r.json());
+    if(res.ok) PO_PRODUCTS=res.products;
+  }catch(e){console.error('Failed to load PO products:',e.message);}
+}
+async function loadPONextNumber(){
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/next-number',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(res.ok) window._poNextNumberPreview=res.poNumber;
+  }catch(e){}
+}
+
+async function renderPO(){
+  document.getElementById('main-content').innerHTML=`
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn ${_poSubview==='new'?'btn-dark':''}" onclick="switchPOSubview('new')"><i class="ti ti-plus"></i> New PO</button>
+    <button class="btn ${_poSubview==='history'?'btn-dark':''}" onclick="switchPOSubview('history')"><i class="ti ti-history"></i> PO History</button>
+    <button class="btn ${_poSubview==='suppliers'?'btn-dark':''}" onclick="switchPOSubview('suppliers')"><i class="ti ti-building-warehouse"></i> Suppliers &amp; Products</button>
+  </div>
+  <div id="po-subview-body"><div style="padding:40px;text-align:center;color:var(--text3)">Loading...</div></div>`;
+  await loadPOData();
+  renderPOSubview();
+}
+function switchPOSubview(v){_poSubview=v;renderPO();}
+function renderPOSubview(){
+  ({new:renderPONew,history:renderPOHistory,suppliers:renderPOSuppliers}[_poSubview]||renderPONew)();
+}
+
+// -- New PO ----------------------------------------------------------------------
+async function renderPONew(){
+  if(!window._poNextNumberPreview) await loadPONextNumber();
+  const wrap=document.getElementById('po-subview-body');
+  wrap.innerHTML=`
+  <div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Select supplier</span><span style="font-size:12px;color:var(--text2)">Next PO: <strong style="font-family:monospace">${window._poNextNumberPreview||'ACS ---'}</strong></span></div>
+    <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap">
+      ${PO_SUPPLIERS.map(s=>`<button class="btn ${_poSelectedSupplier===s.id?'btn-dark':''}" onclick="selectPOSupplier(${s.id})">${s.name}<div style="font-size:10px;font-weight:400;opacity:0.7">${s.paymentTerms}</div></button>`).join('')||`<div style="color:var(--text3);font-size:13px">No suppliers yet -- <a href="#" onclick="switchPOSubview('suppliers');return false" style="color:var(--gold)">add one</a></div>`}
+    </div>
+  </div>
+  <div id="po-lineitems-wrap"></div>`;
+  if(_poSelectedSupplier) renderPOLineItems();
+}
+async function selectPOSupplier(id){
+  _poSelectedSupplier=id;
+  _poLineItems=[];
+  renderPONew();
+  await loadPOProducts(id);
+  _poLineItems=PO_PRODUCTS.map(p=>({productId:p.id,brandName:p.brandName,vintage:p.vintage,type:p.type,bottleSize:p.bottleSize,bottlesPerCase:p.bottlesPerCase,description:p.description,casePrice:p.casePrice,bottlePrice:p.bottlePrice,isNoCharge:p.casePrice===0,inputCases:'',inputBottles:''}));
+  renderPOLineItems();
+}
+function poItemTotals(){
+  let totalBottles=0,totalCases=0,grandTotal=0;
+  _poLineItems.forEach(item=>{
+    const bottles=parseInt(item.inputBottles)||0;
+    const cases=parseFloat(item.inputCases)||0;
+    if(bottles===0&&cases===0)return;
+    totalBottles+=bottles;totalCases+=cases;
+    if(item.isNoCharge)return;
+    grandTotal+=cases>0?cases*item.casePrice:bottles*item.bottlePrice;
+  });
+  return {totalBottles,totalCases,grandTotal};
+}
+function renderPOLineItems(){
+  const wrap=document.getElementById('po-lineitems-wrap');if(!wrap)return;
+  const supplier=PO_SUPPLIERS.find(s=>s.id===_poSelectedSupplier);
+  if(!supplier){wrap.innerHTML='';return}
+  const t=poItemTotals();
+  wrap.innerHTML=`<div class="card">
+    <div class="card-header"><span class="card-title">${_poLineItems.length} product${_poLineItems.length!==1?'s':''} in catalog</span></div>
+    ${!_poLineItems.length?`<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">No products for this supplier yet. <a href="#" onclick="switchPOSubview('suppliers');return false" style="color:var(--gold)">Add some</a></div>`:`
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Description</th><th>Type/Size</th><th style="text-align:right">Case $</th><th style="text-align:right">Btl $</th><th style="text-align:center">Cases</th><th style="text-align:center">Bottles</th><th style="text-align:right">Total</th><th>N/C</th></tr></thead><tbody>
+    ${_poLineItems.map((item,idx)=>{
+      const bottles=parseInt(item.inputBottles)||0;const cases=parseFloat(item.inputCases)||0;
+      const lineTotal=item.isNoCharge?null:(cases>0?cases*item.casePrice:bottles*item.bottlePrice);
+      return`<tr style="${item.isNoCharge?'background:#FFF5F5':''}">
+        <td style="font-weight:500">${item.description}</td>
+        <td style="font-size:12px;color:var(--text2)">${item.type} / ${item.bottleSize}</td>
+        <td style="text-align:right;font-size:12px">${item.isNoCharge?'<span style="color:var(--red);font-weight:600">N/C</span>':fmt(item.casePrice)}</td>
+        <td style="text-align:right;font-size:12px;color:var(--text2)">${item.isNoCharge?'<span style="color:var(--red)">N/C</span>':fmt(item.bottlePrice)}</td>
+        <td><input type="number" class="qty-input" min="0" step="0.5" value="${item.inputCases}" onchange="updatePOItem(${idx},'inputCases',this.value)"/></td>
+        <td><input type="number" class="qty-input" min="0" value="${item.inputBottles}" onchange="updatePOItem(${idx},'inputBottles',this.value)"/></td>
+        <td style="text-align:right;font-weight:600">${item.isNoCharge?'<span style="color:var(--red)">N/C</span>':(lineTotal>0?fmt(lineTotal):'--')}</td>
+        <td style="text-align:center"><input type="checkbox" ${item.isNoCharge?'checked':''} onchange="updatePOItem(${idx},'isNoCharge',this.checked)"/></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;border-top:1px solid var(--border);flex-wrap:wrap;gap:12px">
+      <div style="display:flex;gap:24px;flex-wrap:wrap">
+        <div><div class="flabel">PO Number</div><div style="font-weight:700;font-family:monospace">${window._poNextNumberPreview||'ACS ---'}</div></div>
+        <div><div class="flabel">Supplier</div><div style="font-weight:600">${supplier.name}</div></div>
+        <div><div class="flabel">Terms</div><div style="font-weight:600">${supplier.paymentTerms}</div></div>
+        <div><div class="flabel">Grand Total</div><div style="font-weight:700;font-size:16px">${t.grandTotal>0?fmt(t.grandTotal):'--'}</div></div>
+      </div>
+      <button class="btn btn-dark" onclick="submitPO()"><i class="ti ti-file-text"></i> Generate PO PDF</button>
+    </div>`}
+  </div>`;
+}
+function updatePOItem(idx,field,value){
+  const item=_poLineItems[idx];
+  if(field==='isNoCharge'){item.isNoCharge=value;renderPOLineItems();return}
+  const bpc=item.bottlesPerCase||6;
+  if(field==='inputCases'){
+    const cases=parseFloat(value)||0;
+    item.inputCases=value;
+    item.inputBottles=cases>0?String(Math.round(cases*bpc)):'';
+  } else {
+    const bottles=parseInt(value)||0;
+    item.inputBottles=value;
+    item.inputCases=bottles>0?(bottles/bpc).toFixed(2):'';
+  }
+  renderPOLineItems();
+}
+async function submitPO(){
+  const supplier=PO_SUPPLIERS.find(s=>s.id===_poSelectedSupplier);
+  if(!supplier){toast('Select a supplier first');return}
+  const active=_poLineItems.filter(item=>{
+    const bottles=parseInt(item.inputBottles)||0;const cases=parseFloat(item.inputCases)||0;
+    return bottles>0||cases>0;
+  });
+  if(!active.length){toast('Enter a quantity for at least one product');return}
+  const t=poItemTotals();
+  const payload={
+    supplierId:supplier.id,paymentTerms:supplier.paymentTerms,
+    deliveryAddress:COMPANY.address,
+    totalBottles:t.totalBottles,totalCases:t.totalCases.toFixed(2),grandTotal:t.grandTotal.toFixed(2),
+    lineItems:active.map((item,idx)=>{
+      const bottles=parseInt(item.inputBottles)||0;const cases=parseFloat(item.inputCases)||0;
+      const lineTotal=item.isNoCharge?0:(cases>0?cases*item.casePrice:bottles*item.bottlePrice);
+      return{productId:item.productId,brandName:item.brandName,vintage:item.vintage,type:item.type,bottleSize:item.bottleSize,bottlesPerCase:item.bottlesPerCase,description:item.description,quantityBottles:bottles,quantityCases:cases,casePrice:item.isNoCharge?null:item.casePrice,bottlePrice:item.isNoCharge?null:item.bottlePrice,lineTotal,isNoCharge:item.isNoCharge,sortOrder:idx};
+    })
+  };
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/orders',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to create PO');return}
+    toast('PO '+res.poNumber+' created');
+    window._poNextNumberPreview=null;
+    await loadPOData(true);
+    exportPOPdf(res.id);
+    _poSelectedSupplier=null;_poLineItems=[];
+    switchPOSubview('history');
+  }catch(e){toast('Failed to create PO -- check connection');console.error(e);}
+}
+
+// -- PO History --------------------------------------------------------------------
+function renderPOHistory(){
+  const wrap=document.getElementById('po-subview-body');
+  const sorted=[...PO_ORDERS].sort((a,b)=>b.id-a.id);
+  wrap.innerHTML=`<div class="card">
+    <div class="card-header"><span class="card-title">${sorted.length} purchase order${sorted.length!==1?'s':''}</span>
+      <div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="po-hist-search" placeholder="Search PO # or supplier..." oninput="filterPOHistory()"/></div>
+    </div>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Terms</th><th style="text-align:right">Bottles</th><th style="text-align:right">Cases</th><th style="text-align:right">Total</th><th></th></tr></thead>
+    <tbody id="po-hist-body"></tbody></table></div>
+  </div>`;
+  window._poHistOrders=sorted;
+  filterPOHistory();
+}
+function filterPOHistory(){
+  const q=(document.getElementById('po-hist-search')?.value||'').toLowerCase();
+  const rows=(window._poHistOrders||[]).filter(o=>!q||o.poNumber.toLowerCase().includes(q)||o.supplierName.toLowerCase().includes(q));
+  const tbody=document.getElementById('po-hist-body');if(!tbody)return;
+  tbody.innerHTML=rows.length?rows.map(o=>`<tr>
+    <td style="font-weight:700;font-family:monospace">${o.poNumber}</td>
+    <td>${o.supplierName}</td>
+    <td style="color:var(--text2)">${o.poDate?new Date(o.poDate).toLocaleDateString():'--'}</td>
+    <td><span class="tier-pill" style="font-size:11px">${o.paymentTerms}</span></td>
+    <td style="text-align:right">${o.totalBottles}</td>
+    <td style="text-align:right">${o.totalCases.toFixed(2)}</td>
+    <td style="text-align:right;font-weight:600">${fmt(o.grandTotal)}</td>
+    <td><button class="btn btn-sm btn-pdf" onclick="exportPOPdf(${o.id})"><i class="ti ti-file-download"></i> PDF</button></td>
+  </tr>`).join(''):'<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text3)">No purchase orders match</td></tr>';
+}
+
+// -- Suppliers & Products ------------------------------------------------------------
+function renderPOSuppliers(){
+  const wrap=document.getElementById('po-subview-body');
+  wrap.innerHTML=`<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><span class="card-title">${PO_SUPPLIERS.length} suppliers</span><button class="btn btn-sm btn-success" onclick="openPOSupplierForm()"><i class="ti ti-plus"></i> Add Supplier</button></div>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Name</th><th>Terms</th><th>Contact</th><th></th></tr></thead><tbody>
+    ${PO_SUPPLIERS.map(s=>`<tr>
+      <td style="font-weight:600;cursor:pointer" onclick="managePOProducts(${s.id})">${s.name}</td>
+      <td><span class="tier-pill" style="font-size:11px">${s.paymentTerms}</span></td>
+      <td style="font-size:12px;color:var(--text2)">${s.contactEmail||'--'}</td>
+      <td style="white-space:nowrap;display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="managePOProducts(${s.id})"><i class="ti ti-bottle"></i> Products</button>
+        <button class="btn btn-sm btn-warning" onclick="openPOSupplierForm(${s.id})"><i class="ti ti-edit"></i></button>
+        <button class="btn-delete-item" onclick="deletePOSupplier(${s.id})"><i class="ti ti-trash"></i></button>
+      </td>
+    </tr>`).join('')||'<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--text3)">No suppliers yet</td></tr>'}
+    </tbody></table></div>
+  </div>
+  <div id="po-products-mgmt"></div>`;
+}
+async function managePOProducts(supplierId){
+  await loadPOProducts(supplierId);
+  const supplier=PO_SUPPLIERS.find(s=>s.id===supplierId);if(!supplier)return;
+  const wrap=document.getElementById('po-products-mgmt');
+  wrap.innerHTML=`<div class="card">
+    <div class="card-header"><span class="card-title">${supplier.name} -- ${PO_PRODUCTS.length} products</span><button class="btn btn-sm btn-success" onclick="openPOProductForm(${supplierId})"><i class="ti ti-plus"></i> Add Product</button></div>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Description</th><th>Type/Size</th><th>Pack</th><th style="text-align:right">Case $</th><th style="text-align:right">Btl $</th><th></th></tr></thead><tbody>
+    ${PO_PRODUCTS.map(p=>`<tr>
+      <td style="font-weight:500">${p.description}</td>
+      <td style="font-size:12px;color:var(--text2)">${p.type} / ${p.bottleSize}</td>
+      <td style="font-size:12px">${p.bottlesPerCase}/cs</td>
+      <td style="text-align:right">${p.casePrice===0?'<span style="color:var(--red);font-weight:600">N/C</span>':fmt(p.casePrice)}</td>
+      <td style="text-align:right;color:var(--text2)">${p.bottlePrice===0?'<span style="color:var(--red)">N/C</span>':fmt(p.bottlePrice)}</td>
+      <td style="white-space:nowrap;display:flex;gap:6px">
+        <button class="btn btn-sm btn-warning" onclick='openPOProductForm(${supplierId},${p.id})'><i class="ti ti-edit"></i></button>
+        <button class="btn-delete-item" onclick="deletePOProduct(${p.id},${supplierId})"><i class="ti ti-trash"></i></button>
+      </td>
+    </tr>`).join('')||'<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text3)">No products yet</td></tr>'}
+    </tbody></table></div>
+  </div>`;
+}
+
+function closePOModal(){const a=document.getElementById('po-supplier-modal-bg');if(a)a.remove();const b=document.getElementById('po-product-modal-bg');if(b)b.remove();}
+
+function openPOSupplierForm(id){
+  const s=id?PO_SUPPLIERS.find(x=>x.id===id):null;
+  const html=`<div class="modal-bg open" id="po-supplier-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-title">${s?'Edit':'Add'} Supplier</div>
+      <label class="flabel">Supplier Name *</label><input class="finput" id="pos-name" value="${s?s.name.replace(/"/g,'&quot;'):''}" style="margin-bottom:12px"/>
+      <label class="flabel">Payment Terms</label><select class="finput" id="pos-terms" style="margin-bottom:12px">${['Net 30','Net 45','Net 60'].map(t=>`<option ${s&&s.paymentTerms===t?'selected':''}>${t}</option>`).join('')}</select>
+      <label class="flabel">Contact Name</label><input class="finput" id="pos-cname" value="${s?(s.contactName||'').replace(/"/g,'&quot;'):''}" style="margin-bottom:12px"/>
+      <label class="flabel">Contact Email</label><input class="finput" id="pos-cemail" value="${s?(s.contactEmail||''):''}" style="margin-bottom:12px"/>
+      <label class="flabel">Contact Phone</label><input class="finput" id="pos-cphone" value="${s?(s.contactPhone||''):''}" style="margin-bottom:12px"/>
+      <label class="flabel">Address</label><input class="finput" id="pos-address" value="${s?(s.address||'').replace(/"/g,'&quot;'):''}"/>
+      <div class="modal-footer"><button class="btn" onclick="closePOModal()">Cancel</button><button class="btn btn-dark" onclick="savePOSupplier(${id||'null'})">Save</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+async function savePOSupplier(id){
+  const payload={
+    name:document.getElementById('pos-name').value.trim(),
+    paymentTerms:document.getElementById('pos-terms').value,
+    contactName:document.getElementById('pos-cname').value.trim(),
+    contactEmail:document.getElementById('pos-cemail').value.trim(),
+    contactPhone:document.getElementById('pos-cphone').value.trim(),
+    address:document.getElementById('pos-address').value.trim()
+  };
+  if(!payload.name){toast('Supplier name required');return}
+  try{
+    const url=TOASTED_BACKEND_URL+'/api/po/suppliers'+(id?'/'+id:'');
+    const res=await fetch(url,{method:id?'PATCH':'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to save supplier');return}
+    toast('Supplier saved');
+    closePOModal();
+    await loadPOData(true);
+    renderPOSuppliers();
+  }catch(e){toast('Failed to save -- check connection');}
+}
+async function deletePOSupplier(id){
+  if(!confirm('Delete this supplier? Its products will also be removed.'))return;
+  try{
+    await fetch(TOASTED_BACKEND_URL+'/api/po/suppliers/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
+    toast('Supplier deleted');
+    await loadPOData(true);
+    renderPOSuppliers();
+  }catch(e){toast('Failed to delete');}
+}
+
+function openPOProductForm(supplierId,id){
+  const p=id?PO_PRODUCTS.find(x=>x.id===id):null;
+  const html=`<div class="modal-bg open" id="po-product-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-title">${p?'Edit':'Add'} Product</div>
+      <label class="flabel">Description *</label><input class="finput" id="pop-desc" value="${p?p.description.replace(/"/g,'&quot;'):''}" placeholder="e.g. Alma del Jaguar Tequila Blanco 6/750" style="margin-bottom:12px"/>
+      <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:12px">
+        <div><label class="flabel">Brand Name</label><input class="finput" id="pop-brand" value="${p?(p.brandName||'').replace(/"/g,'&quot;'):''}"/></div>
+        <div><label class="flabel">Vintage</label><input class="finput" id="pop-vintage" value="${p?(p.vintage||''):''}" placeholder="optional"/></div>
+      </div>
+      <div class="form-grid form-grid-3" style="gap:12px;margin-bottom:12px">
+        <div><label class="flabel">Type</label><input class="finput" id="pop-type" value="${p?p.type:'Spirits'}"/></div>
+        <div><label class="flabel">Bottle Size</label><input class="finput" id="pop-size" value="${p?p.bottleSize:'750ml'}"/></div>
+        <div><label class="flabel">Bottles/Case</label><input class="finput" type="number" id="pop-bpc" value="${p?p.bottlesPerCase:6}" onchange="poAutoCalcBottle()"/></div>
+      </div>
+      <div class="form-grid form-grid-2" style="gap:12px">
+        <div><label class="flabel">Case Price ($)</label><input class="finput" type="number" step="0.01" id="pop-caseprice" value="${p?p.casePrice:''}" placeholder="0.00 (0 = N/C)" onchange="poAutoCalcBottle()"/></div>
+        <div><label class="flabel">Bottle Price ($)</label><input class="finput" type="number" step="0.01" id="pop-btlprice" value="${p?p.bottlePrice:''}" placeholder="auto-calculated"/></div>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin-top:10px">Enter 0 for case price to mark as N/C (no charge / sample).</p>
+      <div class="modal-footer"><button class="btn" onclick="closePOModal()">Cancel</button><button class="btn btn-dark" onclick="savePOProduct(${supplierId},${id||'null'})">Save</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function poAutoCalcBottle(){
+  const cp=parseFloat(document.getElementById('pop-caseprice').value)||0;
+  const bpc=parseInt(document.getElementById('pop-bpc').value)||6;
+  if(cp>0&&bpc>0)document.getElementById('pop-btlprice').value=(cp/bpc).toFixed(2);
+}
+async function savePOProduct(supplierId,id){
+  const payload={
+    supplierId,
+    description:document.getElementById('pop-desc').value.trim(),
+    brandName:document.getElementById('pop-brand').value.trim(),
+    vintage:document.getElementById('pop-vintage').value.trim(),
+    type:document.getElementById('pop-type').value.trim()||'Spirits',
+    bottleSize:document.getElementById('pop-size').value.trim()||'750ml',
+    bottlesPerCase:parseInt(document.getElementById('pop-bpc').value)||6,
+    casePrice:parseFloat(document.getElementById('pop-caseprice').value)||0,
+    bottlePrice:parseFloat(document.getElementById('pop-btlprice').value)||0
+  };
+  if(!payload.description){toast('Description required');return}
+  try{
+    const url=TOASTED_BACKEND_URL+'/api/po/products'+(id?'/'+id:'');
+    const res=await fetch(url,{method:id?'PATCH':'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to save product');return}
+    toast('Product saved');
+    closePOModal();
+    await managePOProducts(supplierId);
+  }catch(e){toast('Failed to save -- check connection');}
+}
+async function deletePOProduct(id,supplierId){
+  if(!confirm('Remove this product?'))return;
+  try{
+    await fetch(TOASTED_BACKEND_URL+'/api/po/products/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
+    toast('Product removed');
+    await managePOProducts(supplierId);
+  }catch(e){toast('Failed to delete');}
+}
+
+// -- PO PDF export (mirrors the standalone PO system's layout) ----------------------
+async function exportPOPdf(id){
+  toast('Generating PO PDF...');
+  let order;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/orders/'+id,{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast('Could not load PO');return}
+    order=res.order;
+  }catch(e){toast('Could not load PO -- check connection');return}
+
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'pt',format:'letter',orientation:'landscape'});
+  const ML=36,MT=32,CW=792-72;
+
+  const COLS=[
+    ['PO Date',58,'left'],['Brand',80,'left'],['Vintage',36,'left'],['Type',52,'left'],
+    ['Size',44,'left'],['Qty Btl',44,'right'],['Qty Cs',44,'right'],
+    ['Description',156,'left'],['Case $',56,'right'],['Btl $',56,'right'],['Total',94,'right']
+  ];
+  const colX=[];{let x=ML;COLS.forEach(([,w])=>{colX.push(x);x+=w;});}
+  const fmtN=v=>{ if(v===null||v===undefined)return'N/C'; const n=parseFloat(v); if(isNaN(n)||n===0)return'N/C'; return'$'+n.toFixed(2); };
+  const poDateStr=order.poDate?new Date(order.poDate).toLocaleDateString('en-US'):'';
+
+  const drawTitle=()=>{
+    doc.setFillColor(44,44,44);doc.rect(ML,MT,CW,20,'F');
+    doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+    doc.text('Purchase Order for ACS BEVERAGE Co.',ML+CW/2,MT+14,{align:'center'});
+  };
+  const drawColHeaders=(y)=>{
+    doc.setFillColor(61,61,61);doc.rect(ML,y,CW,18,'F');
+    doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+    COLS.forEach(([label,w,align],i)=>{
+      const x=align==='right'?colX[i]+w-4:colX[i]+4;
+      doc.text(label,x,y+12,{align:align});
+    });
+  };
+  const drawRow=(item,idx,y,rowH)=>{
+    const bg=item.isNoCharge?[255,245,245]:(idx%2===1?[245,245,243]:[255,255,255]);
+    doc.setFillColor(bg[0],bg[1],bg[2]);doc.rect(ML,y,CW,rowH,'F');
+    const cells=[
+      poDateStr, item.brandName||'', item.vintage||'', item.type||'', item.bottleSize||'',
+      item.quantityBottles>0?String(item.quantityBottles):'',
+      item.quantityCases>0?item.quantityCases.toFixed(2):'',
+      item.description||'',
+      item.isNoCharge?'N/C':fmtN(item.casePrice),
+      item.isNoCharge?'N/C':fmtN(item.bottlePrice),
+      item.isNoCharge?'N/C':fmtN(item.lineTotal)
+    ];
+    doc.setFontSize(7.5);
+    COLS.forEach(([label,w,align],i)=>{
+      const isNc=item.isNoCharge&&i>=8;
+      doc.setFont('helvetica',isNc?'bold':'normal');
+      doc.setTextColor(isNc?192:26,isNc?57:26,isNc?43:26);
+      const x=align==='right'?colX[i]+w-4:colX[i]+4;
+      doc.text(String(cells[i]),x,y+11,{align:align,maxWidth:w-8});
+    });
+  };
+
+  const headerY=MT+20;
+  const firstDataY=headerY+96;
+  const contDataY=headerY+22;
+  const pageBottom=612-32-14;
+
+  const items=order.lineItems||[];
+  const rowHeights=items.map(it=>{
+    const len=(it.description||'').length;
+    const charsPerLine=Math.floor((156-8)/(7.5*0.55));
+    const lines=Math.max(1,Math.ceil(len/charsPerLine));
+    return Math.max(20,lines*11+8);
+  });
+
+  const pages=[];
+  {
+    let y=firstDataY,startIdx=0;
+    for(let i=0;i<items.length;i++){
+      const rh=rowHeights[i];
+      if(y+rh>pageBottom){
+        pages.push({startIdx,endIdx:i-1});
+        startIdx=i;y=contDataY;
+      }
+      y+=rh;
+    }
+    if(y+20+60>pageBottom){
+      pages.push({startIdx,endIdx:items.length-1});
+      pages.push({startIdx:items.length,endIdx:items.length-1});
+    } else {
+      pages.push({startIdx,endIdx:items.length-1});
+    }
+  }
+
+  pages.forEach((pg,pageIdx)=>{
+    if(pageIdx>0)doc.addPage('letter','landscape');
+    drawTitle();
+    let y;
+    if(pageIdx===0){
+      try{doc.addImage('data:image/png;base64,'+ACS_LOGO_B64,'PNG',ML,MT+24,50,50);}catch(e){}
+      doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(26,26,26);
+      doc.text('ACS Beverage Co.',ML+58,MT+38);
+      doc.setFontSize(8);doc.setFont('helvetica','normal');
+      doc.text(COMPANY.address,ML+58,MT+50);
+
+      const boxX=ML+CW*0.6,boxW=CW*0.4,boxY=MT+24;
+      doc.setFillColor(240,237,229);doc.rect(boxX,boxY,boxW,58,'F');
+      doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(26,26,26);
+      doc.text('PO Number:',boxX+8,boxY+16);
+      doc.setFontSize(13);doc.text(order.poNumber,boxX+90,boxY+19);
+      doc.setFontSize(6.5);doc.setFont('helvetica','italic');doc.setTextColor(85,85,85);
+      doc.text('[The P.O. number must appear on all related correspondence, shipping papers, and invoices]',boxX+8,boxY+30,{maxWidth:boxW-16});
+      doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(192,57,43);
+      doc.text('Terms: '+(order.paymentTerms||'').toUpperCase(),boxX+8,boxY+52);
+
+      const vendY=MT+24+64;
+      const halfW=CW/2-4;
+      doc.setFillColor(192,57,43);doc.rect(ML,vendY,4,20,'F');
+      doc.setFillColor(61,61,61);doc.rect(ML+6,vendY,halfW-6,14,'F');
+      doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+      doc.text('Vendor',ML+10,vendY+10);
+      doc.rect(ML+halfW+8,vendY,halfW-2,14,'F');
+      doc.text('Delivery location:',ML+halfW+12,vendY+10);
+      doc.setFontSize(9);doc.setTextColor(26,26,26);
+      doc.text(order.supplierName,ML+10,vendY+27);
+      doc.setFontSize(8);doc.setFont('helvetica','normal');
+      doc.text(order.deliveryAddress||COMPANY.address,ML+halfW+12,vendY+27,{maxWidth:halfW-16});
+
+      drawColHeaders(headerY+96-18);
+      y=firstDataY;
+    } else {
+      doc.setFontSize(7);doc.setFont('helvetica','italic');doc.setTextColor(136,136,136);
+      doc.text('Purchase Order '+order.poNumber+' -- continued',ML,headerY+10);
+      drawColHeaders(headerY+12);
+      y=contDataY;
+    }
+
+    for(let i=pg.startIdx;i<=pg.endIdx&&i<items.length;i++){
+      drawRow(items[i],i,y,rowHeights[i]);
+      y+=rowHeights[i];
+    }
+
+    if(pageIdx===pages.length-1){
+      doc.setFillColor(240,237,229);doc.rect(ML,y,CW,20,'F');
+      doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(26,26,26);
+      doc.text(String(order.totalBottles||0),colX[5]+44-4,y+13,{align:'right'});
+      doc.text((order.totalCases||0).toFixed(2),colX[6]+44-4,y+13,{align:'right'});
+      doc.setFontSize(8);
+      doc.text('TOTALS',colX[9]+56-4,y+13,{align:'right'});
+      doc.text('$'+(order.grandTotal||0).toFixed(2),colX[10]+94-4,y+13,{align:'right'});
+      y+=30;
+
+      doc.setFillColor(192,57,43);doc.rect(ML,y,4,44,'F');
+      doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(26,26,26);
+      doc.text('1.  PLEASE SEND ALL INVOICES TO ACCOUNTING@ACSBEVERAGE.COM. INVOICES ARE REVIEWED AND PAID ON A WEEKLY CYCLE. TO AVOID DELAYS, ONLY INVOICES RECEIVED AT THIS EMAIL ADDRESS WILL BE ENTERED INTO OUR PAYMENT SYSTEM.',ML+12,y+8,{maxWidth:CW-16});
+      doc.text('2.  Enter this order in accordance with the prices, terms, delivery method, and specifications listed above.',ML+12,y+24,{maxWidth:CW-16});
+      doc.text('3.  Please notify us immediately if you are unable to ship as specified.',ML+12,y+36,{maxWidth:CW-16});
+    }
+
+    doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(153,153,153);
+    doc.text('Page '+(pageIdx+1)+' of '+pages.length,792-36,612-20,{align:'right'});
+  });
+
+  doc.save(order.poNumber.replace(/\s+/g,'-')+'.pdf');
+  toast('PO PDF generated');
 }
 
 // -- UNCONFIRMED ----------------------------------------------------------------
