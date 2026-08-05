@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { query, getOne, getAll } = require('../db');
 const { requireAdmin } = require('../middleware/auth');
+const sgMail = require('@sendgrid/mail');
+
+const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
+const FROM_NAME = process.env.FROM_NAME || 'Toasted — ACS Beverage Co.';
+const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessica@acsbeverage.com')
+  .split(',').map(e => e.trim()).filter(Boolean);
 
 // All Purchase Order routes are admin-only.
 
@@ -147,7 +153,8 @@ router.get('/orders', requireAdmin, async (req, res) => {
       supplierId: r.supplier_id, supplierName: r.supplier_name || '--',
       deliveryAddress: r.delivery_address,
       totalBottles: r.total_bottles, totalCases: parseFloat(r.total_cases) || 0,
-      grandTotal: parseFloat(r.grand_total) || 0, notes: r.notes || ''
+      grandTotal: parseFloat(r.grand_total) || 0, notes: r.notes || '',
+      emailStatus: r.email_status || 'pending', emailSentAt: r.email_sent_at
     })) });
   } catch (err) {
     console.error('List POs error:', err.message);
@@ -158,7 +165,7 @@ router.get('/orders', requireAdmin, async (req, res) => {
 router.get('/orders/:id', requireAdmin, async (req, res) => {
   try {
     const po = await getOne(`
-      SELECT po.*, s.name as supplier_name
+      SELECT po.*, s.name as supplier_name, s.contact_email
       FROM purchase_orders po LEFT JOIN po_suppliers s ON po.supplier_id = s.id
       WHERE po.id=$1`, [req.params.id]);
     if (!po) return res.status(404).json({ ok: false, error: 'PO not found' });
@@ -166,9 +173,11 @@ router.get('/orders/:id', requireAdmin, async (req, res) => {
     res.json({ ok: true, order: {
       id: po.id, poNumber: po.po_number, poDate: po.po_date, paymentTerms: po.payment_terms,
       supplierId: po.supplier_id, supplierName: po.supplier_name || '--',
+      supplierContactEmail: po.contact_email || '',
       deliveryAddress: po.delivery_address,
       totalBottles: po.total_bottles, totalCases: parseFloat(po.total_cases) || 0,
       grandTotal: parseFloat(po.grand_total) || 0, notes: po.notes || '',
+      emailStatus: po.email_status || 'pending', emailSentAt: po.email_sent_at,
       lineItems: items.map(i => ({
         productId: i.product_id, brandName: i.brand_name, vintage: i.vintage, type: i.type,
         bottleSize: i.bottle_size, bottlesPerCase: i.bottles_per_case, description: i.description,
@@ -217,6 +226,67 @@ router.post('/orders', requireAdmin, async (req, res) => {
     res.json({ ok: true, id: po.id, poNumber });
   } catch (err) {
     console.error('Create PO error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/orders/:id/send-email', requireAdmin, async (req, res) => {
+  try {
+    const { pdfBase64 } = req.body;
+    if (!pdfBase64) return res.status(400).json({ ok: false, error: 'PDF data required' });
+
+    const po = await getOne(`
+      SELECT po.*, s.name as supplier_name, s.contact_email
+      FROM purchase_orders po LEFT JOIN po_suppliers s ON po.supplier_id = s.id
+      WHERE po.id=$1`, [req.params.id]);
+    if (!po) return res.status(404).json({ ok: false, error: 'PO not found' });
+    if (!po.contact_email) return res.status(400).json({ ok: false, error: 'This supplier has no contact email set -- add one in Suppliers & Products first' });
+    if (!process.env.SENDGRID_API_KEY) return res.status(500).json({ ok: false, error: 'Email is not configured on the server' });
+
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    const dateStr = po.po_date ? new Date(po.po_date).toLocaleDateString('en-US') : '';
+    const totalStr = '$' + (parseFloat(po.grand_total) || 0).toFixed(2);
+
+    try {
+      await sgMail.send({
+        to: po.contact_email,
+        cc: NOTIFY_EMAILS,
+        from: { email: FROM_EMAIL, name: FROM_NAME },
+        subject: `Purchase Order ${po.po_number} — ACS Beverage Co.`,
+        text: `Please find attached Purchase Order ${po.po_number} from ACS Beverage Co., dated ${dateStr}.\n\n` +
+              `PO Number: ${po.po_number}\nSupplier: ${po.supplier_name}\nDate: ${dateStr}\nTotal: ${totalStr}\n\n` +
+              `Please send all invoices to accounting@acsbeverage.com. Invoices are reviewed and paid on a weekly cycle.\n\n` +
+              `Enter this order in accordance with the prices, terms, delivery method, and specifications listed in the attached PDF. Please notify us immediately if you are unable to ship as specified.`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;color:#1a1a1a">
+          <div style="background:#2C2C2C;padding:16px 24px;margin-bottom:24px">
+            <span style="color:#fff;font-size:18px;font-weight:bold;letter-spacing:1px">ACS BEVERAGE CO.</span>
+          </div>
+          <div style="line-height:1.6;font-size:14px">
+            <p>Hello,</p>
+            <p>Please find attached Purchase Order <strong>${po.po_number}</strong> from ACS Beverage Co., dated ${dateStr}.</p>
+            <p>PO Number: ${po.po_number}<br/>Supplier: ${po.supplier_name}<br/>Date: ${dateStr}<br/>Total: ${totalStr}</p>
+            <p>Please send all invoices to <a href="mailto:accounting@acsbeverage.com" style="color:#C0392B">accounting@acsbeverage.com</a>. Invoices are reviewed and paid on a weekly cycle.</p>
+            <p>Enter this order in accordance with the prices, terms, delivery method, and specifications listed in the attached PDF. Please notify us immediately if you are unable to ship as specified.</p>
+          </div>
+          <hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>
+          <p style="font-size:11px;color:#999">ACS Beverage Co. &middot; 531 Getty Ct. Suite D, Benicia CA 94510</p>
+        </div>`,
+        attachments: [{
+          filename: po.po_number.replace(/\s+/g, '_') + '.pdf',
+          content: pdfBase64,
+          type: 'application/pdf',
+          disposition: 'attachment'
+        }]
+      });
+      await query('UPDATE purchase_orders SET email_status=$1, email_sent_at=NOW() WHERE id=$2', ['sent', req.params.id]);
+      res.json({ ok: true });
+    } catch (sendErr) {
+      console.error('Send PO email error:', sendErr.response?.body || sendErr.message);
+      await query('UPDATE purchase_orders SET email_status=$1 WHERE id=$2', ['failed', req.params.id]);
+      res.status(500).json({ ok: false, error: 'Email failed to send -- check the supplier contact email is valid' });
+    }
+  } catch (err) {
+    console.error('Send PO email error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
