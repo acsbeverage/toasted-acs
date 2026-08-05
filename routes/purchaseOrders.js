@@ -6,7 +6,7 @@ const sgMail = require('@sendgrid/mail');
 
 const FROM_EMAIL = process.env.PO_FROM_EMAIL || 'purchasing@acsbeverage.com';
 const FROM_NAME = process.env.PO_FROM_NAME || 'ACS Beverage Co. Purchasing';
-const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessica@acsbeverage.com')
+const NOTIFY_EMAILS = (process.env.PO_CC_EMAILS || 'accounting@acsbeverage.com,jessica@acsbeverage.com')
   .split(',').map(e => e.trim()).filter(Boolean);
 
 // All Purchase Order routes are admin-only.
