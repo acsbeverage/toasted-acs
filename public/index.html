@@ -200,6 +200,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .dash-grid-2-1{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
 .btn-delete-item{background:var(--red);color:#fff;border:none;border-radius:7px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:14px}
 .btn-delete-item:hover{opacity:0.85}
+.order-card{background:var(--bg2,#fff);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.order-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.order-card-actions .btn{flex:1;min-width:auto;justify-content:center;min-height:40px}
 @media(max-width:768px){
   .hamburger{display:flex}
   .sidebar{position:fixed;left:0;top:0;height:100vh;z-index:300;transform:translateX(-100%);transition:transform 0.22s ease;width:210px!important;min-width:210px!important}
@@ -213,6 +216,11 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   /* Edit Order modal: same treatment */
   #edit-items-table-view{display:none!important}
   #edit-items-cards-view{display:block!important}
+  /* Unconfirmed / Order History: same table<->card treatment */
+  #unconf-table-view{display:none!important}
+  #unconf-cards-view{display:block!important}
+  #hist-table-view{display:none!important}
+  #hist-cards-view{display:block!important}
   .li-card{background:var(--bg2,#fff);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;position:relative}
   .li-card-fee{padding:14px 16px;border-radius:12px;margin-bottom:14px;font-size:14px;font-weight:600}
   .li-label{font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px;display:block}
@@ -238,6 +246,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 @media(min-width:769px){
   #line-items-cards-view{display:none!important}
   #edit-items-cards-view{display:none!important}
+  #unconf-cards-view{display:none!important}
+  #hist-cards-view{display:none!important}
 }
 .portal-nav-btn{background:none;border:none;border-bottom:3px solid transparent;padding:14px 20px;font-size:14px;font-weight:500;color:#666;cursor:pointer;white-space:nowrap;transition:all 0.15s}
 .portal-nav-btn.active{color:#B8872C;border-bottom-color:#B8872C;font-weight:700}
@@ -2465,12 +2475,38 @@ async function exportTastingPDF(id){
 function renderUnconfirmed(){
   const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
   const isAdmin=currentUser.role==='admin';
-  document.getElementById('main-content').innerHTML=`<div class="card">
-    <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
-    ${unconf.length?`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+
+  const tableHtml=`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
     <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
       <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
-    </tbody></table>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
+    </tbody></table>`;
+
+  const cardsHtml=unconf.map(o=>{
+    const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const canEdit=isAdmin||o.rep===currentUser.id;
+    return`<div class="order-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div ${canEdit?`onclick="openEditOrder('${o.id}')"`:''} style="${canEdit?'cursor:pointer':''}">
+          <div style="font-weight:700;color:var(--gold);font-size:14px">${o.id}</div>
+          <div style="font-weight:600;margin-top:2px">${acct?acct.name:'--'}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${rep?rep.fname+' '+rep.lname:'--'} &middot; ${o.date} &rarr; ${o.delivery}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700;font-size:16px">${fmt(orderTotal(o))}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${orderQtyLabel(o.items)}</div>
+        </div>
+      </div>
+      ${o.notes?`<div style="font-size:12px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">${o.notes}</div>`:''}
+      <div class="order-card-actions">
+        ${canEdit?`<button class="btn btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
+        <button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>
+        <button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('main-content').innerHTML=`<div class="card">
+    <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
+    ${unconf.length?`<div id="unconf-table-view">${tableHtml}</div><div id="unconf-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
 }
 function doConfirm(){
@@ -2616,8 +2652,10 @@ function renderHistory(){
     ${isAdmin?`<select class="finput" id="hist-rep" onchange="filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
   </div>
   <div class="card"><div class="card-header"><span class="card-title" id="hist-count">${mine.length} orders</span></div>
-  <table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
-  <tbody id="hist-body"></tbody></table></div>`;
+  <div id="hist-table-view"><table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
+  <tbody id="hist-body"></tbody></table></div>
+  <div id="hist-cards-view" style="display:none;padding:14px"></div>
+  </div>`;
   window._histOrders=mine;filterHistory();
 }
 function filterHistory(){
@@ -2625,7 +2663,9 @@ function filterHistory(){
   const isAdmin=currentUser.role==='admin';let res=window._histOrders||[];
   if(sf)res=res.filter(o=>o.status===sf);if(rf)res=res.filter(o=>o.rep===rf);
   document.getElementById('hist-count').textContent=res.length+' orders';
-  document.getElementById('hist-body').innerHTML=res.slice().reverse().map(o=>{
+  const sorted=res.slice().reverse();
+
+  document.getElementById('hist-body').innerHTML=sorted.map(o=>{
     const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
@@ -2639,6 +2679,35 @@ function filterHistory(){
       ${pdfSplitBtn(o.id)}
     </td></tr>`;
   }).join('');
+
+  const cardsView=document.getElementById('hist-cards-view');
+  if(cardsView){
+    cardsView.innerHTML=sorted.map(o=>{
+      const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
+      const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
+      const idAction=o.status==='unconfirmed'?(canEdit?`openEditOrder('${o.id}')`:''):`viewInvoice('${o.id}')`;
+      return`<div class="order-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div ${idAction?`onclick="${idAction}"`:''} style="${idAction?'cursor:pointer':''}">
+            <div style="font-weight:700;color:var(--gold);font-size:14px">${o.id}${o.isSample?' <span class="tier-pill" style="font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</div>
+            <div style="font-weight:600;margin-top:2px">${acct?acct.name:'--'}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">${isAdmin&&rep?rep.fname+' '+rep.lname+' &middot; ':''}${o.date} &rarr; ${o.delivery}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-weight:700;font-size:16px">${fmt(orderTotal(o))}</div>
+            <div style="margin-top:4px">${statusBadge(o.status)}</div>
+          </div>
+        </div>
+        <div class="order-card-actions">
+          ${canEdit?`<button class="btn btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
+          ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
+          ${isAdmin&&o.status==='delivered'?`<button class="btn btn-warning" onclick="unconfirmOrder('${o.id}')"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
+          ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>`:''}
+          ${pdfSplitBtn(o.id)}
+        </div>
+      </div>`;
+    }).join('')||'<div style="padding:30px;text-align:center;color:var(--text3)">No orders match</div>';
+  }
 }
 
 // -- INVENTORY -----------------------------------------------------------------
