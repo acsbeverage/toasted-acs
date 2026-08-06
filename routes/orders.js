@@ -185,9 +185,13 @@ async function sendOrderNotification(orderId, placedByLabel, placedByEmail) {
     const prodLines = items.filter(i => !i.is_fee);
     const feeLines   = items.filter(i => i.is_fee);
     const skus = [...new Set(prodLines.map(l => l.sku))];
-    const products = skus.length ? await getAll('SELECT sku,name,btl FROM products WHERE sku = ANY($1)', [skus]) : [];
+    const products = skus.length ? await getAll(
+      'SELECT sku,name,btl,price_frontline,price_mix12,price_acs3,price_brand3,price_brand5 FROM products WHERE sku = ANY($1)',
+      [skus]
+    ) : [];
     const prodBySku = {};
     products.forEach(p => { prodBySku[p.sku] = p; });
+    const TIER_COL = { frontline:'price_frontline', mix12:'price_mix12', acs3:'price_acs3', brand3:'price_brand3', brand5:'price_brand5' };
 
     let subtotal = 0;
     const linesHtml = prodLines.map(l => {
@@ -195,7 +199,8 @@ async function sendOrderNotification(orderId, placedByLabel, placedByEmail) {
       const name = prod ? prod.name : l.sku;
       const btl = prod ? prod.btl : 1;
       const qtyLabel = (l.cases||0) + ' cs' + (l.bottles>0 ? ' + '+l.bottles+' btl' : '');
-      const rate = l.rate!==null && l.rate!==undefined ? parseFloat(l.rate) : 0;
+      const tierCol = TIER_COL[l.tier] || 'price_frontline';
+      const rate = prod && prod[tierCol] !== null && prod[tierCol] !== undefined ? parseFloat(prod[tierCol]) : 0;
       const totalBottles = (l.cases||0)*btl + (l.bottles||0);
       const discount = parseFloat(l.discount_pct)||0;
       const lineTotal = rate * totalBottles * (1 - discount/100);
