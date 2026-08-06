@@ -1200,11 +1200,48 @@ function portalViewInvoice(orderId){
 // -- PORTAL: NEW ORDER ---------------------------------------------------------
 const PORTAL_ORDER_MINIMUM = 450;
 
+function portalRecentItems(acctId,limit){
+  limit=limit||8;
+  const past=ORDERS.filter(o=>o.acct===acctId).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const seen=new Set();
+  const items=[];
+  for(const o of past){
+    for(const item of o.items.filter(x=>!x._fee)){
+      if(seen.has(item.sku))continue;
+      const p=prodBySku(item.sku);if(!p)continue;
+      seen.add(item.sku);
+      items.push({sku:item.sku,name:p.name,producer:p.producer,btl:p.btl,price:itemPrice(p,'frontline')});
+      if(items.length>=limit)return items;
+    }
+  }
+  return items;
+}
+function portalAddRecentItem(sku){
+  addLineItem(sku);
+  toast('Added to your order');
+}
+
 function renderPortalNewOrder(){
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
   currentOrder={acct:acct.id,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
+  const recentItems=portalRecentItems(acct.id);
 
   document.getElementById('portal-content').innerHTML=`
+    ${recentItems.length?`<div class="portal-card">
+      <div class="portal-card-title">Order again</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        ${recentItems.map(item=>`
+          <div style="border:1px solid #eee;border-radius:8px;padding:10px 12px;flex:1 1 200px;min-width:180px;display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:13px;font-weight:600;color:#222;line-height:1.35">${item.name}</div>
+            <div style="font-size:11px;color:#999">${item.producer||''}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px">
+              <span style="font-size:12px;color:#B8872C;font-weight:700">${fmt(item.price*item.btl)}/cs</span>
+              <button onclick="portalAddRecentItem('${item.sku.replace(/'/g,"\\'")}')" style="background:#222;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Add</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`:''}
+
     <div class="portal-card">
       <div class="portal-card-title">Place an Order — ${acct.name}</div>
 
