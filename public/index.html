@@ -3287,7 +3287,7 @@ function filterHistory(){
     <td style="white-space:nowrap;display:flex;gap:4px">
       ${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
-      ${isAdmin&&o.status==='delivered'?`<button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
+      ${isAdmin&&(o.status==='delivered'||o.status==='confirmed')?`<button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
       ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button>`:''} 
       ${pdfSplitBtn(o.id)}
     </td></tr>`;
@@ -3314,7 +3314,7 @@ function filterHistory(){
         <div class="order-card-actions">
           ${canEdit?`<button class="btn btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
           ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
-          ${isAdmin&&o.status==='delivered'?`<button class="btn btn-warning" onclick="unconfirmOrder('${o.id}')"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
+          ${isAdmin&&(o.status==='delivered'||o.status==='confirmed')?`<button class="btn btn-warning" onclick="unconfirmOrder('${o.id}')"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
           ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>`:''}
           ${pdfSplitBtn(o.id)}
         </div>
