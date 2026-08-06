@@ -1803,7 +1803,15 @@ function renderNewOrder(){
       <div id="order-type-note" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
     </div>
     <div class="form-grid form-grid-4" style="gap:12px">
-      <div><label class="flabel">Account</label><select class="finput" id="o-acct" onchange="onAcctChange()"><option value="">-- Select account --</option>${myAccounts().map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</select></div>
+      <div>
+        <label class="flabel">Account</label>
+        <input type="hidden" id="o-acct" value=""/>
+        <div class="search-wrap"><i class="ti ti-search si"></i>
+          <input class="search-input" id="o-acct-search" placeholder="-- Select account --" autocomplete="off"
+            oninput="onAcctSearch(this.value)" onblur="setTimeout(closeAcctDD,200)"/>
+          <div class="dropdown-box" id="o-acct-dd"></div>
+        </div>
+      </div>
       <div><label class="flabel">Order date</label><input type="date" class="finput" id="o-date" value="${today()}" onchange="currentOrder.date=this.value"/></div>
       <div><label class="flabel">Delivery date</label><input type="date" class="finput" id="o-del" value="${plusDays(today(),3)}" onchange="currentOrder.delivery=this.value"/></div>
       <div><label class="flabel">PO number (optional)</label><input type="text" class="finput" id="o-po" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
@@ -1846,10 +1854,33 @@ function setOrderType(type){
 }
 
 function onAcctChange(){
-  const id=document.getElementById('o-acct').value;const acct=ACCOUNTS.find(a=>a.id===id);currentOrder.acct=id;
+  const id=document.getElementById('o-acct').value;const acct=acctById(id);currentOrder.acct=id;
+  const searchInput=document.getElementById('o-acct-search');
+  if(searchInput)searchInput.value=acct?acct.name:'';
   const info=document.getElementById('acct-info');
   if(acct){info.style.display='block';info.innerHTML=`<i class="ti ti-map-pin" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>${acct.address} &nbsp;·&nbsp; <i class="ti ti-user" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>${acct.contact} &nbsp;·&nbsp; <i class="ti ti-mail" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>${acct.email||'--'}`}
   else info.style.display='none';
+}
+function onAcctSearch(val){
+  const dd=document.getElementById('o-acct-dd');
+  if(!val.trim()){dd.classList.remove('open');return}
+  const q=val.toLowerCase();
+  const matches=myAccounts().filter(a=>a.name.toLowerCase().includes(q)).slice(0,15);
+  if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No accounts found</span></div>';dd.classList.add('open');return}
+  dd.innerHTML=matches.map(a=>`
+    <div class="dd-item" onmousedown="selectOrderAcct('${a.id.replace(/'/g,"\\'")}')">
+      <div>
+        <div class="dd-name">${a.name}</div>
+        <div class="dd-meta">${a.address||''}</div>
+      </div>
+    </div>`).join('');
+  dd.classList.add('open');
+}
+function closeAcctDD(){const dd=document.getElementById('o-acct-dd');if(dd)dd.classList.remove('open');}
+function selectOrderAcct(id){
+  document.getElementById('o-acct').value=id;
+  onAcctChange();
+  closeAcctDD();
 }
 function onProdSearch(val){
   const dd=document.getElementById('prod-dd');
