@@ -39,13 +39,52 @@ commissionPct: parseFloat(r.commission_pct)||0,
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
+router.post('/accounts', requireAdmin, async (req, res) => {
+  try {
+    const { id, name, code, lic, contact, contactFirst, contactLast, phone, email, address,
+            shipStreet, shipCity, shipState, shipZip, billStreet, billCity, billState, billZip,
+            terms, rep } = req.body;
+    if (!name) return res.status(400).json({ ok: false, error: 'Account name required' });
+    const acctId = id || ('a' + Date.now());
+
+    let acctCode = code ? String(code).trim() : '';
+    if (acctCode) {
+      const clash = await getOne('SELECT id FROM accounts WHERE code=$1', [acctCode]);
+      if (clash) return res.status(400).json({ ok: false, error: 'That account number is already in use' });
+    } else {
+      const seqRow = await getOne('UPDATE account_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
+      acctCode = String(seqRow.claimed);
+    }
+
+    await query(
+      `INSERT INTO accounts (id,name,code,lic,contact,contact_first,contact_last,phone,email,address,
+        ship_street,ship_city,ship_state,ship_zip,bill_street,bill_city,bill_state,bill_zip,terms,rep)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+      [acctId, name, acctCode, lic||'', contact||'', contactFirst||'', contactLast||'', phone||'', email||'', address||'',
+       shipStreet||'', shipCity||'', shipState||'', shipZip||'', billStreet||'', billCity||'', billState||'', billZip||'',
+       terms||'Net 30', rep||null]
+    );
+    res.json({ ok: true, id: acctId, code: acctCode });
+  } catch (err) {
+    console.error('Create account error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.patch('/accounts/:id', requireAdmin, async (req, res) => {
   try {
-    const { name, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip,
+    const { name, code, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip,
             paymentProvider, onlinePayments, redemption, taxId, resaleNum, warehouseCode,
             licExpiry, abcDetail, creditLimit, creditBalance, avgDaysToPay, commissionPct } = req.body;
+    if (code !== undefined) {
+      const trimmed = String(code).trim();
+      if (trimmed) {
+        const clash = await getOne('SELECT id FROM accounts WHERE code=$1 AND id<>$2', [trimmed, req.params.id]);
+        if (clash) return res.status(400).json({ ok: false, error: 'That account number is already in use' });
+      }
+    }
     await query(`UPDATE accounts SET
-      name=COALESCE($1,name), contact=COALESCE($2,contact),
+      name=COALESCE($1,name), code=COALESCE($24,code), contact=COALESCE($2,contact),
       phone=COALESCE($3,phone), email=COALESCE($4,email),
       terms=COALESCE($5,terms), rep=COALESCE($6,rep),
       ship_street=COALESCE($7,ship_street), ship_city=COALESCE($8,ship_city),
@@ -59,7 +98,7 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
        paymentProvider||'',onlinePayments||'No',redemption||'No',taxId||'',
        resaleNum||'',warehouseCode||'',licExpiry||'',abcDetail||'',
        creditLimit||0,creditBalance||0,avgDaysToPay||0,commissionPct||0,
-       req.params.id]);
+       req.params.id,code]);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update account error:', err.message);
