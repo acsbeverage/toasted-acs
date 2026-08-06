@@ -3244,7 +3244,8 @@ function renderHistory(){
   const isAdmin=currentUser.role==='admin';const mine=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
   _histPage=1;
   document.getElementById('main-content').innerHTML=`
-  <div style="display:flex;gap:8px;margin-bottom:14px">
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="search-wrap" style="max-width:280px"><i class="ti ti-search si"></i><input class="search-input" id="hist-search" placeholder="Search order ID or account..." oninput="_histPage=1;filterHistory()"/></div>
     <select class="finput" id="hist-status" onchange="_histPage=1;filterHistory()" style="width:160px;padding:7px 9px"><option value="">All statuses</option><option value="unconfirmed">Unconfirmed</option><option value="confirmed">Confirmed (Pending delivery)</option><option value="delivered">Delivered (In AR)</option></select>
     ${isAdmin?`<select class="finput" id="hist-rep" onchange="_histPage=1;filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
   </div>
@@ -3261,8 +3262,14 @@ let _histPage=1;
 function histGoToPage(p){_histPage=p;filterHistory();}
 function filterHistory(){
   const sf=document.getElementById('hist-status')?.value||'';const rf=document.getElementById('hist-rep')?.value||'';
+  const sq=(document.getElementById('hist-search')?.value||'').trim().toLowerCase();
   const isAdmin=currentUser.role==='admin';let res=window._histOrders||[];
   if(sf)res=res.filter(o=>o.status===sf);if(rf)res=res.filter(o=>o.rep===rf);
+  if(sq)res=res.filter(o=>{
+    if(o.id.toLowerCase().includes(sq))return true;
+    const acct=acctById(o.acct);
+    return acct&&acct.name.toLowerCase().includes(sq);
+  });
   document.getElementById('hist-count').textContent=res.length+' orders';
   const sortedAll=res.slice().reverse();
   const totalPages=Math.max(1,Math.ceil(sortedAll.length/HIST_PAGE_SIZE));
