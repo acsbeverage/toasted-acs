@@ -77,8 +77,21 @@ router.get('/', requireAuth, async (req, res) => {
 
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { id, acct, rep, date, delivery, status, orderType, po, notes,
+    let { id, acct, rep, date, delivery, status, orderType, po, notes,
             isSample, waiveDelivery, waiveBrokenCase, waiveCRV, items, placedByLabel } = req.body;
+
+    // Customers can only ever place orders under their own account, at standard pricing --
+    // never trust acct/rep/tier values coming from a customer-role client.
+    if (req.user.role === 'customer') {
+      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
+      if (!cust) return res.status(403).json({ ok: false, error: 'Customer account not found' });
+      const custAcct = await getOne('SELECT rep FROM accounts WHERE id=$1', [cust.acct_id]);
+      acct = cust.acct_id;
+      rep = custAcct ? custAcct.rep : null;
+      status = 'unconfirmed';
+      if (Array.isArray(items)) items = items.map(item => ({ ...item, tier: item._fee ? item.tier : 'frontline' }));
+    }
+
     if (!id || !acct) return res.status(400).json({ ok: false, error: 'Missing required fields' });
     await query(`
       INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,
@@ -108,6 +121,7 @@ router.post('/', requireAuth, async (req, res) => {
 
 router.patch('/:id', requireAuth, async (req, res) => {
   try {
+    if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
             date, delivery, po, notes, items } = req.body;
     const updates = [], values = [];
