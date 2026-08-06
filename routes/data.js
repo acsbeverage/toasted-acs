@@ -92,6 +92,7 @@ router.get('/products', requireAuth, async (req, res) => {
         brand5: parseFloat(r.da_brand5)||0,
       },
       _details: isCustomer ? {
+        redemptionEntry: r.redemption_entry||'',
         bottleSize: r.bottle_size||'',
         active: r.active||'Yes',
       } : {
