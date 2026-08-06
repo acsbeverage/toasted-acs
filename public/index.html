@@ -570,6 +570,26 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 <script>
 const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
 let PRODUCTS=[];
+// -- Fast O(1) lookups (self-rebuilding -- no need to touch this when data changes elsewhere) --
+let _acctMap=null,_acctMapLen=-1;
+function acctById(id){
+  if(!id)return null;
+  if(_acctMap===null||ACCOUNTS.length!==_acctMapLen){_acctMap={};ACCOUNTS.forEach(a=>_acctMap[a.id]=a);_acctMapLen=ACCOUNTS.length;}
+  return _acctMap[id]||null;
+}
+let _userMap=null,_userMapLen=-1;
+function userById(id){
+  if(!id)return null;
+  if(_userMap===null||USERS.length!==_userMapLen){_userMap={};USERS.forEach(u=>_userMap[u.id]=u);_userMapLen=USERS.length;}
+  return _userMap[id]||null;
+}
+let _prodMap=null,_prodMapLen=-1;
+function prodBySku(sku){
+  if(!sku)return null;
+  if(_prodMap===null||PRODUCTS.length!==_prodMapLen){_prodMap={};PRODUCTS.forEach(p=>_prodMap[p.sku]=p);_prodMapLen=PRODUCTS.length;}
+  return _prodMap[sku]||null;
+}
+
 let DRAFT_ORDERS=[];
 let TASTINGS=[];
 let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[];
@@ -721,7 +741,7 @@ function updateBadges(){
   const ub=document.getElementById('unconf-badge');if(ub)ub.textContent=unconfirmedCount();
   const lb=document.getElementById('low-badge');if(lb){const lc=lowStock().length+outOfStock().length;lb.textContent=lc;lb.classList.toggle('hidden',lc===0)}
   const db=document.getElementById('deliv-badge');if(db){const dc=pendingDeliveries().length;db.textContent=dc;db.style.display=dc>0?'inline':'none'}
-  const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.date,ACCOUNTS.find(a=>a.id===o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
+  const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.date,acctById(o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
   const drb=document.getElementById('drafts-badge');if(drb){const mine=currentUser&&currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>currentUser&&d.rep===currentUser.id);const dc=mine.length;drb.textContent=dc;drb.style.display=dc>0?'inline':'none'}
   const tsb=document.getElementById('tastings-badge');if(tsb){const mine=currentUser&&currentUser.role==='admin'?TASTINGS:TASTINGS.filter(t=>currentUser&&t.rep===currentUser.id);const tc=mine.length;tsb.textContent=tc;tsb.style.display=tc>0?'inline':'none'}
 }
@@ -1553,7 +1573,7 @@ function renderRepDashboard(){
     </table>
   </div>
   ${unconf.length?`<div class="card" style="margin-top:14px;border-color:var(--amber-border)"><div class="card-header" style="background:var(--amber-bg)"><span class="card-title" style="color:var(--amber)"><i class="ti ti-clock" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>My unconfirmed orders (${unconf.length})</span></div>
-  <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Date</th><th>Total</th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td>${acct?acct.name:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td></tr>`;}).join('')}</tbody></table></div>`:''}`;
+  <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Date</th><th>Total</th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=acctById(o.acct);return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td>${acct?acct.name:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td></tr>`;}).join('')}</tbody></table></div>`:''}`;
 }
 
 function renderAdminDashboard(){
@@ -1602,7 +1622,7 @@ function renderAdminDashboard(){
   const openAR=ORDERS.filter(o=>o.status==='delivered'&&!o.paid).reduce((s,o)=>s+orderTotal(o),0);
   const pastDue=ORDERS.filter(o=>{
     if(o.status!=='delivered'||o.paid)return false;
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
+    const acct=acctById(o.acct)||{};
     const terms=parseInt((acct.terms||'Net 30').replace(/\D/g,''))||30;
     const due=new Date(o.delivery||o.date);due.setDate(due.getDate()+terms);
     return due.toISOString().slice(0,10)<new Date().toISOString().slice(0,10);
@@ -1727,8 +1747,8 @@ function renderAdminDashboard(){
       <div class="card-header"><span class="card-title">Recent Orders</span><button class="btn btn-sm" onclick="showPage('history')">View all</button></div>
       <table class="tbl">
         ${recentOrders.map(o=>{
-          const acct=ACCOUNTS.find(a=>a.id===o.acct);
-          const rep=USERS.find(u=>u.id===o.rep);
+          const acct=acctById(o.acct);
+          const rep=userById(o.rep);
           return `<tr style="cursor:pointer" onclick="viewInvoice('${o.id}')">
             <td style="font-size:11px;color:var(--gold);font-weight:600">${o.id}</td>
             <td style="font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${acct?acct.name:'--'}</td>
@@ -1922,7 +1942,7 @@ function renderLineItems(){
         <td></td>
       </tr>`;
     }
-    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+    const p=prodBySku(item.sku);if(!p)return'';
     const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
     return`<tr>
       <td style="font-weight:500;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
@@ -1970,7 +1990,7 @@ function renderLineItems(){
         ${isAdmin?`<div style="margin-top:6px"><button onclick="waiveCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;text-decoration:underline">Remove fee</button></div>`:''}
       </div>`;
     }
-    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+    const p=prodBySku(item.sku);if(!p)return'';
     const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
     const grossTotal=price*itemTotalBottles(item);
     return`<div class="li-card">
@@ -2076,15 +2096,15 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
   if(backendUrl){ return; }
 
   const o = ORDERS.find(x=>x.id===orderId); if(!o) return;
-  const acct = ACCOUNTS.find(a=>a.id===o.acct)||{};
-  const rep  = USERS.find(u=>u.id===o.rep)||{};
+  const acct = acctById(o.acct)||{};
+  const rep  = userById(o.rep)||{};
 
   const prodLines = o.items.filter(x=>!x._fee);
   const fees      = o.items.filter(x=>x._fee);
   const total     = orderTotal(o);
 
   const lines = prodLines.map(item=>{
-    const p = PRODUCTS.find(x=>x.sku===item.sku)||{name:item.sku};
+    const p = prodBySku(item.sku)||{name:item.sku};
     const qty = item.cases>0&&item.bottles>0
       ? item.cases+'cs + '+item.bottles+' btl'
       : item.cases>0 ? item.cases+' cs' : item.bottles+' btl';
@@ -2310,7 +2330,7 @@ function renderTastingItems(){
     return;
   }
   wrap.innerHTML=currentTasting.items.map((item,idx)=>{
-    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+    const p=prodBySku(item.sku);if(!p)return'';
     const tierRows=TIERS.filter(t=>(p.prices[t.id]||0)>0).map(t=>{
       const price=p.prices[t.id];
       return `<div style="margin-bottom:6px"><div style="font-size:12px;font-weight:700;color:var(--text)">${t.name.toUpperCase()}: ${fmt(price*p.btl)}</div><div style="font-size:11px;color:var(--text2);font-style:italic">Bottle: ${fmt(price)}</div></div>`;
@@ -2377,7 +2397,7 @@ async function exportTastingPDF(id){
   // Preload image dimensions for every product with an image so they render without distortion
   const dims={};
   for(const item of t.items){
-    const p=PRODUCTS.find(x=>x.sku===item.sku);
+    const p=prodBySku(item.sku);
     if(p&&p.image){ dims[item.sku]=await _loadImgDims(p.image); }
   }
 
@@ -2412,7 +2432,7 @@ async function exportTastingPDF(id){
   const ensureSpace=(h)=>{ if(y+h>760){doc.addPage();y=M;} };
 
   t.items.forEach(item=>{
-    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+    const p=prodBySku(item.sku);if(!p)return;
     const tiers=TIERS.filter(tr=>(p.prices[tr.id]||0)>0);
     const rowH=Math.max(IMG_BOX+14, 24+tiers.length*28);
     ensureSpace(rowH);
@@ -3022,12 +3042,12 @@ function renderUnconfirmed(){
   const isAdmin=currentUser.role==='admin';
 
   const tableHtml=`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
-    <tbody>${unconf.map(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
+    <tbody>${unconf.map(o=>{const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
       <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
     </tbody></table>`;
 
   const cardsHtml=unconf.map(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);const canEdit=isAdmin||o.rep===currentUser.id;
+    const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;
     return`<div class="order-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div ${canEdit?`onclick="openEditOrder('${o.id}')"`:''} style="${canEdit?'cursor:pointer':''}">
@@ -3075,7 +3095,7 @@ function updatePageAfterConfirm(){
 }
 // Reset confirm modal when it's reopened
 function openConfirm(orderId){
-  confirmingOrderId=orderId;const o=ORDERS.find(x=>x.id===orderId);const acct=ACCOUNTS.find(a=>a.id===o.acct);
+  confirmingOrderId=orderId;const o=ORDERS.find(x=>x.id===orderId);const acct=acctById(o.acct);
   const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);const cases=o.items.reduce((s,x)=>s+x.cases,0);const loose=o.items.reduce((s,x)=>s+x.bottles,0);
   // Reset to pre-confirm state
   document.getElementById('confirm-modal-title').textContent='Confirm order';
@@ -3121,11 +3141,11 @@ function renderEditItems(){
   if(!window._editItems.length){wrap.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No products -- search above to add</div>';document.getElementById('edit-total').textContent='';return}
 
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead><tbody>`+
-  window._editItems.map((item,idx)=>{const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
+  window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
     return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
-    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return'';
+    const p=prodBySku(item.sku);if(!p)return'';
     const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
     const grossTotal=price*itemTotalBottles(item);
     return`<div class="li-card">
@@ -3191,27 +3211,37 @@ function saveEditOrder(){
 // -- HISTORY --------------------------------------------------------------------
 function renderHistory(){
   const isAdmin=currentUser.role==='admin';const mine=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
+  _histPage=1;
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:8px;margin-bottom:14px">
-    <select class="finput" id="hist-status" onchange="filterHistory()" style="width:160px;padding:7px 9px"><option value="">All statuses</option><option value="unconfirmed">Unconfirmed</option><option value="confirmed">Confirmed (Pending delivery)</option><option value="delivered">Delivered (In AR)</option></select>
-    ${isAdmin?`<select class="finput" id="hist-rep" onchange="filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
+    <select class="finput" id="hist-status" onchange="_histPage=1;filterHistory()" style="width:160px;padding:7px 9px"><option value="">All statuses</option><option value="unconfirmed">Unconfirmed</option><option value="confirmed">Confirmed (Pending delivery)</option><option value="delivered">Delivered (In AR)</option></select>
+    ${isAdmin?`<select class="finput" id="hist-rep" onchange="_histPage=1;filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
   </div>
   <div class="card"><div class="card-header"><span class="card-title" id="hist-count">${mine.length} orders</span></div>
   <div id="hist-table-view"><table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
   <tbody id="hist-body"></tbody></table></div>
   <div id="hist-cards-view" style="display:none;padding:14px"></div>
+  <div id="hist-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)"></div>
   </div>`;
   window._histOrders=mine;filterHistory();
 }
+const HIST_PAGE_SIZE=100;
+let _histPage=1;
+function histGoToPage(p){_histPage=p;filterHistory();}
 function filterHistory(){
   const sf=document.getElementById('hist-status')?.value||'';const rf=document.getElementById('hist-rep')?.value||'';
   const isAdmin=currentUser.role==='admin';let res=window._histOrders||[];
   if(sf)res=res.filter(o=>o.status===sf);if(rf)res=res.filter(o=>o.rep===rf);
   document.getElementById('hist-count').textContent=res.length+' orders';
-  const sorted=res.slice().reverse();
+  const sortedAll=res.slice().reverse();
+  const totalPages=Math.max(1,Math.ceil(sortedAll.length/HIST_PAGE_SIZE));
+  if(_histPage>totalPages)_histPage=totalPages;
+  const startIdx=(_histPage-1)*HIST_PAGE_SIZE;
+  const sorted=sortedAll.slice(startIdx,startIdx+HIST_PAGE_SIZE);
+  const isMobileView=window.matchMedia('(max-width:768px)').matches;
 
-  document.getElementById('hist-body').innerHTML=sorted.map(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
+  if(!isMobileView) document.getElementById('hist-body').innerHTML=sorted.map(o=>{
+    const acct=acctById(o.acct);const rep=userById(o.rep);
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
     const idClick=o.status==='unconfirmed'?(canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''):`onclick="viewInvoice('${o.id}')" title="Click to view invoice"`;
@@ -3226,9 +3256,9 @@ function filterHistory(){
   }).join('');
 
   const cardsView=document.getElementById('hist-cards-view');
-  if(cardsView){
+  if(cardsView&&isMobileView){
     cardsView.innerHTML=sorted.map(o=>{
-      const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
+      const acct=acctById(o.acct);const rep=userById(o.rep);
       const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
       const idAction=o.status==='unconfirmed'?(canEdit?`openEditOrder('${o.id}')`:''):`viewInvoice('${o.id}')`;
       return`<div class="order-card">
@@ -3252,6 +3282,18 @@ function filterHistory(){
         </div>
       </div>`;
     }).join('')||'<div style="padding:30px;text-align:center;color:var(--text3)">No orders match</div>';
+  }
+
+  const pagWrap=document.getElementById('hist-pagination');
+  if(pagWrap){
+    if(totalPages<=1){
+      pagWrap.innerHTML='';
+    } else {
+      pagWrap.innerHTML=`
+        <button class="btn btn-sm" ${_histPage<=1?'disabled':''} onclick="histGoToPage(${_histPage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
+        <span style="font-size:13px;color:var(--text2)">Page ${_histPage} of ${totalPages} &nbsp;(${sortedAll.length} orders)</span>
+        <button class="btn btn-sm" ${_histPage>=totalPages?'disabled':''} onclick="histGoToPage(${_histPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+    }
   }
 }
 
@@ -3801,7 +3843,7 @@ function openAccountDetail(acctId){
   const purchaseLines=[];
   allOrders.forEach(o=>{
     o.items.filter(x=>!x._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       const price=itemPrice(p,item.tier);
       purchaseLines.push({
         date:o.date,orderId:o.id,status:o.status,
@@ -4159,7 +4201,7 @@ function setTierCommission(sku,tierId,val){
 // Returns the effective commission % for a given order line item
 // Checks for tier-level override first, then falls back to rep's default
 function getLineCommission(item, repId){
-  const p=PRODUCTS.find(x=>x.sku===item.sku);
+  const p=prodBySku(item.sku);
   if(!p)return 0;
   const overrideKey='__comm_'+item.tier;
   if(p.prices && p.prices[overrideKey]!==undefined && p.prices[overrideKey]!==null){
@@ -4262,8 +4304,8 @@ const ACS_LOGO_B64 = '/9j/4AAQSkZJRgABAgEBLAEsAAD/4gxYSUNDX1BST0ZJTEUAAQEAAAxITG
 function _buildInvoicePDF(o,callback){
   // Fees (delivery, broken case, CRV) always render after product lines on the invoice.
   o={...o, items:[...o.items].sort((a,b)=>(a._fee?1:0)-(b._fee?1:0))};
-  const acct=ACCOUNTS.find(a=>a.id===o.acct);
-  const rep=USERS.find(u=>u.id===o.rep);
+  const acct=acctById(o.acct);
+  const rep=userById(o.rep);
   const {jsPDF}=window.jspdf;
 
   // Landscape letter: 792 × 612 pt
@@ -4427,7 +4469,7 @@ function _buildInvoicePDF(o,callback){
       feeRow('CRV1','CA CRV -- '+item.bottles+' btl × $'+item.rate.toFixed(2),item.bottles,item.rate,lt,20,110,80);return;
     }
 
-    const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+    const p=prodBySku(item.sku);if(!p)return;
     const price=itemPrice(p,item.tier);
     const casePrice=price*p.btl;
     const lineBtl=itemTotalBottles(item);
@@ -4573,8 +4615,8 @@ function renderDeliveries(){
       </tr></thead>
       <tbody id="deliv-body">
       ${pending.map(o=>{
-        const acct=ACCOUNTS.find(a=>a.id===o.acct);
-        const rep=USERS.find(u=>u.id===o.rep);
+        const acct=acctById(o.acct);
+        const rep=userById(o.rep);
         const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
         const isPast=o.delivery<today();
         return`<tr id="drow-${o.id}" style="${isPast?'background:rgba(176,58,46,0.04)':''}">
@@ -4614,7 +4656,7 @@ function renderDeliveries(){
     <table class="tbl">
       <thead><tr><th>Account</th><th>Invoice #</th><th>Delivered</th><th>Sales Rep</th><th>Total</th><th></th></tr></thead>
       <tbody>${delivered.slice(0,20).map(o=>{
-        const acct=ACCOUNTS.find(a=>a.id===o.acct);const rep=USERS.find(u=>u.id===o.rep);
+        const acct=acctById(o.acct);const rep=userById(o.rep);
         return`<tr><td style="font-weight:500">${acct?acct.name:'--'}</td><td style="color:var(--text2);font-size:12px">${o.id}</td><td style="color:var(--text2);font-size:12px">${o.deliveredAt||o.delivery}</td><td style="color:var(--text2);font-size:12px">${rep?rep.fname+' '+rep.lname:'--'}</td><td style="font-weight:600;font-size:12px">${fmt(orderTotal(o))}</td><td style="white-space:nowrap;display:flex;gap:4px">${pdfSplitBtn(o.id)}${!o.qboSyncedAt?`<button class="btn btn-sm" style="color:#2CA01C;border-color:#2CA01C" onclick="qboSendInvoice('${o.id}')" title="Send to QuickBooks"><i class="ti ti-brand-quickbooks"></i> QBO</button>`:`<span style="font-size:11px;color:var(--green);align-self:center" title="Synced ${o.qboSyncedAt}"><i class="ti ti-circle-check"></i> QBO</span>`}<button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed"><i class="ti ti-arrow-back-up"></i> Unconfirm</button><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteOrderFromDeliveries('${o.id}')" title="Delete order"><i class="ti ti-trash"></i> Delete</button></td></tr>`;
       }).join('')}
       </tbody>
@@ -4679,8 +4721,8 @@ function exportManifest(){
 
     // Stop rows
     dayOrders.forEach((o,idx)=>{
-      const acct=ACCOUNTS.find(a=>a.id===o.acct);
-      const rep=USERS.find(u=>u.id===o.rep);
+      const acct=acctById(o.acct);
+      const rep=userById(o.rep);
       const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
       const cases=o.items.reduce((s,x)=>s+x.cases,0);
       const total=orderTotal(o);
@@ -4722,7 +4764,7 @@ function exportManifest(){
       // Products sub-list (compact)
       if(o.items.length<=8){
         o.items.forEach(item=>{
-          const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+          const p=prodBySku(item.sku);if(!p)return;
           doc.setFillColor(248,248,248);doc.rect(M+24,y-1,W-M*2-24,13,'F');
           doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
           const nm=p.name.length>40?p.name.substring(0,38)+'...':p.name;
@@ -4959,7 +5001,7 @@ function doExportPicklist(){
     // Aggregate by SKU across all orders
     const skuMap={};
     orders.forEach(o=>{
-      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
+      const acct=acctById(o.acct)||{};
       o.items.filter(x=>!x._fee).forEach(item=>{
         if(!skuMap[item.sku])skuMap[item.sku]={cases:0,bottles:0,orders:[]};
         skuMap[item.sku].cases+=item.cases||0;
@@ -4992,8 +5034,8 @@ function doExportPicklist(){
     // One row per order
     orders.forEach(o=>{
       if(y>540){doc.addPage();y=MT;}
-      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
-      const rep=USERS.find(u=>u.id===o.rep)||{};
+      const acct=acctById(o.acct)||{};
+      const rep=userById(o.rep)||{};
       doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
       doc.text(o.id+' -- '+acct.name,ML,y);
       doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(100,100,100);
@@ -5001,7 +5043,7 @@ function doExportPicklist(){
       y+=12;
       o.items.filter(x=>!x._fee).forEach(item=>{
         if(y>540){doc.addPage();y=MT;}
-        const p=PRODUCTS.find(x=>x.sku===item.sku)||{name:item.sku};
+        const p=prodBySku(item.sku)||{name:item.sku};
         const name=p.name||item.sku;
         doc.setTextColor(40,40,40);
         doc.text('  '+item.sku,ML+8,y);
@@ -5055,11 +5097,11 @@ function doExportExcel(){
 
   const rows=[headers];
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
-    const rep=USERS.find(u=>u.id===o.rep)||{};
+    const acct=acctById(o.acct)||{};
+    const rep=userById(o.rep)||{};
     const oTotal=orderTotal(o).toFixed(2);
     o.items.filter(x=>!x._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku)||{name:item.sku,btl:12};
+      const p=prodBySku(item.sku)||{name:item.sku,btl:12};
       const btlTotal=itemTotalBottles(item);
       const qty=qtyMode==='bottles'?btlTotal:(doRound?Math.round((item.cases+(item.bottles/(p.btl||12)))*100)/100:item.cases+(item.bottles/(p.btl||12)));
       const price=itemPrice(p,item.tier);
@@ -5129,8 +5171,8 @@ function doExportFintech(){
   const rows=[headers];
 
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
-    const rep=USERS.find(u=>u.id===o.rep)||{};
+    const acct=acctById(o.acct)||{};
+    const rep=userById(o.rep)||{};
     const invoiceDate=fmtDate(dateMode==='delivery'?o.delivery:o.date);
     const invoiceDueDate=fmtDate(calcDue(o.date,acct));
     const po=o.po||'';
@@ -5169,7 +5211,7 @@ function doExportFintech(){
         return;
       }
       // Product line items
-      const p=PRODUCTS.find(x=>x.sku===item.sku)||{name:item.sku,btl:12};
+      const p=prodBySku(item.sku)||{name:item.sku,btl:12};
       const btlTotal=itemTotalBottles(item);
       const lt=itemLineTotal(item);
       let qty,unitPrice;
@@ -5671,10 +5713,10 @@ function renderActiveReport(reportId){
 function renderRA2(el, orders, producerFilter){
   const rows=[];
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{name:'Unknown'};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);
+      const p=prodBySku(item.sku);
       if(!p) return;
       if(producerFilter && p.producer!==producerFilter) return;
       const price=itemPrice(p,item.tier||'frontline');
@@ -5721,10 +5763,10 @@ function renderRA5(el, orders, producerFilter){
   // Build detailed line items
   const rows=[];
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
       rows.push({
@@ -5862,7 +5904,7 @@ function renderRA40(el, orders){
   orders.forEach(o=>{
     let orderCRV=0;
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       // CRV based on bottle size
       const sizeStr=(p._details?.bottleSize||p.bottleSize||'').toLowerCase();
       const ml=parseFloat(sizeStr)||0;
@@ -5995,10 +6037,10 @@ function renderRC12(el, from, to, producerFilter){
   if(to)  orders=orders.filter(o=>o.date<=to);
   const rows=[];
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{name:'Unknown'};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,sku:item.sku,product:p.name,producer:p.producer,cases:item.cases,bottles:item.bottles});
     });
@@ -6037,8 +6079,8 @@ function renderRI2(el){
   const today_=today();
   const orders=ORDERS.filter(o=>o.status==='delivered'&&!o.paid);
   const rows=orders.map(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown',terms:'Net 30'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{name:'Unknown',terms:'Net 30'};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     const terms=parseInt((acct.terms||'Net 30').replace(/\D/g,''))||30;
     const dueDate=new Date(o.delivery||o.date);
     dueDate.setDate(dueDate.getDate()+terms);
@@ -6269,8 +6311,8 @@ function renderFINTECH(el, from, to){
 function renderRA1(el, orders, producerFilter){
   const rows=[];
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{name:'Unknown'};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     const total=orderTotal(o);
     const items=o.items.filter(i=>!i._fee);
     const hasProducer=items.some(i=>{const p=PRODUCTS.find(x=>x.sku===i.sku);return !producerFilter||(p&&p.producer===producerFilter);});
@@ -6299,7 +6341,7 @@ function renderRA3(el, producerFilter){
   const calcByAcct=(orders)=>{
     const m={};
     orders.forEach(o=>{
-      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+      const acct=acctById(o.acct)||{name:'Unknown'};
       if(!m[o.acct])m[o.acct]={acct:acct.name,total:0};
       m[o.acct].total+=orderTotal(o);
     });
@@ -6341,7 +6383,7 @@ function renderRA7(el, orders){
   suppliers.forEach(s=>{matrix[s]={};reps.forEach(r=>{matrix[s][r.id]=0;});});
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p||!matrix[p.producer])return;
+      const p=prodBySku(item.sku);if(!p||!matrix[p.producer])return;
       matrix[p.producer][o.rep]=(matrix[p.producer][o.rep]||0)+itemLineTotal(item);
     });
   });
@@ -6358,9 +6400,9 @@ function renderRA8(el, orders, supplierFilter){
   const acctMap={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(supplierFilter&&p.producer!==supplierFilter)return;
-      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+      const acct=acctById(o.acct)||{name:'Unknown'};
       if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,total:0,invoices:new Set()};
       acctMap[o.acct].total+=itemLineTotal(item);
       acctMap[o.acct].invoices.add(o.id);
@@ -6383,7 +6425,7 @@ function renderRA10(el, orders, supplierFilter){
   const skuMap={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(supplierFilter&&p.producer!==supplierFilter)return;
       if(!skuMap[item.sku])skuMap[item.sku]={sku:item.sku,name:p.name,producer:p.producer,cases:0,bottles:0,revenue:0};
       skuMap[item.sku].cases+=item.cases;
@@ -6405,7 +6447,7 @@ function renderRA11(el, orders, acctFilter){
   const skuMap={};
   orders.filter(o=>!acctFilter||o.acct===acctFilter).forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(!skuMap[item.sku])skuMap[item.sku]={sku:item.sku,name:p.name,producer:p.producer,cases:0,revenue:0};
       skuMap[item.sku].cases+=item.cases;
       skuMap[item.sku].revenue+=itemLineTotal(item);
@@ -6426,9 +6468,9 @@ function renderRA12(el, orders, supplierFilter){
   const repMap={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(supplierFilter&&p.producer!==supplierFilter)return;
-      const rep=USERS.find(u=>u.id===o.rep)||{fname:'Unknown',lname:''};
+      const rep=userById(o.rep)||{fname:'Unknown',lname:''};
       const key=o.rep;
       if(!repMap[key])repMap[key]={rep:rep.fname+' '+rep.lname,cases:0,revenue:0};
       repMap[key].cases+=item.cases;
@@ -6449,8 +6491,8 @@ function renderRA13(el, orders, skuFilter){
   const repMap={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee&&(!skuFilter||i.sku===skuFilter)).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
-      const rep=USERS.find(u=>u.id===o.rep)||{fname:'Unknown',lname:''};
+      const p=prodBySku(item.sku);if(!p)return;
+      const rep=userById(o.rep)||{fname:'Unknown',lname:''};
       if(!repMap[o.rep])repMap[o.rep]={rep:rep.fname+' '+rep.lname,cases:0,revenue:0};
       repMap[o.rep].cases+=item.cases;repMap[o.rep].revenue+=itemLineTotal(item);
     });
@@ -6470,7 +6512,7 @@ function renderRA14(el, orders, skuFilter){
   const acctMap={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee&&(!skuFilter||i.sku===skuFilter)).forEach(item=>{
-      const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+      const acct=acctById(o.acct)||{name:'Unknown'};
       if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,cases:0,revenue:0};
       acctMap[o.acct].cases+=item.cases;acctMap[o.acct].revenue+=itemLineTotal(item);
     });
@@ -6517,7 +6559,7 @@ function renderRA21(el, orders, producerFilter){
   const skuMap={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       if(!skuMap[item.sku])skuMap[item.sku]={sku:item.sku,name:p.name,producer:p.producer,cases:0,revenue:0,accounts:new Set()};
       skuMap[item.sku].cases+=item.cases;
@@ -6539,7 +6581,7 @@ function renderRA22(el, orders, supplierFilter){
   const map={};
   orders.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(supplierFilter&&p.producer!==supplierFilter)return;
       const key=p.producer||'Unknown';
       if(!map[key])map[key]={supplier:key,invoices:new Set(),cases:0,revenue:0};
@@ -6560,10 +6602,10 @@ function renderRA22(el, orders, supplierFilter){
 function renderRA23(el, orders, producerFilter){
   const acctMap={};
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const acct=acctById(o.acct)||{name:'Unknown'};
     if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,revenue:0,products:{}};
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       acctMap[o.acct].revenue+=itemLineTotal(item);
       if(!acctMap[o.acct].products[item.sku])acctMap[o.acct].products[item.sku]={name:p.name,cases:0,revenue:0};
@@ -6616,7 +6658,7 @@ function renderRA35(el, producerFilter){
   ORDERS.filter(o=>o.status==='delivered'||o.status==='confirmed').forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
       if(!lastPurchase[item.sku]||o.date>lastPurchase[item.sku].date){
-        lastPurchase[item.sku]={date:o.date,acct:ACCOUNTS.find(a=>a.id===o.acct)?.name||'Unknown',invoice:o.id};
+        lastPurchase[item.sku]={date:o.date,acct:acctById(o.acct)?.name||'Unknown',invoice:o.id};
       }
     });
   });
@@ -6660,7 +6702,7 @@ function renderRA39(el, orders, supplierFilter){
   orders.forEach(o=>{
     const m=o.date.slice(0,7);
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(supplierFilter&&p.producer!==supplierFilter)return;
       const key=p.producer||'Unknown';
       if(!suppMap[key])suppMap[key]={supplier:key,months:{}};
@@ -6681,7 +6723,7 @@ function renderRA41(el, orders, producerFilter){
   orders.forEach(o=>{
     if(!repMap[o.rep])return;
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       if(!repMap[o.rep].products[item.sku])repMap[o.rep].products[item.sku]={name:p.name,cases:0,revenue:0};
       repMap[o.rep].products[item.sku].cases+=item.cases;
@@ -6710,7 +6752,7 @@ function renderRA44(el, orders, producerFilter){
   orders.forEach(o=>{
     const m=o.date.slice(0,7);
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       if(!skuMap[item.sku])skuMap[item.sku]={name:p.name,months:{}};
       skuMap[item.sku].months[m]=(skuMap[item.sku].months[m]||0)+itemLineTotal(item);
@@ -6827,7 +6869,7 @@ function renderRC5(el, orders){
   const months=[...new Set(orders.map(o=>o.date.slice(0,7)))].sort().slice(-6);
   const acctMap={};
   orders.forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
+    const acct=acctById(o.acct)||{name:'Unknown'};
     const m=o.date.slice(0,7);
     if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,months:{}};
     acctMap[o.acct].months[m]=(acctMap[o.acct].months[m]||0)+orderTotal(o);
@@ -6885,12 +6927,12 @@ function renderRC6(el, orders){
 
   filteredOrders.forEach(o=>{
     if(!repData[o.rep])return;
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:'',commission:5};
+    const acct=acctById(o.acct)||{name:'Unknown'};
+    const rep=userById(o.rep)||{fname:'',lname:'',commission:5};
     const rate=(rep.commission||5)/100;
 
     o.items.filter(i=>!i._fee).forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       const qty=item.cases+(item.bottles>0?item.bottles/p.btl:0);
       const lineAmt=itemLineTotal(item);
       const commission=lineAmt*rate;
@@ -7083,8 +7125,8 @@ function renderRH1(el){
 function renderRH2(el){
   const rows=[];
   ORDERS.filter(o=>o.status==='delivered').forEach(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{name:'Unknown'};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,total:orderTotal(o),paid:o.paid?'Paid':'Open',paidDate:o.paidDate||'—'});
   });
   rows.sort((a,b)=>b.date.localeCompare(a.date));
@@ -7100,8 +7142,8 @@ function renderRH2(el){
 // RI1 - Account Receivables: Paid
 function renderRI1(el){
   const rows=ORDERS.filter(o=>o.paid).map(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct)||{name:'Unknown'};
-    const rep=USERS.find(u=>u.id===o.rep)||{fname:'',lname:''};
+    const acct=acctById(o.acct)||{name:'Unknown'};
+    const rep=userById(o.rep)||{fname:'',lname:''};
     return{invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,total:orderTotal(o),paidDate:o.paidDate||'—'};
   }).sort((a,b)=>b.paidDate.localeCompare(a.paidDate));
   const grand=rows.reduce((s,r)=>s+r.total,0);
@@ -7168,7 +7210,7 @@ function renderSalesReport(){
   const prodMap={};
   orders.forEach(o=>{
     o.items.forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(!prodMap[p.producer])prodMap[p.producer]={producer:p.producer,cases:0,bottles:0,revenue:0,items:[]};
       const btl=itemTotalBottles(item);
       prodMap[p.producer].cases+=item.cases+(item.bottles/p.btl);
@@ -7258,7 +7300,7 @@ function emailVendorReport(producer,fromDate,toDate){
   const prodItems={};
   orders.forEach(o=>{
     o.items.forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);
+      const p=prodBySku(item.sku);
       if(!p||p.producer!==producer)return;
       if(!prodItems[p.sku])prodItems[p.sku]={sku:p.sku,name:p.name,cases:0,bottles:0};
       prodItems[p.sku].cases+=item.cases;
@@ -7292,7 +7334,7 @@ function exportSalesPDF(){
   const prodMap={};
   orders.forEach(o=>{
     o.items.forEach(item=>{
-      const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+      const p=prodBySku(item.sku);if(!p)return;
       if(!prodMap[p.producer])prodMap[p.producer]={producer:p.producer,cases:0,bottles:0,revenue:0,items:[]};
       const btl=itemTotalBottles(item);
       prodMap[p.producer].cases+=item.cases;prodMap[p.producer].bottles+=btl;prodMap[p.producer].revenue+=itemLineTotal(item);
@@ -7589,7 +7631,7 @@ function exportRepCommission(repId){
   let totalRev=0;let totalComm=0;
   orders.slice().reverse().forEach((o,i)=>{
     if(y>700){doc.addPage();y=40;}
-    const acct=ACCOUNTS.find(a=>a.id===o.acct);
+    const acct=acctById(o.acct);
     const rev=orderTotal(o);const comm=rev*(pct/100);
     totalRev+=rev;totalComm+=comm;
     if(i%2===0){doc.setFillColor(252,252,252);doc.rect(M,y-8,W-M*2,13,'F')}
@@ -8017,7 +8059,7 @@ function runScheduleNow(id){
     const prodMap={};
     orders.forEach(o=>{
       o.items.forEach(item=>{
-        const p=PRODUCTS.find(x=>x.sku===item.sku);if(!p)return;
+        const p=prodBySku(item.sku);if(!p)return;
         if(s.producers.length&&!s.producers.includes(p.producer))return;
         if(!prodMap[p.producer])prodMap[p.producer]={cases:0,bottles:0,items:{}};
         const btl=itemTotalBottles(item);
@@ -8100,7 +8142,7 @@ function arOrders(){
   return ORDERS.filter(o=>o.status==='delivered');
 }
 function arDue(o){
-  const acct=ACCOUNTS.find(a=>a.id===o.acct);
+  const acct=acctById(o.acct);
   return calcDue(o.date,acct);
 }
 function arDaysOverdue(o){
@@ -8275,7 +8317,7 @@ function applyARFilters(orders){
   else if(f.status==='paid')res=res.filter(o=>o.paid);
   if(f.rep)res=res.filter(o=>o.rep===f.rep);
   if(f.acct)res=res.filter(o=>o.acct===f.acct);
-  if(f.terms){res=res.filter(o=>{const acct=ACCOUNTS.find(a=>a.id===o.acct);return(acct&&acct.terms||'Net 30')===f.terms});}
+  if(f.terms){res=res.filter(o=>{const acct=acctById(o.acct);return(acct&&acct.terms||'Net 30')===f.terms});}
   if(f.fromDate)res=res.filter(o=>o.date>=f.fromDate);
   if(f.toDate)res=res.filter(o=>o.date<=f.toDate);
   if(f.minAmt)res=res.filter(o=>orderTotal(o)>=parseFloat(f.minAmt));
@@ -8305,8 +8347,8 @@ function renderARTable(){
   const agingBgColors={'current':'var(--green-bg)','1-30':'var(--amber-bg)','31-60':'#FFF0E8','61-90':'var(--red-bg)','90+':'#FDECEA'};
 
   tbody.innerHTML=filtered.map(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct);
-    const rep=USERS.find(u=>u.id===o.rep);
+    const acct=acctById(o.acct);
+    const rep=userById(o.rep);
     const terms=(acct&&acct.terms)||'Net 30';
     const due=arDue(o);
     const daysOver=arDaysOverdue(o);
@@ -8374,8 +8416,8 @@ function exportARExcel(){
   // Build CSV with all key fields
   const headers=['Invoice #','Account','License #','Account Email','Sales Rep','Terms','Invoice Date','Delivery Date','Due Date','Days Overdue','Aging Bucket','Products (SKUs)','Bottles','Cases','Amount','Paid','Paid Date','Notes'];
   const rows=filtered.map(o=>{
-    const acct=ACCOUNTS.find(a=>a.id===o.acct);
-    const rep=USERS.find(u=>u.id===o.rep);
+    const acct=acctById(o.acct);
+    const rep=userById(o.rep);
     const terms=(acct&&acct.terms)||'Net 30';
     const due=arDue(o);
     const daysOver=arDaysOverdue(o);
@@ -8488,7 +8530,7 @@ function unconfirmOrder(orderId){
 
 function deleteOrderFromDeliveries(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
-  const acct=ACCOUNTS.find(a=>a.id===o.acct);
+  const acct=acctById(o.acct);
   const acctName=acct?acct.name:'unknown account';
   const statusLabel=o.status==='confirmed'?'confirmed (pending delivery)':o.status;
   if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nStatus: '+statusLabel+'\n\nThis cannot be undone.'))return;
@@ -8501,7 +8543,7 @@ function deleteOrderFromDeliveries(orderId){
 function deleteOrder(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   if(o.status!=='unconfirmed'){toast('Only unconfirmed orders can be deleted');return;}
-  const acct=ACCOUNTS.find(a=>a.id===o.acct);
+  const acct=acctById(o.acct);
   const acctName=acct?acct.name:'unknown account';
   if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nThis cannot be undone.'))return;
   ORDERS=ORDERS.filter(x=>x.id!==orderId);
@@ -8522,8 +8564,8 @@ function _renderInvoiceHTML(orderId, b64){
   if(!oRaw){ toast('Order not found'); return; }
   // Fees (delivery, broken case, CRV) always render after product lines on the invoice.
   const o = {...oRaw, items:[...oRaw.items].sort((a,b)=>(a._fee?1:0)-(b._fee?1:0))};
-  const acct = ACCOUNTS.find(a=>a.id===o.acct)||{};
-  const rep  = USERS.find(u=>u.id===o.rep)||{};
+  const acct = acctById(o.acct)||{};
+  const rep  = userById(o.rep)||{};
   const due  = calcDue(o.date, acct);
 
   // Build line items HTML
@@ -8546,7 +8588,7 @@ function _renderInvoiceHTML(orderId, b64){
       rows+=`<tr class="fee-row"><td colspan="6" style="color:#0a6a50;font-style:italic">CA CRV -- ${item.bottles} btl × $${item.rate.toFixed(2)} (${item.label})</td><td style="text-align:right">$${lt.toFixed(2)}</td></tr>`;
       return;
     }
-    const p=PRODUCTS.find(x=>x.sku===item.sku); if(!p)return;
+    const p=prodBySku(item.sku); if(!p)return;
     const price=itemPrice(p,item.tier);
     const lineBtl=itemTotalBottles(item);
     const lt=itemLineTotal(item);
@@ -9377,7 +9419,7 @@ function qboOrderToInvoice(order){
         qty:item.bottles, unitPrice:item.rate,
         qboItemName:'CA CRV'
       };
-      const p=PRODUCTS.find(x=>x.sku===item.sku)||{};
+      const p=prodBySku(item.sku)||{};
       const price=itemPrice(p,item.tier);
       const btl=itemTotalBottles(item);
       const disc=Math.min(Math.max(parseFloat(item.discountPct)||0,0),100);
@@ -9550,7 +9592,7 @@ function renderQBOBatchModal(initial){
   if(eligible.length){
     html+='<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius)">';
     eligible.forEach(o=>{
-      const acct=ACCOUNTS.find(a=>a.id===o.acct);
+      const acct=acctById(o.acct);
       html+='<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">';
       html+='<input type="checkbox" class="qbo-order-chk" value="'+o.id+'" style="width:15px;height:15px;accent-color:var(--gold)"/>';
       html+='<div style="flex:1"><div style="font-weight:600">'+o.id+(o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0">Sample</span>':'')+'</div>';
