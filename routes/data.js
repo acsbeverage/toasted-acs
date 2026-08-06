@@ -6,9 +6,16 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 router.get('/accounts', requireAuth, async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin';
-    const rows = isAdmin
-      ? await getAll('SELECT * FROM accounts ORDER BY name')
-      : await getAll('SELECT * FROM accounts WHERE rep=$1 ORDER BY name', [req.user.id]);
+    const isCustomer = req.user.role === 'customer';
+    let rows;
+    if (isAdmin) {
+      rows = await getAll('SELECT * FROM accounts ORDER BY name');
+    } else if (isCustomer) {
+      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
+      rows = cust ? await getAll('SELECT * FROM accounts WHERE id=$1', [cust.acct_id]) : [];
+    } else {
+      rows = await getAll('SELECT * FROM accounts WHERE rep=$1 ORDER BY name', [req.user.id]);
+    }
     res.json({ ok: true, accounts: rows.map(r => ({
       id: r.id, name: r.name, code: r.code, lic: r.lic, abcNum: r.abc_num,
       contact: r.contact, contactFirst: r.contact_first, contactLast: r.contact_last,
@@ -63,25 +70,31 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
 
 router.get('/products', requireAuth, async (req, res) => {
   try {
+    const isCustomer = req.user.role === 'customer';
     const rows = await getAll('SELECT * FROM products ORDER BY name');
     res.json({ ok: true, products: rows.map(r => ({
       sku: r.sku, name: r.name, producer: r.producer, cat: r.cat,
       btl: r.btl, stock: parseFloat(r.stock)||0, reorder: r.reorder,
-      prices: {
+      prices: isCustomer ? {
+        frontline: parseFloat(r.price_frontline)||0,
+      } : {
         frontline: parseFloat(r.price_frontline)||0,
         mix12: parseFloat(r.price_mix12)||0,
         acs3: parseFloat(r.price_acs3)||0,
         brand3: parseFloat(r.price_brand3)||0,
         brand5: parseFloat(r.price_brand5)||0,
       },
-      da: {
+      da: isCustomer ? undefined : {
         frontline: parseFloat(r.da_frontline)||0,
         mix12: parseFloat(r.da_mix12)||0,
         acs3: parseFloat(r.da_acs3)||0,
         brand3: parseFloat(r.da_brand3)||0,
         brand5: parseFloat(r.da_brand5)||0,
       },
-      _details: {
+      _details: isCustomer ? {
+        bottleSize: r.bottle_size||'',
+        active: r.active||'Yes',
+      } : {
         redemptionEntry: r.redemption_entry||'',
         bottleSize: r.bottle_size||'',
         upc: r.upc||'',
@@ -140,6 +153,12 @@ router.post('/products', requireAdmin, async (req, res) => {
 
 router.get('/users', requireAuth, async (req, res) => {
   try {
+    if (req.user.role === 'customer') {
+      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
+      const acct = cust ? await getOne('SELECT rep FROM accounts WHERE id=$1', [cust.acct_id]) : null;
+      const rep = acct && acct.rep ? await getOne('SELECT id,fname,lname,email FROM users WHERE id=$1', [acct.rep]) : null;
+      return res.json({ ok: true, users: rep ? [{ id: rep.id, fname: rep.fname, lname: rep.lname, email: rep.email, role: 'rep' }] : [] });
+    }
     const rows = await getAll('SELECT id,fname,lname,email,role,commission FROM users ORDER BY fname');
     res.json({ ok: true, users: rows.map(r => ({
       id: r.id, fname: r.fname, lname: r.lname, email: r.email,
@@ -322,6 +341,31 @@ router.delete('/docs/:id', requireAdmin, async (req, res) => {
     await query('DELETE FROM shared_docs WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/customer-users', requireAdmin, async (req, res) => {
+  try {
+    const { fname, lname, email, password, acctId } = req.body;
+    if (!fname || !email || !password || !acctId) return res.status(400).json({ ok: false, error: 'Name, email, password, and account are required' });
+    const emailLower = email.toLowerCase().trim();
+    const existing = await getOne('SELECT id FROM users WHERE LOWER(email)=$1', [emailLower]) ||
+                     await getOne('SELECT id FROM customer_users WHERE LOWER(email)=$1', [emailLower]);
+    if (existing) return res.status(400).json({ ok: false, error: 'An account with this email already exists' });
+    const acct = await getOne('SELECT id,name FROM accounts WHERE id=$1', [acctId]);
+    if (!acct) return res.status(400).json({ ok: false, error: 'Account not found' });
+    const existingPortal = await getOne('SELECT id FROM customer_users WHERE acct_id=$1', [acctId]);
+    if (existingPortal) return res.status(400).json({ ok: false, error: 'A portal login already exists for this account' });
+    const hash = await bcrypt.hash(password, 10);
+    const id = 'c' + Date.now();
+    await query(
+      'INSERT INTO customer_users (id,fname,lname,email,pw_hash,acct_id,role) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [id, fname, lname || '', emailLower, hash, acctId, 'customer']
+    );
+    res.json({ ok: true, id, acctName: acct.name });
+  } catch (err) {
+    console.error('Create customer login error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
