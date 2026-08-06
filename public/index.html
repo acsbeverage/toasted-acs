@@ -868,6 +868,14 @@ async function loadAllDataFromBackend(){
       USERS=usersRes.users;
       console.log('Loaded',USERS.length,'users from database');
     }
+    // Load customer portal logins (admin only -- silently skipped for reps)
+    try{
+      const custRes=await fetch(TOASTED_BACKEND_URL+'/api/customer-users',{headers}).then(r=>r.json());
+      if(custRes.ok&&custRes.customerUsers){
+        CUSTOMER_USERS=custRes.customerUsers;
+        console.log('Loaded',CUSTOMER_USERS.length,'customer portal logins from database');
+      }
+    }catch(e){}
     // Load drafts
     const draftsRes=await fetch(TOASTED_BACKEND_URL+'/api/drafts',{headers}).then(r=>r.json());
     if(draftsRes.ok&&draftsRes.drafts){
@@ -893,6 +901,25 @@ async function loadAllDataFromBackend(){
   }
 }
 
+async function loadPortalData(){
+  const headers={'Authorization':'Bearer '+window._authToken};
+  try{
+    const [acctsRes,prodsRes,ordersRes,usersRes]=await Promise.all([
+      fetch(TOASTED_BACKEND_URL+'/api/accounts',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/products',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/orders',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/users',{headers}).then(r=>r.json()),
+    ]);
+    if(acctsRes.ok)ACCOUNTS=acctsRes.accounts;
+    if(prodsRes.ok)PRODUCTS=prodsRes.products;
+    if(ordersRes.ok)ORDERS=ordersRes.orders;
+    if(usersRes.ok)USERS=usersRes.users;
+  }catch(e){
+    console.error('Failed to load portal data:',e.message);
+    toast('Could not load your account -- please refresh and try again');
+  }
+}
+
 function doLogin(){
   const email=document.getElementById('login-email').value.trim().toLowerCase();
   const pw=document.getElementById('login-pw').value;
@@ -904,10 +931,25 @@ function doLogin(){
   }).then(r=>r.json()).then(data=>{
     if(!data.ok){document.getElementById('login-err').style.display='block';return;}
     window._authToken=data.token;
+    document.getElementById('login-err').style.display='none';
+
+    if(data.user.role==='customer'){
+      currentCustomer=data.user;
+      localStorage.setItem('_toastedCustToken',data.token);
+      localStorage.setItem('_toastedCustUser',JSON.stringify(data.user));
+      document.getElementById('view-login').classList.add('hidden');
+      document.getElementById('view-portal').classList.remove('hidden');
+      loadPortalData().then(()=>{
+        const acct=acctById(currentCustomer.acctId);
+        document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
+        showPortalPage('account');
+      });
+      return;
+    }
+
     currentUser=data.user;
     localStorage.setItem('_toastedToken', data.token);
     localStorage.setItem('_toastedUser', JSON.stringify(data.user));
-    document.getElementById('login-err').style.display='none';
     document.getElementById('view-login').classList.add('hidden');
     document.getElementById('view-app').classList.remove('hidden');
     const u=data.user;
@@ -956,50 +998,37 @@ function doPortalSignup(){
   if(pw !== pw2)              return showErr('Passwords do not match.');
   if(!custNum)                return showErr('Please enter your ACS Customer Number.');
 
-  // Check email not already in use
-  const emailTaken = CUSTOMER_USERS.some(u=>u.email===email) || USERS.some(u=>u.email===email);
-  if(emailTaken) return showErr('An account with this email already exists. Please sign in.');
-
-  // Verify ACS Customer Number matches an account
-  // Customer number is stored as account.id or account.code or account.lic
-  const matchedAcct = ACCOUNTS.find(a=>
-    String(a.id).trim()===custNum ||
-    String(a.code||'').trim()===custNum ||
-    String(a.abcNum||'').trim()===custNum
-  );
-
-  if(!matchedAcct){
-    return showErr('We could not find an account with that Customer Number. Please check with your sales rep.');
-  }
-
-  // Check this account doesn't already have a portal login
-  const existingLogin = CUSTOMER_USERS.find(u=>u.acctId===matchedAcct.id);
-  if(existingLogin){
-    return showErr('A portal account already exists for this customer number. Please sign in or contact your rep.');
-  }
-
-  // All good — create the account
-  const newUser = {
-    id: 'c'+Date.now(),
-    fname, lname, email, pw,
-    acctId: matchedAcct.id,
-    role: 'customer',
-    createdAt: today(),
-  };
-  CUSTOMER_USERS.push(newUser);
-
-  // Auto log them in
   errEl.style.display='none';
-  currentCustomer = newUser;
-  document.getElementById('view-login').classList.add('hidden');
-  document.getElementById('view-portal').classList.remove('hidden');
-  document.getElementById('portal-acct-name').textContent = matchedAcct.name||fname+' '+lname;
-  showPortalPage('account');
-  toast('Welcome, '+fname+'! Your account has been created.');
+  fetch(TOASTED_BACKEND_URL+'/api/auth/signup',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({fname,lname,email,password:pw,custNum})
+  }).then(r=>r.json()).then(data=>{
+    if(!data.ok){showErr(data.error||'Something went wrong -- please try again.');return;}
+    window._authToken=data.token;
+    currentCustomer=data.user;
+    localStorage.setItem('_toastedCustToken',data.token);
+    localStorage.setItem('_toastedCustUser',JSON.stringify(data.user));
+    document.getElementById('view-login').classList.add('hidden');
+    document.getElementById('view-portal').classList.remove('hidden');
+    loadPortalData().then(()=>{
+      const acct=acctById(currentCustomer.acctId);
+      document.getElementById('portal-acct-name').textContent=acct?acct.name:fname+' '+lname;
+      showPortalPage('account');
+      toast('Welcome, '+fname+'! Your account has been created.');
+    });
+  }).catch(err=>{
+    console.error('Signup error:',err);
+    showErr('Could not create your account -- please check your connection and try again.');
+  });
 }
 document.getElementById('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 document.getElementById('login-pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 function doPortalLogout(){
+  currentCustomer=null;
+  window._authToken=null;
+  localStorage.removeItem('_toastedCustToken');
+  localStorage.removeItem('_toastedCustUser');
   document.getElementById('view-portal').classList.add('hidden');
   document.getElementById('view-login').classList.remove('hidden');
   ['login-email','login-pw'].forEach(id=>document.getElementById(id).value='');
@@ -1268,11 +1297,9 @@ function submitPortalOrder(){
     alert('Your order total ($'+productTotal.toFixed(2)+') does not meet the $'+PORTAL_ORDER_MINIMUM.toFixed(2)+' minimum. Please add more products.');
     return;
   }
-  const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
-  const repId=acct.rep||'u1';
   const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
-  ORDERS.push({
-    id, acct:currentOrder.acct, rep:repId,
+  const newOrder={
+    id, acct:currentOrder.acct,
     date:currentOrder.date||today(),
     delivery:currentOrder.delivery,
     status:'unconfirmed',
@@ -1280,20 +1307,37 @@ function submitPortalOrder(){
     notes:(currentOrder.notes||'')+' [Customer portal order]',
     orderType:'standard',
     items:currentOrder.items.map(x=>({...x}))
+  };
+  const btn=document.getElementById('portal-submit-btn');
+  if(btn){btn.disabled=true;btn.textContent='Submitting...';}
+  fetch(TOASTED_BACKEND_URL+'/api/orders',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(newOrder)
+  }).then(r=>r.json()).then(res=>{
+    if(!res.ok){
+      alert(res.error||'Could not submit your order -- please try again.');
+      if(btn){btn.disabled=false;btn.textContent='Submit Order \u2197';}
+      return;
+    }
+    const finalId=res.id||id;
+    ORDERS.push({...newOrder,id:finalId});
+    // Success screen
+    document.getElementById('portal-content').innerHTML=`
+      <div class="portal-card" style="text-align:center;padding:48px 24px">
+        <div style="font-size:56px;margin-bottom:12px">&#10003;</div>
+        <div style="font-size:22px;font-weight:700;color:#222;margin-bottom:8px">Order submitted!</div>
+        <div style="font-size:14px;color:#666;margin-bottom:6px">Order ID: <strong>${finalId}</strong></div>
+        <div style="font-size:14px;color:#666;margin-bottom:24px">Total: <strong style="color:#B8872C">${fmt(orderTotal(ORDERS.find(o=>o.id===finalId)||{}))}</strong></div>
+        <div style="font-size:13px;color:#888;margin-bottom:28px">Your sales rep will confirm your order and be in touch shortly.</div>
+        <button onclick="showPortalPage('orders')" style="background:#222;color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">View order history</button>
+      </div>
+    `;
+  }).catch(err=>{
+    console.error('Portal order submit error:',err);
+    alert('Could not submit your order -- please check your connection and try again.');
+    if(btn){btn.disabled=false;btn.textContent='Submit Order \u2197';}
   });
-  const custLabel = (currentCustomer.fname||'')+' '+(currentCustomer.lname||'')+' (Customer Portal)';
-  sendOrderNotification(id, custLabel, currentCustomer.email||'');
-  // Success screen
-  document.getElementById('portal-content').innerHTML=`
-    <div class="portal-card" style="text-align:center;padding:48px 24px">
-      <div style="font-size:56px;margin-bottom:12px">&#10003;</div>
-      <div style="font-size:22px;font-weight:700;color:#222;margin-bottom:8px">Order submitted!</div>
-      <div style="font-size:14px;color:#666;margin-bottom:6px">Order ID: <strong>${id}</strong></div>
-      <div style="font-size:14px;color:#666;margin-bottom:24px">Total: <strong style="color:#B8872C">${fmt(orderTotal(ORDERS.find(o=>o.id===id)||{}))}</strong></div>
-      <div style="font-size:13px;color:#888;margin-bottom:28px">Your sales rep will confirm your order and be in touch shortly.</div>
-      <button onclick="showPortalPage('orders')" style="background:#222;color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">View order history</button>
-    </div>
-  `;
 }
 
 // -- UPDATE LOGIN HINT to include customer demo ---------------------------------
@@ -1309,6 +1353,26 @@ function doLogout(){
 
 // Auto-restore session on page load
 (function restoreSession(){
+  const custToken=localStorage.getItem('_toastedCustToken');
+  const custUser=localStorage.getItem('_toastedCustUser');
+  if(custToken&&custUser){
+    try{
+      window._authToken=custToken;
+      currentCustomer=JSON.parse(custUser);
+      document.getElementById('view-login').classList.add('hidden');
+      document.getElementById('view-portal').classList.remove('hidden');
+      loadPortalData().then(()=>{
+        const acct=acctById(currentCustomer.acctId);
+        document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
+        showPortalPage('account');
+      });
+      return;
+    }catch(e){
+      localStorage.removeItem('_toastedCustToken');
+      localStorage.removeItem('_toastedCustUser');
+    }
+  }
+
   const token=localStorage.getItem('_toastedToken');
   const user=localStorage.getItem('_toastedUser');
   if(!token||!user) return;
@@ -4087,10 +4151,17 @@ function renderUsers(){
 }
 function deleteCustomerLogin(id){
   const c=CUSTOMER_USERS.find(x=>x.id===id);if(!c)return;
-  const acct=ACCOUNTS.find(a=>a.id===c.acctId)||{};
+  const acct=acctById(c.acctId)||{};
   if(!confirm('Remove portal access for '+c.fname+' '+c.lname+' ('+( acct.name||c.email)+')?'))return;
   CUSTOMER_USERS.splice(CUSTOMER_USERS.findIndex(x=>x.id===id),1);
-  toast('Customer login removed');renderUsers();
+  renderUsers();
+  fetch(TOASTED_BACKEND_URL+'/api/customer-users/'+id,{
+    method:'DELETE',
+    headers:{'Authorization':'Bearer '+window._authToken}
+  }).then(r=>r.json()).then(res=>{
+    if(!res.ok){toast('Could not remove login -- please try again');}
+    else toast('Customer login removed');
+  }).catch(()=>toast('Could not remove login -- check connection'));
 }
 function openAddCustomerLogin(){
   const email=prompt('Customer email address:');if(!email)return;
@@ -4102,8 +4173,15 @@ function openAddCustomerLogin(){
   const acct=ACCOUNTS.find(a=>a.name.toLowerCase().includes(acctName.toLowerCase()));
   if(!acct){alert('Account not found: '+acctName);return;}
   if(!confirm('Create portal login for '+fname+' '+lname+' linked to:\n'+acct.name+'?'))return;
-  CUSTOMER_USERS.push({id:'c'+Date.now(),fname,lname,email:email.trim().toLowerCase(),pw,acctId:acct.id,role:'customer'});
-  toast('Customer login created for '+acct.name);renderUsers();
+  fetch(TOASTED_BACKEND_URL+'/api/customer-users',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({fname,lname,email:email.trim().toLowerCase(),password:pw,acctId:acct.id})
+  }).then(r=>r.json()).then(res=>{
+    if(!res.ok){alert(res.error||'Could not create login');return;}
+    CUSTOMER_USERS.push({id:res.id,fname,lname,email:email.trim().toLowerCase(),acctId:acct.id,role:'customer'});
+    toast('Customer login created for '+acct.name);renderUsers();
+  }).catch(()=>alert('Could not create login -- check connection'));
 }
 // Fix switchTab to handle space-separated IDs
 function switchTab(show,hide,el){
