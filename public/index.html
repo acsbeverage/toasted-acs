@@ -333,6 +333,10 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     </div>
 
   </div>
+  <div style="text-align:center;margin-top:18px;font-size:11px;color:#999;line-height:1.7">
+    &copy; <span id="footer-year-login"></span> ACS Beverage Co. LLC. All rights reserved.<br/>
+    <a href="#" onclick="openTermsModal();return false" style="color:#999;text-decoration:underline">Terms &amp; Conditions</a>
+  </div>
 </div>
 
 <!-- CUSTOMER PORTAL -->
@@ -361,6 +365,11 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 
   <!-- Portal Content -->
   <div id="portal-content" style="max-width:900px;margin:0 auto;padding:24px 16px"></div>
+  <div style="text-align:center;padding:20px 16px 32px;font-size:11px;color:#999;line-height:1.7">
+    &copy; <span id="footer-year-portal"></span> ACS Beverage Co. LLC. All rights reserved.
+    &nbsp;&middot;&nbsp;
+    <a href="#" onclick="openTermsModal();return false" style="color:#999;text-decoration:underline">Terms &amp; Conditions</a>
+  </div>
 </div>
 
 <!-- APP -->
@@ -1324,6 +1333,62 @@ function doLogout(){
 })();
 
 // ── CHANGE PASSWORD ───────────────────────────────────────────────────────────
+function openTermsModal(){
+  const year=new Date().getFullYear();
+  const html=`<div class="modal-bg open" id="terms-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:720px;max-height:85vh">
+      <div class="modal-title">Terms &amp; Conditions</div>
+      <div style="max-height:60vh;overflow-y:auto;padding-right:6px;font-size:13px;line-height:1.7;color:var(--text2)">
+        <p style="font-size:11px;color:var(--text3);margin-bottom:16px">Last updated: ${new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</p>
+
+        <p>These Terms &amp; Conditions ("Terms") govern access to and use of Toasted (the "Platform"), the order management and account portal operated by ACS Beverage Co. LLC ("ACS," "we," "us," or "our") for its licensed distribution business. The Platform is used by (a) authorized ACS employees and sales representatives to manage accounts, orders, and inventory, and (b) authorized representatives of ACS customer accounts to place orders, review order history, and view invoices through the Customer Portal. By logging into or otherwise using the Platform, you agree to these Terms. If you do not agree, do not use the Platform.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">1. Eligibility &amp; Accounts</h4>
+        <p>Access to the Platform is limited to individuals authorized by ACS or by an ACS customer account to act on that account's or ACS's behalf. Customer Portal registration requires a valid ACS customer/account number for verification, and ACS may decline or revoke access at its discretion, including where a registration cannot be verified against an active account. You must be at least 18 years old and legally permitted to purchase and handle alcoholic beverages under applicable law to use the Platform.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">2. Account Security</h4>
+        <p>You are responsible for maintaining the confidentiality of your login credentials and for all activity that occurs under your account. Notify us promptly at the contact below if you suspect unauthorized use of your account. ACS is not liable for any loss arising from your failure to safeguard your credentials.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">3. Orders, Pricing &amp; Availability</h4>
+        <p>Orders submitted through the Platform are requests to purchase and are not binding on ACS until confirmed. Product availability, pricing, and delivery windows shown on the Platform are estimates and subject to change without notice, including due to supplier availability, licensing or regulatory requirements, and inventory levels at the time an order is confirmed. Payment terms are governed by the agreement in place between ACS and the applicable customer account, and by the terms shown on each invoice.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">4. Acceptable Use</h4>
+        <p>You agree not to: use the Platform for any unlawful purpose or in violation of applicable alcoholic beverage control laws or regulations; attempt to access accounts, data, or areas of the Platform you are not authorized to access; interfere with or disrupt the Platform's operation or security; upload or transmit any content that is unlawful, harmful, or infringes the rights of others; or use automated tools to scrape, extract, or reproduce data from the Platform without our prior written consent.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">5. Data &amp; Confidentiality</h4>
+        <p>Pricing, account, and order information accessible through the Platform is confidential business information belonging to ACS and its customers. You agree to use such information only for its intended business purpose and not to disclose it to unauthorized third parties. ACS will use reasonable measures to protect account and order data but does not guarantee that the Platform will be free of interruption or error.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">6. Intellectual Property</h4>
+        <p>The Platform, including its software, design, and the "Toasted" name and branding, is the property of ACS or its licensors and is protected by applicable intellectual property laws. These Terms grant you a limited, non-transferable right to use the Platform for its intended business purpose only; no other rights are granted.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">7. Third-Party Services</h4>
+        <p>The Platform may rely on or integrate with third-party services (for example, email delivery or accounting integrations) to operate certain features. ACS is not responsible for the availability, accuracy, or performance of third-party services outside its reasonable control.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">8. Disclaimer of Warranties</h4>
+        <p>The Platform is provided "as is" and "as available." To the fullest extent permitted by law, ACS disclaims all warranties of any kind, express or implied, including warranties of merchantability, fitness for a particular purpose, and non-infringement. ACS does not warrant that the Platform will be uninterrupted, timely, or error-free.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">9. Limitation of Liability</h4>
+        <p>To the fullest extent permitted by law, ACS will not be liable for any indirect, incidental, special, consequential, or exemplary damages, including loss of profits, revenue, or data, arising from or related to use of the Platform, even if advised of the possibility of such damages. This limitation does not affect the terms of any separate written purchase agreement between ACS and a customer account.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">10. Termination</h4>
+        <p>ACS may suspend or terminate access to the Platform at any time, with or without notice, including for suspected violation of these Terms, suspected fraudulent or unlawful activity, or if an underlying business relationship with ACS ends.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">11. Changes to These Terms</h4>
+        <p>ACS may update these Terms from time to time. The "Last updated" date above reflects the most recent revision. Continued use of the Platform after changes take effect constitutes acceptance of the revised Terms.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">12. Governing Law</h4>
+        <p>These Terms are governed by the laws of the State of California, without regard to its conflict-of-laws principles, and any disputes arising from these Terms or use of the Platform will be subject to the exclusive jurisdiction of the state and federal courts located in California.</p>
+
+        <h4 style="margin:18px 0 6px;color:var(--text)">13. Contact</h4>
+        <p>Questions about these Terms can be directed to ACS Beverage Co. LLC at accounting@acsbeverage.com.</p>
+
+        <p style="margin-top:20px">&copy; ${year} ACS Beverage Co. LLC. All rights reserved.</p>
+      </div>
+      <div class="modal-footer"><button class="btn btn-dark" onclick="document.getElementById('terms-modal-bg').remove()">Close</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
 function openChangePassword(){
   ['cpw-current','cpw-new','cpw-confirm'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('cpw-err').style.display='none';
@@ -8547,6 +8612,9 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.nav-item').forEach(el=>{
     el.addEventListener('click',()=>{if(window.innerWidth<=768)closeSidebar();});
   });
+  const yr=new Date().getFullYear();
+  const fyl=document.getElementById('footer-year-login');if(fyl)fyl.textContent=yr;
+  const fyp=document.getElementById('footer-year-portal');if(fyp)fyp.textContent=yr;
 });
 
 // -- UNCONFIRM ORDER -----------------------------------------------------------
