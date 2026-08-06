@@ -3911,6 +3911,7 @@ function renderAccountsPage(){
 
 function saveAccountDetails(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
+  const code=(document.getElementById('acct-code')?.value||'').trim();
   const rep=document.getElementById('acct-rep-select')?.value;
   const terms=document.getElementById('acct-terms')?.value;
   let paymentProvider=document.getElementById('acct-payment-provider')?.value;
@@ -3930,17 +3931,17 @@ function saveAccountDetails(acctId){
   const commissionPct=parseFloat(document.getElementById('acct-commission')?.value)||0;
 
   // Update in memory
-  Object.assign(a,{rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct});
+  Object.assign(a,{code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct});
 
   // Save to database
   if(TOASTED_BACKEND_URL&&window._authToken){
     fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId,{
       method:'PATCH',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct})
+      body:JSON.stringify({code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct})
     }).then(r=>r.json()).then(d=>{
-      if(d.ok)toast('Account saved');
-      else toast('Error saving account');
+      if(d.ok){toast('Account saved');openAccountDetail(acctId);}
+      else toast(d.error||'Error saving account');
     }).catch(()=>toast('Error saving account'));
   } else {
     toast('Account updated');
@@ -4004,7 +4005,7 @@ function openAccountDetail(acctId){
   html+='<button onclick="showPage(\'accounts\')" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:13px;font-weight:600;padding:0"><i class="ti ti-arrow-left" style="vertical-align:-2px"></i> Back to Accounts</button></div>';
   html+='<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:20px 24px">';
   html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">';
-  html+='<div><div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">'+a.name+'</div>';
+  html+='<div><div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">'+a.name+(a.code?' <span style="font-size:12px;font-weight:600;color:var(--gold);background:var(--bg3);padding:3px 9px;border-radius:20px;vertical-align:middle">#'+a.code+'</span>':'')+'</div>';
   html+='<div style="font-size:13px;color:var(--text2)">'+[a.shipStreet,a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div>';
   html+=(a.lic?'<div style="font-size:13px;color:var(--text2)">ABC: '+a.lic+(a.phone?' &nbsp;&middot;&nbsp; '+a.phone:'')+'</div>':'');
   html+='</div><div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="startOrderForAccount(\''+a.id+'\')"><i class="ti ti-plus"></i> New Order</button></div>';
@@ -4021,6 +4022,7 @@ function openAccountDetail(acctId){
 
   html+='<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
   html+='<div class="card"><div class="card-header"><span class="card-title">Account Info</span></div><div class="card-body" style="font-size:13px;line-height:2">';
+  if(a.code)html+='<div><span style="color:var(--text2)">Account Number:</span> <strong>'+a.code+'</strong></div>';
   if(a.contact)html+='<div><span style="color:var(--text2)">Contact:</span> '+a.contact+'</div>';
   if(a.email)html+='<div><span style="color:var(--text2)">Email:</span> '+a.email+'</div>';
   if(a.phone)html+='<div><span style="color:var(--text2)">Phone:</span> '+a.phone+'</div>';
@@ -4053,6 +4055,7 @@ function openAccountDetail(acctId){
     html+='<div><label class="flabel">Online Payments</label><select id="acct-online-payments" class="finput" style="width:100%;font-size:13px"><option value="Yes" '+(a.onlinePayments==='Yes'?'selected':'')+'>Yes</option><option value="No" '+((!a.onlinePayments||a.onlinePayments==='No')?'selected':'')+'>No</option></select></div>';
     html+='<div><label class="flabel">Redemption</label><select id="acct-redemption" class="finput" style="width:100%;font-size:13px"><option value="Yes" '+(a.redemption==='Yes'?'selected':'')+'>Yes</option><option value="No" '+((!a.redemption||a.redemption==='No')?'selected':'')+'>No</option></select></div>';
     html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+    html+='<div><label class="flabel">Account Number</label><input class="finput" id="acct-code" value="'+(a.code||'')+'" placeholder="e.g. 100042" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Tax ID #</label><input class="finput" id="acct-tax-id" value="'+(a.taxId||'')+'" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Resale #</label><input class="finput" id="acct-resale" value="'+(a.resaleNum||'')+'" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Warehouse Code</label><input class="finput" id="acct-warehouse" value="'+(a.warehouseCode||'')+'" style="font-size:13px"/></div>';
@@ -4291,7 +4294,33 @@ function deleteUser(id){
   toast(`${u.fname} ${u.lname} deleted`);
   renderUsers();
 }
-function saveAccount(){const name=document.getElementById('a-name').value.trim();if(!name){alert('Account name required.');return}const id='a'+Date.now();const rep=document.getElementById('a-rep').value;ACCOUNTS.push({id,name,lic:document.getElementById('a-lic').value,contact:document.getElementById('a-contact').value,phone:document.getElementById('a-phone').value,email:document.getElementById('a-email').value,address:document.getElementById('a-addr').value,terms:document.getElementById('a-terms').value||'Net 30',rep});const ru=USERS.find(u=>u.id===rep);if(ru&&!ru.accounts.includes(id))ru.accounts.push(id);closeModal('modal-account');toast('Account added');renderUsers()}
+function saveAccount(){
+  const name=document.getElementById('a-name').value.trim();
+  if(!name){alert('Account name required.');return}
+  const rep=document.getElementById('a-rep').value;
+  const payload={
+    name,lic:document.getElementById('a-lic').value,
+    contact:document.getElementById('a-contact').value,
+    phone:document.getElementById('a-phone').value,
+    email:document.getElementById('a-email').value,
+    address:document.getElementById('a-addr').value,
+    terms:document.getElementById('a-terms').value||'Net 30',
+    rep
+  };
+  fetch(TOASTED_BACKEND_URL+'/api/accounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(payload)
+  }).then(r=>r.json()).then(res=>{
+    if(!res.ok){alert(res.error||'Could not create account');return}
+    ACCOUNTS.push({id:res.id,code:res.code,...payload});
+    const ru=USERS.find(u=>u.id===rep);
+    if(ru&&ru.accounts&&!ru.accounts.includes(res.id))ru.accounts.push(res.id);
+    closeModal('modal-account');
+    toast('Account added -- assigned #'+res.code);
+    renderUsers();
+  }).catch(()=>alert('Could not create account -- check connection'));
+}
 
 // -- PRICING --------------------------------------------------------------------
 // -- PRICING (case price entry + DA support per case, admin-only) ---------------
@@ -4649,6 +4678,7 @@ function _buildInvoicePDF(o,callback){
     ['Delivery Date:',o.delivery],
     ['Due Date:',calcDue(o.date,acct)],
     ['Terms:',acct&&acct.terms?acct.terms:'Net 30'],
+    ['Account #:',acct&&acct.code?acct.code:'--'],
     ['Sales Rep:',rep?rep.fname+' '+rep.lname:'--'],
     ['Rep Email:',rep&&rep.email?rep.email:'--'],
     ['PO #:',o.po||'--'],
@@ -4660,7 +4690,7 @@ function _buildInvoicePDF(o,callback){
     doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);doc.text(String(v),iX,ry,{align:'right'});
   });
 
-  y+=134;
+  y+=146;
   hline(y,0.75,80,80,80);y+=10;
 
   // Bill To / Ship To
@@ -8958,6 +8988,7 @@ function _renderInvoiceHTML(orderId, b64){
             <tr><td>Delivery Date</td><td>${o.delivery}</td></tr>
             <tr><td>Due Date</td><td>${due}</td></tr>
             <tr><td>Terms</td><td>${acct.terms||'Net 30'}</td></tr>
+            <tr><td>Account #</td><td>${acct.code||'--'}</td></tr>
             ${o.po?('<tr><td>PO #</td><td>'+o.po+'</td></tr>'):''}
           </table>
         </div>
