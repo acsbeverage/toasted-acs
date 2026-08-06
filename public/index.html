@@ -4516,12 +4516,9 @@ function _buildInvoicePDF(o,callback){
     subtotal+=lt;totalBtl+=lineBtl;
     totalCases+=item.cases+(item.bottles>0?item.bottles/p.btl:0);
 
-    const hasSubRow=discPct>0;
-    const rowH=hasSubRow?26:18;
-
+    const rowH=26;
     checkPageBreak(rowH+2);
-
-    const ry=y+(hasSubRow?10:12);
+    const ry=y+10;
     doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(40,40,40);
 
     // CASES column
