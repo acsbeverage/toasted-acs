@@ -252,6 +252,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .portal-nav-btn{background:none;border:none;border-bottom:3px solid transparent;padding:14px 20px;font-size:14px;font-weight:500;color:#666;cursor:pointer;white-space:nowrap;transition:all 0.15s}
 .portal-nav-btn.active{color:#B8872C;border-bottom-color:#B8872C;font-weight:700}
 .portal-nav-btn:hover{color:#B8872C}
+.portal-nav-btn-primary{background:#B8872C!important;color:#fff!important;border:none!important;border-radius:8px;padding:9px 18px!important;margin:9px 0 9px 8px;font-weight:700!important}
+.portal-nav-btn-primary.active{background:#222!important;color:#fff!important}
+.portal-nav-btn-primary:hover{background:#a37723!important;color:#fff!important}
 .portal-card{background:#fff;border-radius:12px;border:1px solid #e5e5e5;padding:20px;margin-bottom:16px}
 .portal-card-title{font-size:16px;font-weight:700;color:#222;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #f0f0f0}
 .portal-stat{display:flex;flex-direction:column;gap:4px}
@@ -360,7 +363,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <button class="portal-nav-btn active" id="pnav-account" onclick="showPortalPage('account')">Account</button>
     <button class="portal-nav-btn" id="pnav-orders" onclick="showPortalPage('orders')">Order History</button>
     <button class="portal-nav-btn" id="pnav-invoices" onclick="showPortalPage('invoices')">Invoices</button>
-    <button class="portal-nav-btn" id="pnav-neworder" onclick="showPortalPage('neworder')">Place Order</button>
+    <button class="portal-nav-btn portal-nav-btn-primary" id="pnav-neworder" onclick="showPortalPage('neworder')">Place Order</button>
   </div>
 
   <!-- Portal Content -->
@@ -1216,6 +1219,26 @@ function portalRecentItems(acctId,limit){
   }
   return items;
 }
+function portalFrequentItems(acctId,limit){
+  limit=limit||4;
+  const past=ORDERS.filter(o=>o.acct===acctId);
+  const counts={};
+  past.forEach(o=>{
+    o.items.filter(x=>!x._fee).forEach(item=>{
+      if(!counts[item.sku])counts[item.sku]={count:0,lastDate:o.date};
+      counts[item.sku].count++;
+      if(o.date>counts[item.sku].lastDate)counts[item.sku].lastDate=o.date;
+    });
+  });
+  const ranked=Object.entries(counts).sort((a,b)=>b[1].count-a[1].count||b[1].lastDate.localeCompare(a[1].lastDate));
+  const items=[];
+  for(const [sku] of ranked){
+    const p=prodBySku(sku);if(!p)continue;
+    items.push({sku,name:p.name,producer:p.producer,btl:p.btl,price:itemPrice(p,'frontline')});
+    if(items.length>=limit)break;
+  }
+  return items;
+}
 function portalAddRecentItem(sku){
   addLineItem(sku);
   toast('Added to your order');
@@ -1224,7 +1247,8 @@ function portalAddRecentItem(sku){
 function renderPortalNewOrder(){
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
   currentOrder={acct:acct.id,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
-  const recentItems=portalRecentItems(acct.id);
+  const isMobileView=window.matchMedia('(max-width:768px)').matches;
+  const recentItems=isMobileView?portalFrequentItems(acct.id,4):portalRecentItems(acct.id,8);
 
   document.getElementById('portal-content').innerHTML=`
     ${recentItems.length?`<div class="portal-card">
