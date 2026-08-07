@@ -1348,6 +1348,44 @@ function updatePortalMinimumStatus(){
   }
 }
 
+function checkPortalTierMinimums(items){
+  const prodItems=items.filter(x=>!x._fee);
+  const bottleCount=(item)=>{
+    const p=prodBySku(item.sku);
+    const btl=p?p.btl:1;
+    return (item.cases||0)*btl+(item.bottles||0);
+  };
+  const caseEquivalent=(item)=>{
+    const p=prodBySku(item.sku);
+    const btl=p?p.btl:1;
+    return (item.cases||0)+(item.bottles||0)/btl;
+  };
+  const EPS=0.001;
+  const mix12Total=prodItems.filter(i=>i.tier==='mix12').reduce((s,i)=>s+bottleCount(i),0);
+  if(mix12Total>0&&mix12Total<12){
+    return '12 Btl Mix pricing requires at least 12 bottles total (any products) -- you have '+mix12Total+'.';
+  }
+  const acs3Total=prodItems.filter(i=>i.tier==='acs3').reduce((s,i)=>s+caseEquivalent(i),0);
+  if(acs3Total>0&&acs3Total<3-EPS){
+    return '3 Case ACS pricing requires at least 3 cases total (any products) -- you have '+acs3Total.toFixed(2)+'.';
+  }
+  const checkBrandTier=(tierId,minCases,label)=>{
+    const byBrand={};
+    prodItems.filter(i=>i.tier===tierId).forEach(i=>{
+      const p=prodBySku(i.sku);
+      const brand=p?(p.producer||'Unknown'):'Unknown';
+      byBrand[brand]=(byBrand[brand]||0)+caseEquivalent(i);
+    });
+    for(const brand in byBrand){
+      if(byBrand[brand]<minCases-EPS){
+        return label+' pricing requires at least '+minCases+' cases of the same brand ('+brand+') -- you have '+byBrand[brand].toFixed(2)+'.';
+      }
+    }
+    return null;
+  };
+  return checkBrandTier('brand3',3,'3 Case Brand Family')||checkBrandTier('brand5',5,'5 Case Brand Family');
+}
+
 function submitPortalOrder(){
   if(!currentOrder.items.filter(x=>!x._fee).length){
     alert('Please add at least one product.');return;
@@ -1358,6 +1396,8 @@ function submitPortalOrder(){
     alert('Your order total ($'+productTotal.toFixed(2)+') does not meet the $'+PORTAL_ORDER_MINIMUM.toFixed(2)+' minimum. Please add more products.');
     return;
   }
+  const tierErr=checkPortalTierMinimums(currentOrder.items);
+  if(tierErr){alert(tierErr);return;}
   const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   const newOrder={
     id, acct:currentOrder.acct,
