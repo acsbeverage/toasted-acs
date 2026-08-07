@@ -114,9 +114,7 @@ router.get('/products', requireAuth, async (req, res) => {
     res.json({ ok: true, products: rows.map(r => ({
       sku: r.sku, name: r.name, producer: r.producer, cat: r.cat,
       btl: r.btl, stock: parseFloat(r.stock)||0, reorder: r.reorder,
-      prices: isCustomer ? {
-        frontline: parseFloat(r.price_frontline)||0,
-      } : {
+      prices: {
         frontline: parseFloat(r.price_frontline)||0,
         mix12: parseFloat(r.price_mix12)||0,
         acs3: parseFloat(r.price_acs3)||0,
