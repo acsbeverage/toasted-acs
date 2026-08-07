@@ -2470,7 +2470,64 @@ function submitOrder(){
   const placedByLabel = (currentUser.fname||'')+' '+(currentUser.lname||'')+' ('+(currentUser.role==='admin'?'Admin':'Sales Rep')+')';
   sendOrderNotification(id, placedByLabel, currentUser.email||'');
   toast(id+(isSample?' (sample) submitted -- awaiting confirmation':' submitted -- awaiting confirmation'));
-  setTimeout(()=>showPage('history'),1400);
+  openOrderSummaryModal(id);
+}
+function closeOrderSummaryModal(){
+  const m=document.getElementById('order-summary-modal-bg');if(m)m.remove();
+  showPage('history');
+}
+function openOrderSummaryModal(orderId){
+  const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
+  const acct=acctById(o.acct)||{};
+  const rep=userById(o.rep)||{};
+  const prodItems=o.items.filter(x=>!x._fee);
+  const feeItems=o.items.filter(x=>x._fee);
+
+  const rowsHtml=prodItems.map(item=>{
+    const p=prodBySku(item.sku);if(!p)return'';
+    const price=itemPrice(p,item.tier);
+    return`<tr>
+      <td style="font-weight:500">${p.name}</td>
+      <td style="font-size:12px;color:var(--text2)">${tierName(item.tier)}</td>
+      <td style="text-align:center">${orderQtyLabel([item])}</td>
+      <td style="text-align:right;font-size:12px;color:var(--text2)">${fmt(price)}/btl</td>
+      <td style="text-align:right;font-weight:600">${fmt(itemLineTotal(item))}</td>
+    </tr>`;
+  }).join('');
+  const feesHtml=feeItems.map(item=>`<tr>
+      <td colspan="3" style="font-size:12px;color:var(--text2);font-style:italic">${item.sku===DELIVERY_FEE_SKU?'Delivery Fee':item.sku===BROKEN_CASE_SKU?'Broken Case Fee':'CA CRV'}</td>
+      <td></td>
+      <td style="text-align:right;font-size:12px;color:var(--text2)">${fmt(itemLineTotal(item))}</td>
+    </tr>`).join('');
+
+  const html=`<div class="modal-bg open" id="order-summary-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:680px;max-height:85vh">
+      <div class="modal-title">
+        <i class="ti ti-circle-check" style="color:var(--green);vertical-align:-3px;margin-right:6px"></i>
+        Order Submitted -- <span style="font-family:monospace">${o.id}</span>
+      </div>
+      <div style="max-height:55vh;overflow-y:auto">
+        <div class="form-grid form-grid-4" style="gap:12px;margin-bottom:16px;font-size:13px">
+          <div><div class="flabel">Account</div><div style="font-weight:600">${acct.name||'--'}</div></div>
+          <div><div class="flabel">Rep</div><div>${rep.fname?rep.fname+' '+rep.lname:'--'}</div></div>
+          <div><div class="flabel">Order Date</div><div>${o.date}</div></div>
+          <div><div class="flabel">Delivery Date</div><div>${o.delivery}</div></div>
+        </div>
+        ${o.po?`<div style="font-size:13px;margin-bottom:10px"><span class="flabel">PO #</span> ${o.po}</div>`:''}
+        ${o.notes?`<div style="font-size:13px;margin-bottom:10px;color:var(--text2)"><span class="flabel">Notes</span> ${o.notes}</div>`:''}
+        <table class="tbl"><thead><tr><th>Product</th><th>Tier</th><th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${rowsHtml}${feesHtml}</tbody></table>
+        <div style="display:flex;justify-content:flex-end;padding:14px 0 0;font-size:16px;font-weight:700">
+          Order Total: <span style="margin-left:10px;color:var(--gold)">${fmt(orderTotal(o))}</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeOrderSummaryModal()">Done</button>
+        <button class="btn btn-warning" onclick="document.getElementById('order-summary-modal-bg').remove();openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit Order</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
 }
 function resumeDraft(draftId){
   const d=DRAFT_ORDERS.find(x=>x.id===draftId);if(!d)return;
