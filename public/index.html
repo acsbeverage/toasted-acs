@@ -1041,6 +1041,7 @@ function doPortalLogout(){
 function showPortalPage(page){
   document.querySelectorAll('.portal-nav-btn').forEach(b=>b.classList.remove('active'));
   const btn=document.getElementById('pnav-'+page);if(btn)btn.classList.add('active');
+  if(page!=='neworder')localStorage.setItem('_toastedPortalPage',page);
   const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices,neworder:renderPortalNewOrder};
   if(fns[page])fns[page]();
 }
@@ -1471,7 +1472,9 @@ function doLogout(){
       loadPortalData().then(()=>{
         const acct=acctById(currentCustomer.acctId);
         document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
-        showPortalPage('account');
+        const PORTAL_RESTORABLE=['account','orders','invoices'];
+        const lastPortalPage=localStorage.getItem('_toastedPortalPage');
+        showPortalPage(PORTAL_RESTORABLE.includes(lastPortalPage)?lastPortalPage:'account');
       });
       return;
     }catch(e){
@@ -1496,7 +1499,10 @@ function doLogout(){
     if(nm)nm.textContent=(u.fname||'')+' '+(u.lname||'');
     if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
-    loadAllDataFromBackend().then(()=>{updateBadges();showPage('dashboard');});
+    const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','docs','users','pricing','settings','import','reports','ar','products','po'];
+    const hashPage=(location.hash||'').replace('#','');
+    const restorePage=RESTORABLE_PAGES.includes(hashPage)?hashPage:'dashboard';
+    loadAllDataFromBackend().then(()=>{updateBadges();showPage(restorePage,false);});
   }catch(e){
     localStorage.removeItem('_toastedToken');
     localStorage.removeItem('_toastedUser');
