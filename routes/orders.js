@@ -80,8 +80,8 @@ router.post('/', requireAuth, async (req, res) => {
     let { id, acct, rep, date, delivery, status, orderType, po, notes,
             isSample, waiveDelivery, waiveBrokenCase, waiveCRV, items, placedByLabel } = req.body;
 
-    // Customers can only ever place orders under their own account, at standard pricing --
-    // never trust acct/rep/tier values coming from a customer-role client.
+    // Customers can only ever place orders under their own account --
+    // never trust acct/rep values coming from a customer-role client.
     if (req.user.role === 'customer') {
       const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
       if (!cust) return res.status(403).json({ ok: false, error: 'Customer account not found' });
@@ -89,7 +89,58 @@ router.post('/', requireAuth, async (req, res) => {
       acct = cust.acct_id;
       rep = custAcct ? custAcct.rep : null;
       status = 'unconfirmed';
-      if (Array.isArray(items)) items = items.map(item => ({ ...item, tier: item._fee ? item.tier : 'frontline' }));
+
+      // Enforce pricing-tier minimums server-side -- never trust the client's claimed tier.
+      if (Array.isArray(items)) {
+        const prodItems = items.filter(i => !i._fee);
+        const skus = [...new Set(prodItems.map(i => i.sku))];
+        const products = skus.length ? await getAll('SELECT sku,btl,producer FROM products WHERE sku = ANY($1)', [skus]) : [];
+        const prodMap = {};
+        products.forEach(p => { prodMap[p.sku] = p; });
+        const bottleCount = (item) => {
+          const p = prodMap[item.sku];
+          const btl = p ? p.btl : 1;
+          return (item.cases||0)*btl + (item.bottles||0);
+        };
+        const caseEquivalent = (item) => {
+          const p = prodMap[item.sku];
+          const btl = p ? p.btl : 1;
+          return (item.cases||0) + (item.bottles||0)/btl;
+        };
+        const EPS = 0.001; // floating-point tolerance
+
+        // 12 Btl Mix: 12 bottles total, any products in the portfolio
+        const mix12Total = prodItems.filter(i => i.tier === 'mix12').reduce((s,i) => s+bottleCount(i), 0);
+        if (mix12Total > 0 && mix12Total < 12) {
+          return res.status(400).json({ ok: false, error: `12 Btl Mix pricing requires at least 12 bottles total (any products) -- you have ${mix12Total}.` });
+        }
+
+        // 3 Case ACS: 3 cases total (case-equivalent), any products in the portfolio
+        const acs3Total = prodItems.filter(i => i.tier === 'acs3').reduce((s,i) => s+caseEquivalent(i), 0);
+        if (acs3Total > 0 && acs3Total < 3-EPS) {
+          return res.status(400).json({ ok: false, error: `3 Case ACS pricing requires at least 3 cases total (any products) -- you have ${acs3Total.toFixed(2)}.` });
+        }
+
+        // Brand Family tiers: minimum applies per-brand (producer), not per-SKU, measured in cases
+        const checkBrandTier = (tierId, minCases, label) => {
+          const byBrand = {};
+          prodItems.filter(i => i.tier === tierId).forEach(i => {
+            const p = prodMap[i.sku];
+            const brand = p ? (p.producer || 'Unknown') : 'Unknown';
+            byBrand[brand] = (byBrand[brand] || 0) + caseEquivalent(i);
+          });
+          for (const [brand, total] of Object.entries(byBrand)) {
+            if (total < minCases-EPS) {
+              return `${label} pricing requires at least ${minCases} cases of the same brand (${brand}) -- you have ${total.toFixed(2)}.`;
+            }
+          }
+          return null;
+        };
+        const brand3Err = checkBrandTier('brand3', 3, '3 Case Brand Family');
+        if (brand3Err) return res.status(400).json({ ok: false, error: brand3Err });
+        const brand5Err = checkBrandTier('brand5', 5, '5 Case Brand Family');
+        if (brand5Err) return res.status(400).json({ ok: false, error: brand5Err });
+      }
     }
 
     if (!id || !acct) return res.status(400).json({ ok: false, error: 'Missing required fields' });
