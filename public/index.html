@@ -720,6 +720,10 @@ function syncFees(){
     currentOrder.items.push({sku:DELIVERY_FEE_SKU,feeAmt:DELIVERY_FEE_AMT,_fee:true,_locked:true});
   }
 }
+// Strips accents/diacritics and lowercases, so searching "Yeyo" matches "Yeyó" etc.
+function normText(s){
+  return (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
 const fmt=n=>'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const lowStock=()=>PRODUCTS.filter(p=>p.stock>0&&p.stock<=p.reorder);
 const outOfStock=()=>PRODUCTS.filter(p=>p.stock===0);
@@ -2106,8 +2110,8 @@ function onAcctChange(){
 function onAcctSearch(val){
   const dd=document.getElementById('o-acct-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=val.toLowerCase();
-  const matches=myAccounts().filter(a=>a.name.toLowerCase().includes(q)).slice(0,15);
+  const q=normText(val);
+  const matches=myAccounts().filter(a=>normText(a.name).includes(q)).slice(0,15);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No accounts found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(a=>`
     <div class="dd-item" onmousedown="selectOrderAcct('${a.id.replace(/'/g,"\\'")}')">
@@ -2127,8 +2131,8 @@ function selectOrderAcct(id){
 function onProdSearch(val){
   const dd=document.getElementById('prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=val.toLowerCase();
-  const matches=PRODUCTS.filter(p=>p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q)).slice(0,10);
+  const q=normText(val);
+  const matches=PRODUCTS.filter(p=>normText(p.name).includes(q)||normText(p.sku).includes(q)).slice(0,10);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addLineItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -2625,8 +2629,8 @@ function renderNewTasting(){
 function onTastingProdSearch(val){
   const dd=document.getElementById('ts-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=val.toLowerCase();
-  const matches=PRODUCTS.filter(p=>p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q)).slice(0,10);
+  const q=normText(val);
+  const matches=PRODUCTS.filter(p=>normText(p.name).includes(q)||normText(p.sku).includes(q)).slice(0,10);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addTastingItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -3002,8 +3006,8 @@ function _poEmailBadge(status){
   return'<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--text3)"><i class="ti ti-clock"></i> Not sent</span>';
 }
 function filterPOHistory(){
-  const q=(document.getElementById('po-hist-search')?.value||'').toLowerCase();
-  const rows=(window._poHistOrders||[]).filter(o=>!q||o.poNumber.toLowerCase().includes(q)||o.supplierName.toLowerCase().includes(q));
+  const q=normText(document.getElementById('po-hist-search')?.value||'');
+  const rows=(window._poHistOrders||[]).filter(o=>!q||normText(o.poNumber).includes(q)||normText(o.supplierName).includes(q));
   const tbody=document.getElementById('po-hist-body');if(!tbody)return;
   tbody.innerHTML=rows.length?rows.map(o=>`<tr>
     <td style="font-weight:700;font-family:monospace">${o.poNumber}</td>
@@ -3450,7 +3454,7 @@ function openEditOrder(orderId){
 function onEditSearch(val){
   const dd=document.getElementById('edit-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=val.toLowerCase();const matches=PRODUCTS.filter(p=>p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q)).slice(0,8);
+  const q=normText(val);const matches=PRODUCTS.filter(p=>normText(p.name).includes(q)||normText(p.sku).includes(q)).slice(0,8);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`<div class="dd-item" onmousedown="addEditItem('${p.sku.replace(/'/g,"\\'")}')"><div><div class="dd-name">${p.name}</div><div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div><div style="margin-top:2px">${stockChip(p)}</div></div></div>`).join('');
   dd.classList.add('open');
@@ -3931,9 +3935,9 @@ function renderAccountsPage(){
   let _search='',_filter='';
 
   function renderTable(){
-    const q=_search.toLowerCase();
+    const q=normText(_search);
     const filtered=accts.filter(a=>
-      (!q||(a.name||'').toLowerCase().includes(q)||(a.lic||'').toLowerCase().includes(q)||(a.contact||'').toLowerCase().includes(q)||(a.shipCity||'').toLowerCase().includes(q))
+      (!q||normText(a.name).includes(q)||normText(a.lic).includes(q)||normText(a.contact).includes(q)||normText(a.shipCity).includes(q))
       &&(!_filter||a.rep===_filter)
     );
     const tbody=document.getElementById('acct-table-body');
@@ -4211,8 +4215,8 @@ function openAccountDetail(acctId){
   filterAcctPurchases();
 }
 function filterAcctPurchases(){
-  const q=(document.getElementById('acct-purchase-search')?.value||'').toLowerCase();
-  const lines=(window._acctPurchaseLines||[]).filter(l=>!q||l.name.toLowerCase().includes(q)||l.sku.toLowerCase().includes(q));
+  const q=normText(document.getElementById('acct-purchase-search')?.value||'');
+  const lines=(window._acctPurchaseLines||[]).filter(l=>!q||normText(l.name).includes(q)||normText(l.sku).includes(q));
   const tbody=document.getElementById('acct-purchase-body');if(!tbody)return;
   tbody.innerHTML=lines.length?lines.map(l=>`<tr>
     <td style="font-size:12px;color:var(--text2)">${l.date}</td>
@@ -9414,9 +9418,9 @@ function updatePPNet(sku,tierId,btl){
 }
 
 function _filterProductsList(){
-  const q=_prodSearch.toLowerCase();
+  const q=normText(_prodSearch);
   return PRODUCTS.filter(p=>{
-    const matchQ=!q||(p.name||'').toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q);
+    const matchQ=!q||normText(p.name).includes(q)||normText(p.sku).includes(q)||normText(p.producer).includes(q);
     const matchCat=!_prodCat||p.cat===_prodCat;
     return matchQ&&matchCat;
   }).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
