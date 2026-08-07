@@ -245,31 +245,8 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-acctnum', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-acctnum') return res.status(403).json({ok:false});
-  try {
-    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- account number sequence created'});
-  } catch (err) {
-    res.status(500).json({ok:false, error: err.message});
-  }
-});
-app.get('/api/assign-acctnums', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-assignacct') return res.status(403).json({ok:false});
-  try {
-    const { query, getOne, getAll } = require('./db');
-    const missing = await getAll(`SELECT id FROM accounts WHERE code IS NULL OR TRIM(code)='' ORDER BY name`);
-    let assigned = 0;
-    for (const row of missing) {
-      const seqRow = await getOne('UPDATE account_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
-      await query('UPDATE accounts SET code=$1 WHERE id=$2', [String(seqRow.claimed), row.id]);
-      assigned++;
-    }
-    res.json({ ok: true, assigned, message: `Assigned account numbers to ${assigned} accounts` });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
+
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
