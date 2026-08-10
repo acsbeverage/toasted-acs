@@ -3944,66 +3944,18 @@ function previewDoc(id){
   document.body.appendChild(overlay);
 }
 
-function renderAccountsPage(){
+let _acctSearch='',_acctRepFilter='';
+function _filterAcctsList(){
   const isAdmin=currentUser&&currentUser.role==='admin';
   const accts=myAccounts().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  let _search='',_filter='';
-
-  function renderTable(){
-    const filtered=accts.filter(a=>
-      (!_search.trim()||matchesSearch([a.name,a.lic,a.contact,a.shipCity].join(' '),_search))
-      &&(!_filter||a.rep===_filter)
-    );
-    const tbody=document.getElementById('acct-table-body');
-    if(!tbody)return;
-    tbody.innerHTML=filtered.map(a=>{
-      const rep=USERS.find(u=>u.id===a.rep)||{};
-      const myOrders=ORDERS.filter(o=>o.acct===a.id);
-      const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
-      const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
-      return`<tr>
-        <td style="font-weight:600">${a.name}</td>
-        <td style="font-size:12px;color:var(--text2)">${a.lic||a.abcNum||'--'}</td>
-        <td style="font-size:12px;color:var(--text2)">${a.contact||'--'}</td>
-        <td style="font-size:12px;color:var(--text2)">${a.phone||'--'}</td>
-        <td style="font-size:12px;color:var(--text2)">${[a.shipCity,a.shipState].filter(Boolean).join(', ')||'--'}</td>
-        <td><span class="tier-pill" style="font-size:11px">${a.terms||'Net 30'}</span></td>
-        ${isAdmin?`<td style="font-size:12px;color:var(--text2)">${rep.fname||''} ${rep.lname||''}</td>`:''}
-        <td style="font-size:12px;text-align:center">${myOrders.length}</td>
-        <td style="font-size:12px;font-weight:600;color:${openBal>0?'var(--red)':'var(--text3)'}">${openBal>0?fmt(openBal):'--'}</td>
-        <td><button class="btn btn-sm" onclick="startOrderForAccount('${a.id}')"><i class="ti ti-plus"></i> Order</button></td>
-      </tr>`;
-    }).join('')||`<tr><td colspan="${isAdmin?10:9}" style="padding:40px;text-align:center;color:var(--text3)">No accounts match</td></tr>`;
-    document.getElementById('acct-count').textContent=filtered.length+' account'+(filtered.length!==1?'s':'');
-  }
-
-  document.getElementById('main-content').innerHTML=`
-  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
-    <div style="flex:1;min-width:200px">
-      <div class="flabel" style="margin-bottom:4px">Search</div>
-      <div style="position:relative"><i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3)"></i>
-        <input id="acct-search" type="text" class="finput" placeholder="Name, license, contact, city..." style="padding-left:32px;width:100%" oninput="_acctSearch=this.value;document.getElementById('acct-table-body')&&renderAccountTableBody()"/>
-      </div>
-    </div>
-    ${isAdmin?`<div><div class="flabel" style="margin-bottom:4px">Rep</div>
-      <select class="finput" id="acct-rep-filter" style="padding:7px 10px;width:160px" onchange="_acctRepFilter=this.value;renderAccountTableBodyX()">
-        <option value="">All reps</option>
-        ${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}
-      </select></div>`:''}
-    <span id="acct-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${accts.length} accounts</span>
-  </div>
-  <div class="card"><div style="overflow-x:auto"><table class="tbl">
-    <thead><tr>
-      <th>Account</th><th>ABC Lic #</th><th>Contact</th><th>Phone</th><th>City</th><th>Terms</th>
-      ${isAdmin?'<th>Rep</th>':''}
-      <th style="text-align:center">Orders</th><th>Open AR</th><th></th>
-    </tr></thead>
-    <tbody id="acct-table-body"></tbody>
-  </table></div></div>`;
-
-  // Simple inline render since we can't call renderTable from oninput easily
-  const tbody=document.getElementById('acct-table-body');
-  tbody.innerHTML=accts.map(a=>{
+  return accts.filter(a=>
+    (!_acctSearch.trim()||matchesSearch([a.name,a.lic,a.contact,a.shipCity].join(' '),_acctSearch))
+    &&(!isAdmin||!_acctRepFilter||a.rep===_acctRepFilter)
+  );
+}
+function _renderAcctRows(filtered){
+  const isAdmin=currentUser&&currentUser.role==='admin';
+  return filtered.map(a=>{
     const rep=USERS.find(u=>u.id===a.rep)||{};
     const myOrders=ORDERS.filter(o=>o.acct===a.id);
     const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
@@ -4020,20 +3972,43 @@ function renderAccountsPage(){
       <td style="font-size:12px;font-weight:600;color:${openBal>0?'var(--red)':'var(--text3)'}">${openBal>0?fmt(openBal):'--'}</td>
       <td onclick="event.stopPropagation()"><button class="btn btn-sm" onclick="startOrderForAccount('${a.id}')"><i class="ti ti-plus"></i> Order</button></td>
     </tr>`;
-  }).join('')||`<tr><td colspan="${isAdmin?10:9}" style="padding:40px;text-align:center;color:var(--text3)">No accounts</td></tr>`;
+  }).join('')||`<tr><td colspan="${isAdmin?10:9}" style="padding:40px;text-align:center;color:var(--text3)">No accounts match</td></tr>`;
+}
+function filterAccountsTable(){
+  const filtered=_filterAcctsList();
+  const tbody=document.getElementById('acct-table-body');
+  if(tbody)tbody.innerHTML=_renderAcctRows(filtered);
+  const count=document.getElementById('acct-count');
+  if(count)count.textContent=filtered.length+' account'+(filtered.length!==1?'s':'');
+}
+function renderAccountsPage(){
+  const isAdmin=currentUser&&currentUser.role==='admin';
+  _acctSearch='';_acctRepFilter='';
+  const filtered=_filterAcctsList();
 
-  // Live search filter
-  document.getElementById('acct-search').addEventListener('input',function(){
-    const q=this.value.toLowerCase();
-    const repFilter=document.getElementById('acct-rep-filter')?.value||'';
-    const rows=document.querySelectorAll('#acct-table-body tr');
-    rows.forEach(row=>{
-      const text=row.textContent.toLowerCase();
-      row.style.display=text.includes(q)?'':'none';
-    });
-    const visible=[...rows].filter(r=>r.style.display!=='none').length;
-    document.getElementById('acct-count').textContent=visible+' account'+(visible!==1?'s':'');
-  });
+  document.getElementById('main-content').innerHTML=`
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
+    <div style="flex:1;min-width:200px">
+      <div class="flabel" style="margin-bottom:4px">Search</div>
+      <div style="position:relative"><i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3)"></i>
+        <input id="acct-search" type="text" class="finput" placeholder="Name, license, contact, city..." style="padding-left:32px;width:100%" oninput="_acctSearch=this.value;filterAccountsTable()"/>
+      </div>
+    </div>
+    ${isAdmin?`<div><div class="flabel" style="margin-bottom:4px">Rep</div>
+      <select class="finput" id="acct-rep-filter" style="padding:7px 10px;width:160px" onchange="_acctRepFilter=this.value;filterAccountsTable()">
+        <option value="">All reps</option>
+        ${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}
+      </select></div>`:''}
+    <span id="acct-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${filtered.length} accounts</span>
+  </div>
+  <div class="card"><div style="overflow-x:auto"><table class="tbl">
+    <thead><tr>
+      <th>Account</th><th>ABC Lic #</th><th>Contact</th><th>Phone</th><th>City</th><th>Terms</th>
+      ${isAdmin?'<th>Rep</th>':''}
+      <th style="text-align:center">Orders</th><th>Open AR</th><th></th>
+    </tr></thead>
+    <tbody id="acct-table-body">${_renderAcctRows(filtered)}</tbody>
+  </table></div></div>`;
 }
 
 function saveAccountDetails(acctId){
