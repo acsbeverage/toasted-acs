@@ -245,62 +245,7 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/import-rep-accounts', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-repaccts') return res.status(403).json({ok:false});
-  try {
-    const { query, getOne, getAll } = require('./db');
-    const accountsData = require('./db/seed-accounts-data');
 
-    // Look up rep user IDs by email once
-    const repEmails = [...new Set(accountsData.map(a => a.repEmail))];
-    const repMap = {};
-    for (const email of repEmails) {
-      const u = await getOne('SELECT id FROM users WHERE LOWER(email)=LOWER($1)', [email]);
-      repMap[email] = u ? u.id : null;
-    }
-
-    let created = 0, updatedRep = 0, skippedNoRep = 0;
-    const missingReps = new Set();
-
-    for (const a of accountsData) {
-      const repId = repMap[a.repEmail];
-      if (!repId) { skippedNoRep++; missingReps.add(a.repEmail); continue; }
-
-      const existing = await getOne('SELECT id, rep FROM accounts WHERE LOWER(TRIM(name))=LOWER(TRIM($1))', [a.name]);
-
-      if (existing) {
-        if (existing.rep !== repId) {
-          await query('UPDATE accounts SET rep=$1 WHERE id=$2', [repId, existing.id]);
-          updatedRep++;
-        }
-        continue;
-      }
-
-      // New account -- auto-assign the next account number
-      const seqRow = await getOne('UPDATE account_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
-      const code = String(seqRow.claimed);
-      const id = 'a' + Date.now() + Math.floor(Math.random()*1000);
-
-      await query(
-        `INSERT INTO accounts (id,name,code,lic,abc_num,contact,contact_first,contact_last,phone,email,address,
-          ship_street,ship_city,ship_state,ship_zip,bill_street,bill_city,bill_state,bill_zip,terms,rep,
-          tax_id,resale_num,warehouse_code,lic_expiry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
-        [id, a.name, code, a.lic||'', a.abcNum||'', a.contact||'', a.contactFirst||'', a.contactLast||'',
-         a.phone||'', a.email||'', a.address||'',
-         a.shipStreet||'', a.shipCity||'', a.shipState||'', a.shipZip||'',
-         a.billStreet||'', a.billCity||'', a.billState||'', a.billZip||'',
-         a.terms||'Net 30', repId, a.taxId||'', a.resaleNum||'', a.warehouseCode||'', a.licExpiry||'']
-      );
-      created++;
-    }
-
-    res.json({ ok: true, created, updatedRep, skippedNoRep, missingReps: [...missingReps], totalProcessed: accountsData.length });
-  } catch (err) {
-    console.error('Import rep accounts error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
