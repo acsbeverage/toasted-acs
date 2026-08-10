@@ -148,6 +148,25 @@ router.get('/products', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/products/bulk-inventory', requireAdmin, async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items) || !items.length) return res.status(400).json({ ok: false, error: 'No items provided' });
+    let updated = 0;
+    const notFound = [];
+    for (const item of items) {
+      if (!item.sku || item.stock === undefined || item.stock === null) continue;
+      const result = await query('UPDATE products SET stock=$1 WHERE sku=$2', [item.stock, item.sku]);
+      if (result.rowCount > 0) updated++;
+      else notFound.push(item.sku);
+    }
+    res.json({ ok: true, updated, notFoundCount: notFound.length, notFound: notFound.slice(0, 50) });
+  } catch (err) {
+    console.error('Bulk inventory update error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
     const { name, producer, cat, btl, prices, da, stock, _details, image } = req.body;
