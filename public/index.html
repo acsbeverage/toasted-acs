@@ -436,7 +436,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div><label class="flabel">First name</label><input class="finput" id="u-fname"/></div>
       <div><label class="flabel">Last name</label><input class="finput" id="u-lname"/></div>
       <div><label class="flabel">Email</label><input class="finput" id="u-email"/></div>
-      <div><label class="flabel">Password</label><input class="finput" id="u-pw"/></div>
+      <div><label class="flabel">Password <span style="font-weight:400;color:var(--text3)">(required for new users -- leave blank when editing to keep the current password)</span></label><input class="finput" id="u-pw" type="text" autocomplete="off"/></div>
       <div><label class="flabel">Role</label><select class="finput" id="u-role"><option value="rep">Sales Rep</option><option value="admin">Admin</option></select></div>
       <div><label class="flabel">Commission %</label><input type="number" class="finput" id="u-commission" min="0" max="100" step="0.1" placeholder="e.g. 5"/></div>
       <div><label class="flabel">Assign accounts</label><select class="finput" id="u-accounts" multiple style="height:80px"></select></div>
@@ -816,14 +816,18 @@ function saveTastingToDB(tasting){
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(tasting)
-  }).catch(console.error);
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){console.error('Failed to save tasting:',d.error);toast('Could not save tasting -- please try again');}
+  }).catch(e=>{console.error('Save tasting error:',e.message);toast('Could not save tasting -- check your connection');});
 }
 function deleteTastingFromDB(tastingId){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   fetch(TOASTED_BACKEND_URL+'/api/tastings/'+tastingId,{
     method:'DELETE',
     headers:{'Authorization':'Bearer '+window._authToken}
-  }).catch(console.error);
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){console.error('Failed to delete tasting:',d.error);toast('Could not delete tasting -- please try again');}
+  }).catch(e=>{console.error('Delete tasting error:',e.message);toast('Could not delete tasting -- check your connection');});
 }
 
 function saveProductToDB(sku){
@@ -3878,7 +3882,9 @@ function doUploadDoc(){
     };
     SHARED_DOCS.push(doc);
     if(TOASTED_BACKEND_URL&&window._authToken){
-      fetch(TOASTED_BACKEND_URL+'/api/docs',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({id:doc.id,name:doc.name,category:doc.category,description:doc.description,filename:doc.filename,dataUrl:doc.dataUrl,sizeLabel:doc.sizeLabel,uploadedBy:doc.uploadedBy})}).catch(console.error);
+      fetch(TOASTED_BACKEND_URL+'/api/docs',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({id:doc.id,name:doc.name,category:doc.category,description:doc.description,filename:doc.filename,dataUrl:doc.dataUrl,sizeLabel:doc.sizeLabel,uploadedBy:doc.uploadedBy})})
+        .then(r=>r.json()).then(d=>{if(!d.ok){console.error('Failed to save document:',d.error);toast('Could not save document -- please try again');}})
+        .catch(e=>{console.error('Save document error:',e.message);toast('Could not save document -- check your connection');});
     }
     toast('"'+name+'" uploaded successfully');
     renderDocs();
@@ -3896,7 +3902,9 @@ function editDoc(id){
   doc.category=newCat.trim()||'General';
   doc.description=newDesc.trim();
   if(TOASTED_BACKEND_URL&&window._authToken){
-    fetch(TOASTED_BACKEND_URL+'/api/docs/'+id,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({name:doc.name,category:doc.category,description:doc.description})}).catch(console.error);
+    fetch(TOASTED_BACKEND_URL+'/api/docs/'+id,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({name:doc.name,category:doc.category,description:doc.description})})
+      .then(r=>r.json()).then(d=>{if(!d.ok){console.error('Failed to update document:',d.error);toast('Could not save changes -- please try again');}})
+      .catch(e=>{console.error('Update document error:',e.message);toast('Could not save changes -- check your connection');});
   }
   toast('Document updated');
   renderDocs();
@@ -3907,7 +3915,9 @@ function deleteDoc(id){
   if(!confirm('Delete "'+doc.name+'"? This cannot be undone.'))return;
   SHARED_DOCS=SHARED_DOCS.filter(d=>d.id!==id);
   if(TOASTED_BACKEND_URL&&window._authToken){
-    fetch(TOASTED_BACKEND_URL+'/api/docs/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).catch(console.error);
+    fetch(TOASTED_BACKEND_URL+'/api/docs/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}})
+      .then(r=>r.json()).then(d=>{if(!d.ok){console.error('Failed to delete document:',d.error);toast('Could not delete document -- please try again');}})
+      .catch(e=>{console.error('Delete document error:',e.message);toast('Could not delete document -- check your connection');});
   }
   toast('Document deleted');
   renderDocs();
@@ -4373,26 +4383,33 @@ function switchTab(show,hide,el){
 }
 function openAddUser(){editingUserId=null;document.getElementById('modal-user-title').textContent='Add user';['u-fname','u-lname','u-email','u-pw'].forEach(id=>document.getElementById(id).value='');document.getElementById('u-role').value='rep';document.getElementById('u-commission').value='';document.getElementById('u-accounts').innerHTML=ACCOUNTS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');document.getElementById('modal-user').classList.add('open')}
 function openEditUser(id){editingUserId=id;const u=USERS.find(x=>x.id===id);if(!u)return;document.getElementById('modal-user-title').textContent='Edit user';document.getElementById('u-fname').value=u.fname;document.getElementById('u-lname').value=u.lname||'';document.getElementById('u-email').value=u.email;document.getElementById('u-pw').value='';document.getElementById('u-role').value=u.role;document.getElementById('u-commission').value=u.commission||'';const sel=document.getElementById('u-accounts');const userAccts=u.accounts||[];sel.innerHTML=ACCOUNTS.map(a=>`<option value="${a.id}" ${userAccts.includes(a.id)?'selected':''}>${a.name}</option>`).join('');document.getElementById('modal-user').classList.add('open')}
-function saveUser(){const fname=document.getElementById('u-fname').value.trim();const lname=document.getElementById('u-lname').value.trim();const email=document.getElementById('u-email').value.trim();const pw=document.getElementById('u-pw').value.trim();const role=document.getElementById('u-role').value;const commission=parseFloat(document.getElementById('u-commission').value)||0;const accts=[...document.getElementById('u-accounts').selectedOptions].map(o=>o.value);if(!fname||!email){alert('Name and email required.');return}
+async function saveUser(){const fname=document.getElementById('u-fname').value.trim();const lname=document.getElementById('u-lname').value.trim();const email=document.getElementById('u-email').value.trim();const pw=document.getElementById('u-pw').value.trim();const role=document.getElementById('u-role').value;const commission=parseFloat(document.getElementById('u-commission').value)||0;const accts=[...document.getElementById('u-accounts').selectedOptions].map(o=>o.value);if(!fname||!email){alert('Name and email required.');return}
   if(editingUserId){
+    if(!TOASTED_BACKEND_URL||!window._authToken){alert('Not connected -- cannot save.');return;}
+    const body={fname,lname,email,role,commission};if(pw)body.password=pw;
+    let res;
+    try{
+      res=await fetch(TOASTED_BACKEND_URL+'/api/users/'+editingUserId,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(body)}).then(r=>r.json());
+    }catch(e){alert('Could not save -- check your connection and try again.');return;}
+    if(!res.ok){alert(res.error||'Could not save user.');return;}
     const u=USERS.find(x=>x.id===editingUserId);
     if(u){u.fname=fname;u.lname=lname;u.email=email;if(pw)u.pw=pw;u.role=role;u.commission=commission;u.accounts=accts;}
-    if(TOASTED_BACKEND_URL&&window._authToken){
-      const body={fname,lname,email,role,commission};if(pw)body.password=pw;
-      fetch(TOASTED_BACKEND_URL+'/api/users/'+editingUserId,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(body)}).catch(console.error);
-    }
   } else {
+    if(!TOASTED_BACKEND_URL||!window._authToken){alert('Not connected -- cannot save.');return;}
+    if(!pw){alert('Password is required for a new user.');return;}
     const id='u'+Date.now();
+    const body={id,fname,lname,email,password:pw,role,commission};
+    let res;
+    try{
+      res=await fetch(TOASTED_BACKEND_URL+'/api/users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(body)}).then(r=>r.json());
+    }catch(e){alert('Could not save -- check your connection and try again.');return;}
+    if(!res.ok){alert(res.error||'Could not create user.');return;}
     USERS.push({id,fname,lname,email,pw,role,commission,accounts:accts});
-    if(TOASTED_BACKEND_URL&&window._authToken){
-      const body={id,fname,lname,email,password:pw,role,commission};
-      fetch(TOASTED_BACKEND_URL+'/api/users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(body)}).catch(console.error);
-    }
   }
   closeModal('modal-user');toast('User saved');renderUsers();
 }
 function openAddAccount(){document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');['a-name','a-lic','a-contact','a-phone','a-email','a-addr'].forEach(id=>document.getElementById(id).value='');document.getElementById('a-terms').value='Net 30';document.getElementById('modal-account').classList.add('open')}
-function deleteUser(id){
+async function deleteUser(id){
   const u=USERS.find(x=>x.id===id);
   if(!u)return;
   if(u.id===currentUser.id){toast('You cannot delete your own account');return;}
@@ -4403,11 +4420,15 @@ function deleteUser(id){
     ?`Delete ${u.fname} ${u.lname}? Their ${acctCount} account(s) will be reassigned to admin.`
     :`Delete ${u.fname} ${u.lname}? This cannot be undone.`;
   if(!confirm(msg))return;
+  if(TOASTED_BACKEND_URL&&window._authToken){
+    let res;
+    try{
+      res=await fetch(TOASTED_BACKEND_URL+'/api/users/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    }catch(e){toast('Could not delete -- check your connection and try again.');return;}
+    if(!res.ok){toast(res.error||'Could not delete user.');return;}
+  }
   ACCOUNTS.forEach(a=>{if(a.rep===id)a.rep='u1';});
   USERS=USERS.filter(x=>x.id!==id);
-  if(TOASTED_BACKEND_URL&&window._authToken){
-    fetch(TOASTED_BACKEND_URL+'/api/users/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).catch(console.error);
-  }
   toast(`${u.fname} ${u.lname} deleted`);
   renderUsers();
 }
