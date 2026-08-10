@@ -724,6 +724,14 @@ function syncFees(){
 function normText(s){
   return (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
+// Forgiving search: every typed word must appear somewhere in the text, in any order.
+// So "jaguar tequila" matches "Tequila Blanco Alma del Jaguar" even though the words are reversed.
+function matchesSearch(text,query){
+  const t=normText(text);
+  const words=normText(query).split(/\s+/).filter(Boolean);
+  if(!words.length)return false;
+  return words.every(w=>t.includes(w));
+}
 const fmt=n=>'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const lowStock=()=>PRODUCTS.filter(p=>p.stock>0&&p.stock<=p.reorder);
 const outOfStock=()=>PRODUCTS.filter(p=>p.stock===0);
@@ -2110,8 +2118,7 @@ function onAcctChange(){
 function onAcctSearch(val){
   const dd=document.getElementById('o-acct-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=normText(val);
-  const matches=myAccounts().filter(a=>normText(a.name).includes(q)).slice(0,15);
+  const matches=myAccounts().filter(a=>matchesSearch(a.name,val)).slice(0,15);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No accounts found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(a=>`
     <div class="dd-item" onmousedown="selectOrderAcct('${a.id.replace(/'/g,"\\'")}')">
@@ -2131,8 +2138,7 @@ function selectOrderAcct(id){
 function onProdSearch(val){
   const dd=document.getElementById('prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=normText(val);
-  const matches=PRODUCTS.filter(p=>normText(p.name).includes(q)||normText(p.sku).includes(q)).slice(0,10);
+  const matches=PRODUCTS.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addLineItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -2629,8 +2635,7 @@ function renderNewTasting(){
 function onTastingProdSearch(val){
   const dd=document.getElementById('ts-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=normText(val);
-  const matches=PRODUCTS.filter(p=>normText(p.name).includes(q)||normText(p.sku).includes(q)).slice(0,10);
+  const matches=PRODUCTS.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addTastingItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -3006,8 +3011,8 @@ function _poEmailBadge(status){
   return'<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--text3)"><i class="ti ti-clock"></i> Not sent</span>';
 }
 function filterPOHistory(){
-  const q=normText(document.getElementById('po-hist-search')?.value||'');
-  const rows=(window._poHistOrders||[]).filter(o=>!q||normText(o.poNumber).includes(q)||normText(o.supplierName).includes(q));
+  const poQ=document.getElementById('po-hist-search')?.value||'';
+  const rows=(window._poHistOrders||[]).filter(o=>!poQ.trim()||matchesSearch(o.poNumber+' '+o.supplierName,poQ));
   const tbody=document.getElementById('po-hist-body');if(!tbody)return;
   tbody.innerHTML=rows.length?rows.map(o=>`<tr>
     <td style="font-weight:700;font-family:monospace">${o.poNumber}</td>
@@ -3454,7 +3459,7 @@ function openEditOrder(orderId){
 function onEditSearch(val){
   const dd=document.getElementById('edit-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const q=normText(val);const matches=PRODUCTS.filter(p=>normText(p.name).includes(q)||normText(p.sku).includes(q)).slice(0,8);
+  const matches=PRODUCTS.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,8);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`<div class="dd-item" onmousedown="addEditItem('${p.sku.replace(/'/g,"\\'")}')"><div><div class="dd-name">${p.name}</div><div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div><div style="margin-top:2px">${stockChip(p)}</div></div></div>`).join('');
   dd.classList.add('open');
@@ -3935,9 +3940,8 @@ function renderAccountsPage(){
   let _search='',_filter='';
 
   function renderTable(){
-    const q=normText(_search);
     const filtered=accts.filter(a=>
-      (!q||normText(a.name).includes(q)||normText(a.lic).includes(q)||normText(a.contact).includes(q)||normText(a.shipCity).includes(q))
+      (!_search.trim()||matchesSearch([a.name,a.lic,a.contact,a.shipCity].join(' '),_search))
       &&(!_filter||a.rep===_filter)
     );
     const tbody=document.getElementById('acct-table-body');
@@ -4215,8 +4219,8 @@ function openAccountDetail(acctId){
   filterAcctPurchases();
 }
 function filterAcctPurchases(){
-  const q=normText(document.getElementById('acct-purchase-search')?.value||'');
-  const lines=(window._acctPurchaseLines||[]).filter(l=>!q||normText(l.name).includes(q)||normText(l.sku).includes(q));
+  const acctPurchQ=document.getElementById('acct-purchase-search')?.value||'';
+  const lines=(window._acctPurchaseLines||[]).filter(l=>!acctPurchQ.trim()||matchesSearch(l.name+' '+l.sku,acctPurchQ));
   const tbody=document.getElementById('acct-purchase-body');if(!tbody)return;
   tbody.innerHTML=lines.length?lines.map(l=>`<tr>
     <td style="font-size:12px;color:var(--text2)">${l.date}</td>
@@ -9418,9 +9422,8 @@ function updatePPNet(sku,tierId,btl){
 }
 
 function _filterProductsList(){
-  const q=normText(_prodSearch);
   return PRODUCTS.filter(p=>{
-    const matchQ=!q||normText(p.name).includes(q)||normText(p.sku).includes(q)||normText(p.producer).includes(q);
+    const matchQ=!_prodSearch.trim()||matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),_prodSearch);
     const matchCat=!_prodCat||p.cat===_prodCat;
     return matchQ&&matchCat;
   }).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
