@@ -245,7 +245,24 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-
+app.get('/api/import-inventory-now', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-inv') return res.status(403).json({ok:false});
+  try {
+    const { query, getAll } = require('./db');
+    const items = require('./db/seed-inventory-data');
+    let updated = 0;
+    const notFound = [];
+    for (const item of items) {
+      const result = await query('UPDATE products SET stock=$1 WHERE sku=$2', [item.stock, item.sku]);
+      if (result.rowCount > 0) updated++;
+      else notFound.push(item.sku + ' (' + item.name + ')');
+    }
+    res.json({ ok: true, updated, notFoundCount: notFound.length, notFound, totalProcessed: items.length });
+  } catch (err) {
+    console.error('Import inventory error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
