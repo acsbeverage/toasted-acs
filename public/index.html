@@ -579,6 +579,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 
 <div class="toast" id="toast"><i class="ti ti-check"></i><span id="toast-msg"></span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
 let PRODUCTS=[];
@@ -4725,11 +4726,128 @@ function previewInvoice(){const c=ORDERS.find(o=>o.status==='confirmed');if(c)do
 // -- IMPORT --------------------------------------------------------------------
 function renderImport(){
   document.getElementById('main-content').innerHTML=`<div class="form-grid form-grid-2" style="gap:14px">
-  ${[{icon:'ti-bottle',title:'Import products',desc:'CSV columns: SKU, Name, Category, Producer, Pack (bottles per case), StockCases, ReorderPoint, then one price column per tier name.',id:'imp-prod'},{icon:'ti-building-store',title:'Import accounts',desc:'CSV columns: Name, License, Contact, Phone, Email, Address, AssignedRepEmail',id:'imp-acct'}].map(item=>`
-  <div class="card" style="margin:0"><div class="card-body"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><i class="ti ${item.icon}" style="font-size:22px;color:var(--gold)"></i><div style="font-size:14px;font-weight:600">${item.title}</div></div><p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7">${item.desc}</p><input type="file" accept=".csv" id="${item.id}" onchange="handleCSV(this,'${item.id}')" style="display:none"/><div style="display:flex;gap:8px"><button class="btn btn-dark btn-sm" onclick="document.getElementById('${item.id}').click()"><i class="ti ti-upload"></i> Choose CSV</button><button class="btn btn-sm" onclick="dlTemplate('${item.id}')"><i class="ti ti-download"></i> Template</button></div><div id="${item.id}-result" style="margin-top:10px;font-size:12px;color:var(--text2)"></div></div></div>`).join('')}
+  ${[
+    {icon:'ti-bottle',title:'Import products',desc:'Columns: SKU, Name, Category, Producer, Pack (bottles per case), StockCases, ReorderPoint, then one price column per tier name. Accepts CSV or XLSX.',id:'imp-prod'},
+    {icon:'ti-building-store',title:'Import accounts',desc:'Columns: Name, License, Contact, Phone, Email, Address, AssignedRepEmail. Accepts CSV or XLSX.',id:'imp-acct'},
+    {icon:'ti-package',title:'Import inventory levels',desc:'Updates stock counts for existing products only. Columns: SKU (or "Wine Code"), Quantity (or "Stock"/"StockCases"). Matches your warehouse export format. Accepts CSV or XLSX.',id:'imp-inv'},
+  ].map(item=>`
+  <div class="card" style="margin:0"><div class="card-body"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><i class="ti ${item.icon}" style="font-size:22px;color:var(--gold)"></i><div style="font-size:14px;font-weight:600">${item.title}</div></div><p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7">${item.desc}</p><input type="file" accept=".csv,.xlsx,.xls" id="${item.id}" onchange="handleImportFile(this,'${item.id}')" style="display:none"/><div style="display:flex;gap:8px"><button class="btn btn-dark btn-sm" onclick="document.getElementById('${item.id}').click()"><i class="ti ti-upload"></i> Choose File</button>${item.id!=='imp-inv'?`<button class="btn btn-sm" onclick="dlTemplate('${item.id}')"><i class="ti ti-download"></i> Template</button>`:''}</div><div id="${item.id}-result" style="margin-top:10px;font-size:12px;color:var(--text2);white-space:pre-line"></div></div></div>`).join('')}
   </div>`;
 }
-function handleCSV(input,type){const file=input.files[0];if(!file)return;const reader=new FileReader();reader.onload=e=>{const lines=e.target.result.split('\n').filter(l=>l.trim());const headers=lines[0].split(',').map(h=>h.trim().toLowerCase());const rows=lines.slice(1).map(l=>l.split(',').map(c=>c.trim()));let count=0;if(type==='imp-prod'){rows.forEach(row=>{if(!row[0])return;const obj={};headers.forEach((h,i)=>obj[h]=row[i]||'');const prices={};TIERS.forEach(t=>{const v=obj[t.name.toLowerCase()];if(v)prices[t.id]=parseFloat(v)||0});const ex=PRODUCTS.find(p=>p.sku===obj['sku']);if(ex){if(obj['name'])ex.name=obj['name'];if(obj['stockcases'])ex.stock=parseInt(obj['stockcases'])||0;if(obj['reorderpoint'])ex.reorder=parseInt(obj['reorderpoint'])||0;if(obj['pack'])ex.btl=parseInt(obj['pack'])||ex.btl;if(obj['producer'])ex.producer=obj['producer'];Object.assign(ex.prices,prices)}else PRODUCTS.push({sku:obj['sku'],name:obj['name'],producer:obj['producer']||'',cat:obj['category']||'Spirits',btl:parseInt(obj['pack'])||6,stock:parseInt(obj['stockcases'])||0,reorder:parseInt(obj['reorderpoint'])||6,prices});count++})}else{rows.forEach(row=>{if(!row[0])return;const obj={};headers.forEach((h,i)=>obj[h]=row[i]||'');const rep=USERS.find(u=>u.email.toLowerCase()===(obj['assignedrepemail']||'').toLowerCase());const id='a'+Date.now()+Math.random();ACCOUNTS.push({id,name:obj['name'],lic:obj['license']||'',contact:obj['contact']||'',phone:obj['phone']||'',email:obj['email']||'',address:obj['address']||'',rep:rep?.id||''});if(rep&&!rep.accounts.includes(id))rep.accounts.push(id);count++})}document.getElementById(type+'-result').textContent=count+' record(s) imported.';toast('Import complete')};reader.readAsText(file)}
+
+// Reads a File (csv/xlsx) and resolves to an array-of-arrays (first row = headers)
+function _readImportFile(file){
+  return new Promise((resolve,reject)=>{
+    const isExcel=/\.xlsx?$/i.test(file.name);
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('Could not read file'));
+    if(isExcel){
+      reader.onload=e=>{
+        try{
+          const wb=XLSX.read(e.target.result,{type:'array'});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+          resolve(rows);
+        }catch(err){reject(err);}
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload=e=>{
+        const lines=e.target.result.split('\n').filter(l=>l.trim());
+        resolve(lines.map(l=>l.split(',').map(c=>c.trim())));
+      };
+      reader.readAsText(file);
+    }
+  });
+}
+
+async function handleImportFile(input,type){
+  const file=input.files[0];if(!file)return;
+  const resultEl=document.getElementById(type+'-result');
+  resultEl.textContent='Reading file...';
+  let rows;
+  try{ rows=await _readImportFile(file); }
+  catch(e){ resultEl.textContent='Could not read this file. Please check the format and try again.'; return; }
+  if(!rows.length){ resultEl.textContent='File appears to be empty.'; return; }
+
+  const headers=rows[0].map(h=>String(h||'').trim().toLowerCase());
+  const dataRows=rows.slice(1).filter(r=>r.some(c=>String(c||'').trim()!==''));
+  const get=(obj,...keys)=>{ for(const k of keys){ if(obj[k]!==undefined && obj[k]!=='') return obj[k]; } return ''; };
+
+  resultEl.textContent=`Processing ${dataRows.length} row(s)...`;
+
+  if(type==='imp-inv'){
+    const items=[];
+    for(const row of dataRows){
+      const obj={}; headers.forEach((h,i)=>obj[h]=row[i]!==undefined?String(row[i]).trim():'');
+      const sku=get(obj,'sku','wine code');
+      const qtyRaw=get(obj,'quantity','stock','stockcases');
+      if(!sku||qtyRaw==='')continue;
+      const qty=parseFloat(qtyRaw);
+      if(isNaN(qty))continue;
+      items.push({sku,stock:qty});
+    }
+    if(!items.length){resultEl.textContent='No valid SKU/quantity rows found. Check your column headers.';return;}
+    try{
+      const res=await fetch(TOASTED_BACKEND_URL+'/api/products/bulk-inventory',{
+        method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+        body:JSON.stringify({items})
+      }).then(r=>r.json());
+      if(!res.ok){resultEl.textContent='Import failed: '+(res.error||'unknown error');return;}
+      await loadAllDataFromBackend();
+      let msg=`${res.updated} product(s) updated.`;
+      if(res.notFoundCount)msg+=`\n${res.notFoundCount} SKU(s) not found in your catalog (not imported).`;
+      resultEl.textContent=msg;
+      toast('Inventory updated -- '+res.updated+' products');
+    }catch(e){resultEl.textContent='Could not connect -- please check your connection and try again.';}
+    return;
+  }
+
+  if(type==='imp-prod'){
+    let ok=0,failed=0;
+    for(const row of dataRows){
+      const obj={}; headers.forEach((h,i)=>obj[h]=row[i]!==undefined?String(row[i]).trim():'');
+      if(!obj['sku'])continue;
+      const prices={};TIERS.forEach(t=>{const v=obj[t.name.toLowerCase()];if(v)prices[t.id]=parseFloat(v)||0;});
+      try{
+        const res1=await fetch(TOASTED_BACKEND_URL+'/api/products',{
+          method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+          body:JSON.stringify({sku:obj['sku'],name:obj['name'],producer:obj['producer']||'',cat:obj['category']||'Spirits',btl:parseInt(obj['pack'])||6})
+        }).then(r=>r.json());
+        if(!res1.ok){failed++;continue;}
+        if(Object.keys(prices).length||obj['stockcases']||obj['reorderpoint']){
+          await fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(obj['sku']),{
+            method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+            body:JSON.stringify({prices,stock:parseFloat(obj['stockcases'])||0,_details:{}})
+          }).then(r=>r.json());
+        }
+        ok++;
+      }catch(e){failed++;}
+    }
+    await loadAllDataFromBackend();
+    resultEl.textContent=`${ok} product(s) imported/updated.`+(failed?`\n${failed} row(s) failed.`:'');
+    toast('Import complete');
+    return;
+  }
+
+  // imp-acct
+  let ok=0,failed=0;
+  for(const row of dataRows){
+    const obj={}; headers.forEach((h,i)=>obj[h]=row[i]!==undefined?String(row[i]).trim():'');
+    if(!obj['name'])continue;
+    const rep=USERS.find(u=>u.email.toLowerCase()===(obj['assignedrepemail']||'').toLowerCase());
+    try{
+      const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts',{
+        method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+        body:JSON.stringify({name:obj['name'],lic:obj['license']||'',contact:obj['contact']||'',phone:obj['phone']||'',email:obj['email']||'',address:obj['address']||'',rep:rep?.id||null})
+      }).then(r=>r.json());
+      if(res.ok)ok++;else failed++;
+    }catch(e){failed++;}
+  }
+  await loadAllDataFromBackend();
+  resultEl.textContent=`${ok} account(s) imported.`+(failed?`\n${failed} row(s) failed.`:'');
+  toast('Import complete');
+}
 function dlTemplate(type){let csv='';if(type==='imp-prod'){csv='SKU,Name,Category,Producer,Pack,StockCases,ReorderPoint,'+TIERS.map(t=>t.name).join(',')+'\nDA0004,Example Armagnac,Spirits,Dartigalongue,6,10,4,'+TIERS.map(()=>'0.00').join(',')}else{csv='Name,License,Contact,Phone,Email,Address,AssignedRepEmail\nExample Restaurant,ABC-000000,John Doe,(415) 555-0100,billing@example.com,123 Main St SF CA,rep@acsbeverage.com'}const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=type==='imp-prod'?'products_template.csv':'accounts_template.csv';a.click()}
 
 // -- PDF INVOICE - matches ACS real invoice layout -----------------------------
