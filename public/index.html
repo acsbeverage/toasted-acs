@@ -3559,7 +3559,7 @@ function renderHistory(){
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <div class="search-wrap" style="max-width:280px"><i class="ti ti-search si"></i><input class="search-input" id="hist-search" placeholder="Search order ID or account..." oninput="_histPage=1;filterHistory()"/></div>
     <select class="finput" id="hist-status" onchange="_histPage=1;filterHistory()" style="width:160px;padding:7px 9px"><option value="">All statuses</option><option value="unconfirmed">Unconfirmed</option><option value="confirmed">Confirmed (Pending delivery)</option><option value="delivered">Delivered (In AR)</option></select>
-    ${isAdmin?`<select class="finput" id="hist-rep" onchange="_histPage=1;filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
+    ${isAdmin?`<select class="finput" id="hist-rep" onchange="_histPage=1;filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
   </div>
   <div class="card"><div class="card-header"><span class="card-title" id="hist-count">${mine.length} orders</span></div>
   <div id="hist-table-view"><table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
@@ -3945,6 +3945,8 @@ function previewDoc(id){
 }
 
 let _acctSearch='',_acctRepFilter='';
+const ACCT_PAGE_SIZE=50;
+let _acctPage=1;
 function _filterAcctsList(){
   const isAdmin=currentUser&&currentUser.role==='admin';
   const accts=myAccounts().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -3974,30 +3976,75 @@ function _renderAcctRows(filtered){
     </tr>`;
   }).join('')||`<tr><td colspan="${isAdmin?10:9}" style="padding:40px;text-align:center;color:var(--text3)">No accounts match</td></tr>`;
 }
+function acctGoToPage(p){_acctPage=p;filterAccountsTable();}
 function filterAccountsTable(){
   const filtered=_filterAcctsList();
+  const totalPages=Math.max(1,Math.ceil(filtered.length/ACCT_PAGE_SIZE));
+  if(_acctPage>totalPages)_acctPage=totalPages;
+  const startIdx=(_acctPage-1)*ACCT_PAGE_SIZE;
+  const pageItems=filtered.slice(startIdx,startIdx+ACCT_PAGE_SIZE);
+
   const tbody=document.getElementById('acct-table-body');
-  if(tbody)tbody.innerHTML=_renderAcctRows(filtered);
+  if(tbody)tbody.innerHTML=_renderAcctRows(pageItems);
   const count=document.getElementById('acct-count');
   if(count)count.textContent=filtered.length+' account'+(filtered.length!==1?'s':'');
+
+  const pagWrap=document.getElementById('acct-pagination');
+  if(pagWrap){
+    pagWrap.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${_acctPage<=1?'disabled':''} onclick="acctGoToPage(${_acctPage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${_acctPage} of ${totalPages}</span>
+      <button class="btn btn-sm" ${_acctPage>=totalPages?'disabled':''} onclick="acctGoToPage(${_acctPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+  }
+}
+function exportAccountsCSV(){
+  const filtered=_filterAcctsList();
+  if(!filtered.length){toast('No accounts to export');return;}
+  const isAdmin=currentUser&&currentUser.role==='admin';
+  const headers=['Account Number','Name','ABC License #','Contact','Phone','Email','City','State','Terms',
+    ...(isAdmin?['Rep']:[]),'Orders','Open AR'];
+  const csvEsc=v=>{
+    const s=(v===null||v===undefined)?'':String(v);
+    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+  };
+  const rows=filtered.map(a=>{
+    const rep=USERS.find(u=>u.id===a.rep)||{};
+    const myOrders=ORDERS.filter(o=>o.acct===a.id);
+    const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
+    const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
+    return [a.code||'',a.name||'',a.lic||a.abcNum||'',a.contact||'',a.phone||'',a.email||'',a.shipCity||'',a.shipState||'',a.terms||'Net 30',
+      ...(isAdmin?[(rep.fname?rep.fname+' '+rep.lname:'')]:[]),myOrders.length,openBal.toFixed(2)];
+  });
+  const csv=[headers,...rows].map(r=>r.map(csvEsc).join(',')).join('\n');
+  const repLabel=_acctRepFilter?('-'+(USERS.find(u=>u.id===_acctRepFilter)?.fname||'rep')):'';
+  const filename='accounts'+repLabel+'-'+today()+'.csv';
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;link.download=filename;
+  document.body.appendChild(link);link.click();document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  toast('Exported '+filtered.length+' account'+(filtered.length!==1?'s':''));
 }
 function renderAccountsPage(){
   const isAdmin=currentUser&&currentUser.role==='admin';
-  _acctSearch='';_acctRepFilter='';
+  _acctSearch='';_acctRepFilter='';_acctPage=1;
   const filtered=_filterAcctsList();
+
+  document.getElementById('topbar-right').innerHTML=`<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button>`;
 
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
     <div style="flex:1;min-width:200px">
       <div class="flabel" style="margin-bottom:4px">Search</div>
       <div style="position:relative"><i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3)"></i>
-        <input id="acct-search" type="text" class="finput" placeholder="Name, license, contact, city..." style="padding-left:32px;width:100%" oninput="_acctSearch=this.value;filterAccountsTable()"/>
+        <input id="acct-search" type="text" class="finput" placeholder="Name, license, contact, city..." style="padding-left:32px;width:100%" oninput="_acctSearch=this.value;_acctPage=1;filterAccountsTable()"/>
       </div>
     </div>
     ${isAdmin?`<div><div class="flabel" style="margin-bottom:4px">Rep</div>
-      <select class="finput" id="acct-rep-filter" style="padding:7px 10px;width:160px" onchange="_acctRepFilter=this.value;filterAccountsTable()">
+      <select class="finput" id="acct-rep-filter" style="padding:7px 10px;width:160px" onchange="_acctRepFilter=this.value;_acctPage=1;filterAccountsTable()">
         <option value="">All reps</option>
-        ${USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}
+        ${USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}
       </select></div>`:''}
     <span id="acct-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${filtered.length} accounts</span>
   </div>
@@ -4007,8 +4054,11 @@ function renderAccountsPage(){
       ${isAdmin?'<th>Rep</th>':''}
       <th style="text-align:center">Orders</th><th>Open AR</th><th></th>
     </tr></thead>
-    <tbody id="acct-table-body">${_renderAcctRows(filtered)}</tbody>
-  </table></div></div>`;
+    <tbody id="acct-table-body"></tbody>
+  </table></div>
+  <div id="acct-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)"></div>
+  </div>`;
+  filterAccountsTable();
 }
 
 function saveAccountDetails(acctId){
@@ -4383,7 +4433,7 @@ async function saveUser(){const fname=document.getElementById('u-fname').value.t
   }
   closeModal('modal-user');toast('User saved');renderUsers();
 }
-function openAddAccount(){document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');['a-name','a-lic','a-contact','a-phone','a-email','a-addr'].forEach(id=>document.getElementById(id).value='');document.getElementById('a-terms').value='Net 30';document.getElementById('modal-account').classList.add('open')}
+function openAddAccount(){document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');['a-name','a-lic','a-contact','a-phone','a-email','a-addr'].forEach(id=>document.getElementById(id).value='');document.getElementById('a-terms').value='Net 30';document.getElementById('modal-account').classList.add('open')}
 async function deleteUser(id){
   const u=USERS.find(x=>x.id===id);
   if(!u)return;
