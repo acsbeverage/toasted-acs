@@ -126,6 +126,11 @@ router.get('/products', requireAuth, async (req, res) => {
         acs3: parseFloat(r.price_acs3)||0,
         brand3: parseFloat(r.price_brand3)||0,
         brand5: parseFloat(r.price_brand5)||0,
+        ...(r.comm_frontline!==null ? {__comm_frontline: parseFloat(r.comm_frontline)} : {}),
+        ...(r.comm_mix12!==null ? {__comm_mix12: parseFloat(r.comm_mix12)} : {}),
+        ...(r.comm_acs3!==null ? {__comm_acs3: parseFloat(r.comm_acs3)} : {}),
+        ...(r.comm_brand3!==null ? {__comm_brand3: parseFloat(r.comm_brand3)} : {}),
+        ...(r.comm_brand5!==null ? {__comm_brand5: parseFloat(r.comm_brand5)} : {}),
       },
       da: isCustomer ? undefined : {
         frontline: parseFloat(r.da_frontline)||0,
@@ -183,7 +188,9 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
       price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
       da_frontline=$10,da_mix12=$11,da_acs3=$12,da_brand3=$13,da_brand5=$14,
       stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
-      redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25 WHERE sku=$24`,
+      redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25,
+      comm_frontline=$26,comm_mix12=$27,comm_acs3=$28,comm_brand3=$29,comm_brand5=$30
+      WHERE sku=$24`,
       [name,producer,cat,btl,
        prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
        da?.frontline||0,da?.mix12||0,da?.acs3||0,da?.brand3||0,da?.brand5||0,
@@ -192,7 +199,9 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
        _details?.redemptionEntry||'',_details?.bottleSize||'',_details?.upc||'',
        image||'',
        req.params.sku,
-       _details?.vintage||'']);
+       _details?.vintage||'',
+       prices?.__comm_frontline ?? null, prices?.__comm_mix12 ?? null,
+       prices?.__comm_acs3 ?? null, prices?.__comm_brand3 ?? null, prices?.__comm_brand5 ?? null]);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update product error:', err.message);
