@@ -74,6 +74,21 @@ async function migrate() {
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_brand5 NUMERIC(5,2)`);
 
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
+
+  await query(`CREATE TABLE IF NOT EXISTS product_tier_prices (
+    id SERIAL PRIMARY KEY,
+    sku TEXT NOT NULL REFERENCES products(sku) ON DELETE CASCADE,
+    tier_name TEXT NOT NULL,
+    price NUMERIC(10,4) DEFAULT 0,
+    da_amount NUMERIC(10,4) DEFAULT 0,
+    rep_visible BOOLEAN DEFAULT FALSE,
+    sort_order INTEGER DEFAULT 100,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(sku, tier_name)
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_ptp_sku ON product_tier_prices(sku)`);
+
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_admin BOOLEAN DEFAULT FALSE`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS region TEXT`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS kind_primary TEXT`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS kind_secondary TEXT`);
