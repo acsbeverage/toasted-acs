@@ -3422,14 +3422,23 @@ function renderUnconfirmed(){
   </div>`;
 }
 // -- ZEBRA LABEL PRINTING (2.25in x 4in, 203dpi) --------------------------------
-function buildZPLShippingLabel(acct,order){
+function calcLabelCount(order){
+  const prodItems=order.items.filter(x=>!x._fee);
+  const totalCases=prodItems.reduce((s,x)=>s+(x.cases||0),0);
+  const totalLooseBottles=prodItems.reduce((s,x)=>s+(x.bottles||0),0);
+  const looseLabels=totalLooseBottles>0?Math.ceil(totalLooseBottles/12):0;
+  return Math.max(1,totalCases+looseLabels);
+}
+function buildZPLShippingLabel(acct,order,copies){
   const esc=s=>(s||'').toString().replace(/[\^~]/g,'').replace(/\\/g,'\\\\');
   const name=esc(acct.name||'');
   const street=esc(acct.shipStreet||acct.address||'');
   const cityStateZip=esc([acct.shipCity,acct.shipState].filter(Boolean).join(', ')+(acct.shipZip?' '+acct.shipZip:''));
   const orderId=esc(order.id||'');
   const delivery=esc(order.delivery||'');
+  const qty=Math.max(1,copies||1);
   return `^XA
+^PQ${qty}
 ^PW456
 ^LL812
 ^LH0,0
@@ -3457,14 +3466,15 @@ function printShippingLabel(orderId){
     toast('Label printer not set up on this computer -- see Company Settings for setup steps');
     return;
   }
-  const zpl=buildZPLShippingLabel(acct,o);
+  const labelCount=calcLabelCount(o);
+  const zpl=buildZPLShippingLabel(acct,o,labelCount);
   const doSend=(device)=>{
     if(!device||!device.name){
       toast('No label printer found -- open the Zebra Browser Print app and confirm your printer is listed');
       return;
     }
     device.send(zpl,function(){
-      toast('Label printed for '+o.id);
+      toast('Printed '+labelCount+' label'+(labelCount!==1?'s':'')+' for '+o.id);
     },function(err){
       console.error('Label print error:',err);
       toast('Could not print label: '+err);
