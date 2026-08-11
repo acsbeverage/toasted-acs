@@ -658,7 +658,27 @@ function orderQtyLabel(items){
   if(loose>0)return`${loose}btl`;
   return'--';
 }
-const itemPrice=(p,tier)=>p.prices[tier]||0;
+const itemPrice=(p,tier)=>{
+  if(p.prices&&p.prices[tier]!==undefined)return p.prices[tier]||0;
+  const t=(p.extraTiers||[]).find(x=>x.name===tier);
+  return t?(t.price||0):0;
+};
+// Builds <option> list for a tier <select>: the 5 standard tiers, plus any special/negotiated
+// tiers this product has (already filtered server-side by what the current user is allowed to see).
+function buildTierOptions(p,item,withPricePreview){
+  const esc=s=>String(s).replace(/"/g,'&quot;');
+  const fixedOpts=TIERS.map(t=>{
+    const label=withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name;
+    return `<option value="${t.id}" ${item.tier===t.id?'selected':''}>${label}</option>`;
+  }).join('');
+  const extraList=p.extraTiers||[];
+  if(!extraList.length)return fixedOpts;
+  const extraOpts=extraList.map(t=>{
+    const label=withPricePreview?`${t.name} (Cs: $${(t.price*p.btl).toFixed(2)} / Bt: $${t.price.toFixed(2)})`:t.name;
+    return `<option value="${esc(t.name)}" ${item.tier===t.name?'selected':''}>${label}</option>`;
+  }).join('');
+  return fixedOpts+`<optgroup label="Special Pricing">${extraOpts}</optgroup>`;
+}
 const DELIVERY_FEE_SKU='__DELIVERY__';
 const BROKEN_CASE_SKU='__BROKEN_CASE__';
 const CRV_SKU='__CRV__';
@@ -2289,7 +2309,7 @@ function renderLineItems(){
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.sku}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.producer}</td>
       <td>${stockChip(p)}</td>
-      <td><select class="inline-sel" onchange="updateItemTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td>
+      <td><select class="inline-sel" onchange="updateItemTier(${idx},this.value)">${buildTierOptions(p,item,false)}</select></td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">
         <div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div>
         <div style="font-size:11px;color:var(--text3)">$${price.toFixed(2)}/btl</div>
@@ -2341,7 +2361,7 @@ function renderLineItems(){
       <label class="li-label">Price</label>
       <div class="li-row">
         <select class="finput" style="font-size:16px;padding:12px 10px;min-height:46px;border-radius:10px" onchange="updateItemTier(${idx},this.value)">
-          ${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})</option>`).join('')}
+          ${buildTierOptions(p,item,true)}
         </select>
       </div>
 
@@ -3612,7 +3632,7 @@ function renderEditItems(){
 
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead><tbody>`+
   window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
-    return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name}</option>`).join('')}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+    return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     const p=prodBySku(item.sku);if(!p)return'';
@@ -3626,7 +3646,7 @@ function renderEditItems(){
       <label class="li-label">Price</label>
       <div class="li-row">
         <select class="finput" style="font-size:16px;padding:12px 10px;min-height:46px;border-radius:10px" onchange="updateEditTier(${idx},this.value)">
-          ${TIERS.map(t=>`<option value="${t.id}" ${item.tier===t.id?'selected':''}>${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})</option>`).join('')}
+          ${buildTierOptions(p,item,true)}
         </select>
       </div>
 
@@ -6462,7 +6482,7 @@ function renderRA5(el, orders, producerFilter){
       if(producerFilter&&p.producer!==producerFilter)return;
       const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
       const unitPrice=itemPrice(p,item.tier)*(p.btl||1);
-      const daRate=(p.da&&p.da[item.tier])||0;
+      const daRate=(p.da&&p.da[item.tier])||(p.extraTiers||[]).find(t=>t.name===item.tier)?.da||0;
       const billBackAmount=daRate*(p.btl||1);
       rows.push({
         wineName:p.name,
