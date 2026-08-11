@@ -246,41 +246,8 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-comm', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-comm') return res.status(403).json({ok:false});
-  try {
-    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- commission override columns added'});
-  } catch (err) {
-    res.status(500).json({ok:false, error: err.message});
-  }
-});
-app.get('/api/apply-brand-rules', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-brandrules') return res.status(403).json({ok:false});
-  try {
-    const { query, getAll } = require('./db');
 
-    // Liber & Co.: permanently zero CRV
-    const liberMatches = await getAll(`SELECT DISTINCT producer FROM products WHERE producer ILIKE '%liber%'`);
-    const liberResult = await query(`UPDATE products SET redemption_entry='- None -' WHERE producer ILIKE '%liber%'`);
 
-    // 2.5% commission override (all 5 tiers) for these brands
-    const brandPatterns = ['%mezo%', '%liber%', '%darling%', '%sun god%', '%sungod%'];
-    const commResults = [];
-    for (const pattern of brandPatterns) {
-      const matches = await getAll(`SELECT DISTINCT producer FROM products WHERE producer ILIKE $1`, [pattern]);
-      const result = await query(
-        `UPDATE products SET comm_frontline=2.5,comm_mix12=2.5,comm_acs3=2.5,comm_brand3=2.5,comm_brand5=2.5 WHERE producer ILIKE $1`,
-        [pattern]
-      );
-      commResults.push({ pattern, matchedProducers: matches.map(m=>m.producer), rowsUpdated: result.rowCount });
-    }
-
-    res.json({
-      ok: true,
-      crv: { matchedProducers: liberMatches.map(m=>m.producer), rowsUpdated: liberResult.rowCount },
-      commission: commResults,
-    });
   } catch (err) {
     console.error('Apply brand rules error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
