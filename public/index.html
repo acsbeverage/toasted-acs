@@ -6659,8 +6659,11 @@ function renderRB1(el, supplierFilter){
       </table>
     </div>
   </div>`;
-  window._lastReportRows=rows;
-  window._lastReportCols=['supplier','skuCount','totalStock'];
+  window._lastReportRows=rows.flatMap(r=>r.products.map(p=>({
+    supplier:r.supplier, sku:p.sku, product:p.name,
+    stock:(p.stock||0).toFixed(1), reorder:p.reorder||6,
+  })));
+  window._lastReportCols=['supplier','sku','product','stock','reorder'];
 }
 
 // RB2 - Inventory by Producer
@@ -7061,6 +7064,10 @@ function renderRA7(el, orders){
     return`<tr><td style="font-weight:600;font-size:12px">${s}</td>${reps.map(r=>`<td style="text-align:right;font-size:12px;color:${row[r.id]>0?'var(--text)':'var(--text3)'}">${row[r.id]>0?fmt(row[r.id]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;
   }).join('')}
   </tbody></table></div></div>`;
+  const flatRows=[];
+  suppliers.forEach(s=>reps.forEach(r=>{if(matrix[s][r.id]>0)flatRows.push({supplier:s,rep:r.fname+' '+(r.lname||''),revenue:matrix[s][r.id].toFixed(2)});}));
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['supplier','rep','revenue'];
 }
 
 // RA8 - Sales by Supplier across Accounts
@@ -7295,9 +7302,11 @@ function renderRA23(el, orders, producerFilter){
       </td>
     </tr>`).join('')||'<tr><td colspan="3" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
   </tbody></table></div></div>`;
+  window._lastReportRows=rows.flatMap(r=>Object.values(r.products).map(p=>({
+    acct:r.acct, product:p.name, cases:p.cases, revenue:p.revenue.toFixed(2),
+  })));
+  window._lastReportCols=['acct','product','cases','revenue'];
 }
-
-// RA24 - Sales grouped by Invoice
 function renderRA24(el, orders, producerFilter){renderRA1(el,orders,producerFilter);}
 
 // RA26 - Products with No Sales
@@ -7358,6 +7367,10 @@ function renderRA37(el, orders){
   <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Sales Rep</th>${months.slice(-12).map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
   ${rows.map(r=>{const tot=Object.values(r.months).reduce((a,b)=>a+b,0);return`<tr><td style="font-weight:600">${r.rep}</td>${months.slice(-12).map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]>0?'var(--text)':'var(--text3)'}">${r.months[m]>0?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="20" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
   </tbody></table></div></div>`;
+  const flatRows=[];
+  rows.forEach(r=>months.slice(-12).forEach(m=>{if(r.months[m]>0)flatRows.push({rep:r.rep,month:m,revenue:r.months[m].toFixed(2)});}));
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['rep','month','revenue'];
 }
 
 // RA38 - Detailed Sales with Accounts
@@ -7382,6 +7395,10 @@ function renderRA39(el, orders, supplierFilter){
   <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Supplier</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
   ${rows.map(r=>{const tot=months.reduce((a,m)=>a+(r.months[m]||0),0);return`<tr><td style="font-weight:600">${r.supplier}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="15" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
   </tbody></table></div></div>`;
+  const flatRows=[];
+  rows.forEach(r=>months.forEach(m=>{if(r.months[m])flatRows.push({supplier:r.supplier,month:m,revenue:r.months[m].toFixed(2)});}));
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['supplier','month','revenue'];
 }
 
 // RA41 - Top Products by Sales Rep
@@ -7408,6 +7425,14 @@ function renderRA41(el, orders, producerFilter){
     <tbody>${top.map(p=>`<tr><td style="font-size:12px">${p.name}</td><td style="text-align:right;font-size:12px">${p.cases}</td><td style="text-align:right;font-weight:600">${fmt(p.revenue)}</td></tr>`).join('')}</tbody>`;
   }).join('')}
   </table></div></div>`;
+  const flatRows=[];
+  rows.forEach(r=>{
+    Object.values(r.products).sort((a,b)=>b.revenue-a.revenue).slice(0,10).forEach(p=>{
+      flatRows.push({rep:r.rep,product:p.name,cases:p.cases,revenue:p.revenue.toFixed(2)});
+    });
+  });
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['rep','product','cases','revenue'];
 }
 
 // RA42 - Sales by Producer
@@ -7431,6 +7456,10 @@ function renderRA44(el, orders, producerFilter){
   <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
   ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.total)}</td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
   </tbody></table></div></div>`;
+  const flatRows=[];
+  rows.forEach(r=>months.forEach(m=>{if(r.months[m])flatRows.push({sku:r.sku,name:r.name,month:m,revenue:r.months[m].toFixed(2)});}));
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['sku','name','month','revenue'];
 }
 
 // RB6 - Velocity Estimate
@@ -7512,6 +7541,12 @@ function renderRC2(el, orders){
       <tr>${months.map(m=>`<td style="padding:4px 8px;text-align:center;font-weight:600;color:var(--gold)">${r.months[m]?fmt(r.months[m].revenue):'-'}</td>`).join('')}</tr>
     </table>
   </div>`).join('')}</div>`;
+  const flatRows=[];
+  Object.values(data).forEach(r=>months.forEach(m=>{
+    if(r.months[m])flatRows.push({rep:r.rep,month:m,orders:r.months[m].orders,accounts:r.months[m].accounts.size,revenue:r.months[m].revenue.toFixed(2)});
+  }));
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['rep','month','orders','accounts','revenue'];
 }
 
 // RC3 - Unloved Accounts
@@ -7547,6 +7582,10 @@ function renderRC5(el, orders){
   <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
   ${rows.map(r=>{const tot=months.reduce((a,m)=>a+(r.months[m]||0),0);return`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
   </tbody></table></div></div>`;
+  const flatRows=[];
+  rows.forEach(r=>months.forEach(m=>{if(r.months[m])flatRows.push({acct:r.acct,month:m,revenue:r.months[m].toFixed(2)});}));
+  window._lastReportRows=flatRows;
+  window._lastReportCols=['acct','month','revenue'];
 }
 
 // RC6 - Commissions Calculator
