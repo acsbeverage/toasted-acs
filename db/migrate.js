@@ -73,6 +73,8 @@ async function migrate() {
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_brand3 NUMERIC(5,2)`);
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_brand5 NUMERIC(5,2)`);
 
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS corp_group TEXT`);
+
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
 
   await query(`CREATE TABLE IF NOT EXISTS product_tier_prices (
