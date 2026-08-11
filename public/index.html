@@ -4771,6 +4771,7 @@ function setTierCommission(sku,tierId,val){
     p.prices[key]=pct;
     toast('Commission set to '+pct+'% for '+tierId+' on '+p.name);
   }
+  saveProductToDB(sku);
 }
 
 // Returns the effective commission % for a given order line item
@@ -9789,6 +9790,7 @@ function setPricingPageComm(sku,tierId,val,inputEl){
     if(inputEl){inputEl.style.borderColor='#1a5c3a';inputEl.style.color='#1a5c3a';inputEl.style.fontWeight='700';inputEl.style.background='#f0fff6';}
     toast('Commission override set to '+pct+'%');
   }
+  saveProductToDB(sku);
 }
 
 function setPricingPageDA(sku,tierId,val){
