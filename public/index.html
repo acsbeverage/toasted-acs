@@ -3458,18 +3458,31 @@ function printShippingLabel(orderId){
     return;
   }
   const zpl=buildZPLShippingLabel(acct,o);
-  BrowserPrint.getDefaultDevice('printer',function(device){
-    if(!device){toast('No label printer found -- check it\'s connected and powered on');return;}
+  const doSend=(device)=>{
+    if(!device||!device.name){
+      toast('No label printer found -- open the Zebra Browser Print app and confirm your printer is listed');
+      return;
+    }
     device.send(zpl,function(){
       toast('Label printed for '+o.id);
     },function(err){
       console.error('Label print error:',err);
       toast('Could not print label: '+err);
     });
+  };
+  const fallbackToDefault=()=>{
+    BrowserPrint.getDefaultDevice('printer',doSend,function(err){
+      console.error('Label printer discovery error:',err);
+      toast('No label printer found -- open the Zebra Browser Print app and confirm your printer is listed');
+    });
+  };
+  BrowserPrint.getLocalDevices(function(deviceList){
+    if(deviceList&&deviceList.length&&deviceList[0].name){ doSend(deviceList[0]); }
+    else { fallbackToDefault(); }
   },function(err){
-    console.error('Label printer discovery error:',err);
-    toast('Could not find label printer');
-  });
+    console.error('Local device discovery error:',err);
+    fallbackToDefault();
+  },'printer');
 }
 function doConfirm(){
   const o=ORDERS.find(x=>x.id===confirmingOrderId);if(!o)return;
