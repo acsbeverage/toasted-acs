@@ -3615,8 +3615,15 @@ function renderEditItems(){
   renderEditTotal();
 }
 function renderEditTotal(){
-  const total=window._editItems.reduce((s,x)=>s+itemLineTotal(x),0);const btl=window._editItems.reduce((s,x)=>s+itemTotalBottles(x),0);
-  document.getElementById('edit-total').textContent=`${btl} total bottles · ${fmt(total)}`;
+  const total=window._editItems.reduce((s,x)=>s+itemLineTotal(x),0);
+  const cases=window._editItems.reduce((s,x)=>s+(x.cases||0),0);
+  const loose=window._editItems.reduce((s,x)=>s+(x.bottles||0),0);
+  let qtyLabel;
+  if(cases>0&&loose>0)qtyLabel=`${cases} case${cases!==1?'s':''} + ${loose} loose bottle${loose!==1?'s':''}`;
+  else if(cases>0)qtyLabel=`${cases} case${cases!==1?'s':''}`;
+  else if(loose>0)qtyLabel=`${loose} loose bottle${loose!==1?'s':''}`;
+  else qtyLabel='0 items';
+  document.getElementById('edit-total').textContent=`${qtyLabel} \u00b7 ${fmt(total)}`;
 }
 function saveEditOrder(){
   const o=ORDERS.find(x=>x.id===editingOrderId);if(!o)return;
