@@ -246,40 +246,13 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-tierprices', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-tierprices') return res.status(403).json({ok:false});
+app.get('/api/migrate-corpgroup', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-corpgroup') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- product_tier_prices table created, pricing_admin flag added'});
+    res.json({ok:true, message:'Migration complete -- corp_group column added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
-  }
-});
-app.get('/api/import-tier-prices', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-importtiers') return res.status(403).json({ok:false});
-  try {
-    const { query, getOne } = require('./db');
-    const entries = require('./db/seed-tier-prices');
-    let imported = 0;
-    const notFound = new Set();
-    for (const e of entries) {
-      const prod = await getOne('SELECT btl FROM products WHERE sku=$1', [e.sku]);
-      if (!prod) { notFound.add(e.sku); continue; }
-      const btl = prod.btl || 1;
-      const pricePerBtl = e.price / btl;
-      const daPerBtl = e.da / btl;
-      await query(
-        `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, rep_visible)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (sku, tier_name) DO UPDATE SET price=$3, da_amount=$4, rep_visible=$5, updated_at=NOW()`,
-        [e.sku, e.tier, pricePerBtl, daPerBtl, e.repVisible]
-      );
-      imported++;
-    }
-    res.json({ ok: true, imported, notFoundCount: notFound.size, notFound: [...notFound], totalProcessed: entries.length });
-  } catch (err) {
-    console.error('Import tier prices error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
   }
 });
 app.get('*', (req, res) => {
