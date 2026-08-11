@@ -37,6 +37,7 @@ commissionPct: parseFloat(r.commission_pct)||0,
 region: r.region||'',
 kindPrimary: r.kind_primary||'',
 kindSecondary: r.kind_secondary||'',
+corpGroup: r.corp_group||'',
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -79,7 +80,7 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
     const { name, code, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip,
             paymentProvider, onlinePayments, redemption, taxId, resaleNum, warehouseCode,
             licExpiry, abcDetail, creditLimit, creditBalance, avgDaysToPay, commissionPct,
-            region, kindPrimary, kindSecondary } = req.body;
+            region, kindPrimary, kindSecondary, corpGroup } = req.body;
     if (code !== undefined) {
       const trimmed = String(code).trim();
       if (trimmed) {
@@ -97,14 +98,14 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
       tax_id=$14, resale_num=$15, warehouse_code=$16, lic_expiry=$17,
       abc_detail=$18, credit_limit=$19, credit_balance=$20,
       avg_days_to_pay=$21, commission_pct=$22,
-      region=$25, kind_primary=$26, kind_secondary=$27
+      region=$25, kind_primary=$26, kind_secondary=$27, corp_group=$28
       WHERE id=$23`,
       [name,contact,phone,email,terms,rep,shipStreet,shipCity,shipState,shipZip,
        paymentProvider||'',onlinePayments||'No',redemption||'No',taxId||'',
        resaleNum||'',warehouseCode||'',licExpiry||'',abcDetail||'',
        creditLimit||0,creditBalance||0,avgDaysToPay||0,commissionPct||0,
        req.params.id,code,
-       region||'',kindPrimary||'',kindSecondary||'']);
+       region||'',kindPrimary||'',kindSecondary||'',corpGroup||'']);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update account error:', err.message);
