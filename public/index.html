@@ -4216,16 +4216,19 @@ function saveAccountDetails(acctId){
   const creditBalance=parseFloat(document.getElementById('acct-credit-balance')?.value)||0;
   const avgDaysToPay=parseFloat(document.getElementById('acct-avg-days')?.value)||0;
   const commissionPct=parseFloat(document.getElementById('acct-commission')?.value)||0;
+  const region=document.getElementById('acct-region')?.value||'';
+  const kindPrimary=document.getElementById('acct-kind-primary')?.value||'';
+  const kindSecondary=document.getElementById('acct-kind-secondary')?.value||'';
 
   // Update in memory
-  Object.assign(a,{code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct});
+  Object.assign(a,{code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct,region,kindPrimary,kindSecondary});
 
   // Save to database
   if(TOASTED_BACKEND_URL&&window._authToken){
     fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId,{
       method:'PATCH',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct})
+      body:JSON.stringify({code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct,region,kindPrimary,kindSecondary})
     }).then(r=>r.json()).then(d=>{
       if(d.ok){toast('Account saved');openAccountDetail(acctId);}
       else toast(d.error||'Error saving account');
@@ -4350,6 +4353,9 @@ function openAccountDetail(acctId){
     html+='<div><label class="flabel">Credit Limit</label><input type="number" class="finput" id="acct-credit-limit" value="'+(a.creditLimit||0)+'" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Credit Balance</label><input type="number" class="finput" id="acct-credit-balance" value="'+(a.creditBalance||0)+'" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Avg Days to Pay</label><input type="number" class="finput" id="acct-avg-days" value="'+(a.avgDaysToPay||0)+'" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Region</label><input class="finput" id="acct-region" value="'+(a.region||'')+'" placeholder="e.g. North, South" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Account Kind (Primary)</label><input class="finput" id="acct-kind-primary" value="'+(a.kindPrimary||'')+'" placeholder="e.g. On-Premise, Off-Premise" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Account Kind (Secondary)</label><input class="finput" id="acct-kind-secondary" value="'+(a.kindSecondary||'')+'" placeholder="e.g. Restaurant, Retail" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Commission %</label><input type="number" class="finput" id="acct-commission" value="'+(a.commissionPct||0)+'" style="font-size:13px"/></div>';
     html+='</div>';
     html+='<button class="btn btn-sm btn-dark" style="width:100%;margin-top:4px" onclick="saveAccountDetails(\''+a.id+'\')"><i class="ti ti-device-floppy"></i> Save Changes</button>';
@@ -6453,27 +6459,41 @@ function renderRA5(el, orders, producerFilter){
       const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
       const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
+      const unitPrice=itemPrice(p,item.tier)*(p.btl||1);
+      const daRate=(p.da&&p.da[item.tier])||0;
+      const billBackAmount=daRate*(p.btl||1);
       rows.push({
         wineName:p.name,
         wineCode:item.sku,
+        vintage:p._details?.vintage||'',
         producer:p.producer||'',
         account:acct.name||'',
+        accountRegion:acct.region||'',
         salesRep:rep.fname+' '+(rep.lname||''),
         date:o.date,
         quantity:qty,
+        unitPrice:unitPrice,
+        total:itemLineTotal(item),
+        notes:o.notes||'',
         invoice:o.id,
         poNumber:o.po||'',
         warehouse:'ACS Warehouse',
         warehouseCode:acct.warehouseCode||'',
         sampleOrder:o.isSample?'Yes':'',
+        billBackAmount:billBackAmount,
+        billBackTotal:billBackAmount*qty,
+        priceLabel:tierName(item.tier),
         abcNumber:acct.lic||acct.abcNum||'',
         shipStreet:acct.shipStreet||'',
         shipCity:acct.shipCity||'',
         shipState:acct.shipState||'',
         shipZip:acct.shipZip||'',
+        fobPrice:p._details?.fobPrice||0,
+        accountKindPrimary:acct.kindPrimary||'',
+        accountKindSecondary:acct.kindSecondary||'',
+        accountId:acct.id||'',
         bottleSize:p._details?.bottleSize||'',
         packSize:p.btl||'',
-        accountId:acct.id||'',
       });
     });
   });
@@ -6533,6 +6553,9 @@ function renderRA5(el, orders, producerFilter){
           <th>Wine Name</th><th>Wine Code</th><th>Producer</th>
           <th>Account</th><th>Sales Rep</th><th>Date</th>
           <th style="text-align:right">Quantity (cs)</th>
+          <th>Price Label</th>
+          <th style="text-align:right">Unit Price</th>
+          <th style="text-align:right">Total</th>
           <th>Invoice #</th><th>PO #</th><th>Sample?</th>
           <th>ABC #</th><th>City</th><th>State</th>
           <th style="text-align:right">Bottle Size</th><th style="text-align:right">Pack</th>
@@ -6546,6 +6569,9 @@ function renderRA5(el, orders, producerFilter){
           <td style="font-size:12px;color:var(--text2)">${r.salesRep}</td>
           <td style="font-size:12px">${r.date}</td>
           <td style="text-align:right;font-weight:600">${r.quantity.toFixed(4)}</td>
+          <td style="font-size:11px"><span class="tier-pill" style="font-size:10px">${r.priceLabel}</span></td>
+          <td style="text-align:right;font-size:12px">${fmt(r.unitPrice)}</td>
+          <td style="text-align:right;font-size:12px;font-weight:600">${fmt(r.total)}</td>
           <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
           <td style="font-size:11px;color:var(--text2)">${r.poNumber}</td>
           <td style="font-size:12px;color:${r.sampleOrder?'var(--amber)':'var(--text3)'}">${r.sampleOrder||'--'}</td>
@@ -6554,7 +6580,7 @@ function renderRA5(el, orders, producerFilter){
           <td style="font-size:12px">${r.shipState}</td>
           <td style="text-align:right;font-size:12px">${r.bottleSize}</td>
           <td style="text-align:right;font-size:12px">${r.packSize}</td>
-        </tr>`).join('')||'<tr><td colspan="15" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>'}
+        </tr>`).join('')||'<tr><td colspan="18" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -6569,8 +6595,8 @@ function exportRA5CSV(){
   const rows=window._ra5Rows||[];
   if(!rows.length){toast('No data to export');return;}
   const from=window._rptFrom||'';const to=window._rptTo||'';
-  const cols=['Wine Name','Wine Code','Producer','Account','Account ID','Sales Rep','Date','Quantity','Invoice Number','PO Number','Warehouse','Warehouse Code','Sample Order','ABC Number','Shipping Street','Shipping City','Shipping State','Shipping Zip Code','Bottle Size','Pack Size'];
-  const data=rows.map(r=>[r.wineName,r.wineCode,r.producer,r.account,r.accountId,r.salesRep,r.date,r.quantity.toFixed(4),r.invoice,r.poNumber,r.warehouse,r.warehouseCode,r.sampleOrder,r.abcNumber,r.shipStreet,r.shipCity,r.shipState,r.shipZip,r.bottleSize,r.packSize]);
+  const cols=['Wine Name','Wine Code','Vintage','Producer','Account','Account Region','Sales Rep','Date','Quantity','Unit Price','Total','Notes','Invoice Number','PO Number','Warehouse','Warehouse Code','Sample Order','Bill Back Amount','Bill Back Total','Price Label','ABC Number','Shipping Street','Shipping City','Shipping State','Shipping Zip Code','FOB Price','Account Kind (Primary)','Account Kind (Secondary)','Account ID','Bottle Size','Pack Size'];
+  const data=rows.map(r=>[r.wineName,r.wineCode,r.vintage,r.producer,r.account,r.accountRegion,r.salesRep,r.date,r.quantity.toFixed(4),r.unitPrice.toFixed(2),r.total.toFixed(2),r.notes,r.invoice,r.poNumber,r.warehouse,r.warehouseCode,r.sampleOrder,r.billBackAmount.toFixed(2),r.billBackTotal.toFixed(2),r.priceLabel,r.abcNumber,r.shipStreet,r.shipCity,r.shipState,r.shipZip,r.fobPrice.toFixed(2),r.accountKindPrimary,r.accountKindSecondary,r.accountId,r.bottleSize,r.packSize]);
   const csv=[cols,...data].map(r=>r.map(v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
