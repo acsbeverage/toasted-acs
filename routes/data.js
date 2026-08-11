@@ -134,6 +134,7 @@ router.get('/products', requireAuth, async (req, res) => {
         price: parseFloat(t.price) || 0,
         da: parseFloat(t.da_amount) || 0,
         repVisible: t.rep_visible,
+        accountId: t.account_id || null,
       });
     });
 
@@ -177,6 +178,63 @@ router.get('/products', requireAuth, async (req, res) => {
       },
       image: r.image_url||'',
     }))});
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.get('/product-tier-prices', requireAdmin, async (req, res) => {
+  try {
+    const sku = req.query.sku;
+    if (!sku) return res.status(400).json({ ok: false, error: 'SKU required' });
+    const rows = await getAll(
+      `SELECT ptp.*, a.name as account_name FROM product_tier_prices ptp
+       LEFT JOIN accounts a ON ptp.account_id = a.id
+       WHERE ptp.sku=$1 ORDER BY ptp.account_id NULLS FIRST, ptp.tier_name`,
+      [sku]
+    );
+    res.json({ ok: true, tiers: rows.map(t => ({
+      id: t.id, sku: t.sku, tierName: t.tier_name,
+      price: parseFloat(t.price) || 0, da: parseFloat(t.da_amount) || 0,
+      repVisible: t.rep_visible, accountId: t.account_id, accountName: t.account_name || '',
+    })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/product-tier-prices', requireAdmin, async (req, res) => {
+  try {
+    const { sku, tierName, price, da, accountId, repVisible } = req.body;
+    if (!sku || !tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Product and pricing lane name are required' });
+    const acctId = accountId || null;
+
+    // Check for an existing lane with this exact name for this exact scope (same account, or both universal)
+    const existing = acctId
+      ? await getOne('SELECT id FROM product_tier_prices WHERE sku=$1 AND tier_name=$2 AND account_id=$3', [sku, tierName, acctId])
+      : await getOne('SELECT id FROM product_tier_prices WHERE sku=$1 AND tier_name=$2 AND account_id IS NULL', [sku, tierName]);
+
+    if (existing) {
+      await query('UPDATE product_tier_prices SET price=$1, da_amount=$2, rep_visible=$3, updated_at=NOW() WHERE id=$4',
+        [price || 0, da || 0, !!repVisible, existing.id]);
+      return res.json({ ok: true, id: existing.id, updated: true });
+    }
+    const row = await getOne(
+      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, rep_visible, account_id)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [sku, tierName, price || 0, da || 0, !!repVisible, acctId]
+    );
+    res.json({ ok: true, id: row.id, updated: false });
+  } catch (err) {
+    console.error('Create pricing lane error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.delete('/product-tier-prices/:id', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM product_tier_prices WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
   }
