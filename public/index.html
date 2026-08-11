@@ -580,6 +580,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 <div class="toast" id="toast"><i class="ti ti-check"></i><span id="toast-msg"></span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Zebra Browser Print SDK -->
+<script src="/browserprint.js"></script>
+<script src="/browserprint-zebra.js"></script>
 <script>
 const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
 let PRODUCTS=[];
@@ -3418,11 +3421,62 @@ function renderUnconfirmed(){
     ${unconf.length?`<div id="unconf-table-view">${tableHtml}</div><div id="unconf-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
 }
+// -- ZEBRA LABEL PRINTING (2.25in x 4in, 203dpi) --------------------------------
+function buildZPLShippingLabel(acct,order){
+  const esc=s=>(s||'').toString().replace(/[\^~]/g,'').replace(/\\/g,'\\\\');
+  const name=esc(acct.name||'');
+  const street=esc(acct.shipStreet||acct.address||'');
+  const cityStateZip=esc([acct.shipCity,acct.shipState].filter(Boolean).join(', ')+(acct.shipZip?' '+acct.shipZip:''));
+  const orderId=esc(order.id||'');
+  const delivery=esc(order.delivery||'');
+  return `^XA
+^PW456
+^LL812
+^LH0,0
+^CF0,32
+^FO20,30^FDACS Beverage Co.^FS
+^FO20,68^GB416,3,3^FS
+^CF0,24
+^FO20,90^FDSHIP TO:^FS
+^CF0,42
+^FO20,130^FB416,2,0,L^FD${name}^FS
+^CF0,30
+^FO20,240^FB416,2,0,L^FD${street}^FS
+^FO20,300^FB416,2,0,L^FD${cityStateZip}^FS
+^FO20,560^GB416,2,2^FS
+^CF0,22
+^FO20,580^FDOrder: ${orderId}^FS
+^FO20,608^FDDeliver: ${delivery}^FS
+^XZ`;
+}
+function printShippingLabel(orderId){
+  const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
+  const acct=acctById(o.acct);
+  if(!acct){toast('Account not found -- cannot print label');return;}
+  if(typeof BrowserPrint==='undefined'){
+    toast('Label printer not set up on this computer -- see Company Settings for setup steps');
+    return;
+  }
+  const zpl=buildZPLShippingLabel(acct,o);
+  BrowserPrint.getDefaultDevice('printer',function(device){
+    if(!device){toast('No label printer found -- check it\'s connected and powered on');return;}
+    device.send(zpl,function(){
+      toast('Label printed for '+o.id);
+    },function(err){
+      console.error('Label print error:',err);
+      toast('Could not print label: '+err);
+    });
+  },function(err){
+    console.error('Label printer discovery error:',err);
+    toast('Could not find label printer');
+  });
+}
 function doConfirm(){
   const o=ORDERS.find(x=>x.id===confirmingOrderId);if(!o)return;
   o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
   saveOrderStatusToDB(o.id,{status:'confirmed'});
   updateBadges();
+  printShippingLabel(o.id);
 
   // Switch modal to "confirmed" state with PDF button - don't close yet
   document.getElementById('confirm-modal-title').textContent='Order confirmed v';
@@ -3602,6 +3656,7 @@ function filterHistory(){
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
       ${isAdmin&&(o.status==='delivered'||o.status==='confirmed')?`<button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
       ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button>`:''} 
+      ${(o.status==='confirmed'||o.status==='delivered')?`<button class="btn btn-sm" onclick="printShippingLabel('${o.id}')" title="Print shipping label"><i class="ti ti-printer"></i> Label</button>`:''}
       ${pdfSplitBtn(o.id)}
     </td></tr>`;
   }).join('');
@@ -3629,6 +3684,7 @@ function filterHistory(){
           ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
           ${isAdmin&&(o.status==='delivered'||o.status==='confirmed')?`<button class="btn btn-warning" onclick="unconfirmOrder('${o.id}')"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
           ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>`:''}
+          ${(o.status==='confirmed'||o.status==='delivered')?`<button class="btn" onclick="printShippingLabel('${o.id}')" title="Print shipping label"><i class="ti ti-printer"></i> Label</button>`:''}
           ${pdfSplitBtn(o.id)}
         </div>
       </div>`;
