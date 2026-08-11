@@ -1058,12 +1058,30 @@ function doPortalLogout(){
 }
 
 // -- PORTAL NAV ----------------------------------------------------------------
+let _bgPortalRefreshInFlight=false;
+let _lastBgPortalRefresh=0;
+async function triggerBackgroundPortalRefresh(page){
+  if(_bgPortalRefreshInFlight)return;
+  const now=Date.now();
+  if(now-_lastBgPortalRefresh<BG_REFRESH_MIN_INTERVAL)return;
+  _bgPortalRefreshInFlight=true;_lastBgPortalRefresh=now;
+  try{
+    await loadPortalData();
+    // Never force-rerender the order builder -- would wipe out an in-progress order
+    if(page!=='neworder'){
+      const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices};
+      if(fns[page])fns[page]();
+    }
+  }catch(e){console.error('Background portal refresh failed:',e.message);}
+  finally{_bgPortalRefreshInFlight=false;}
+}
 function showPortalPage(page){
   document.querySelectorAll('.portal-nav-btn').forEach(b=>b.classList.remove('active'));
   const btn=document.getElementById('pnav-'+page);if(btn)btn.classList.add('active');
   if(page!=='neworder')localStorage.setItem('_toastedPortalPage',page);
   const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices,neworder:renderPortalNewOrder};
   if(fns[page])fns[page]();
+  triggerBackgroundPortalRefresh(page);
 }
 
 // -- PORTAL: ACCOUNT -----------------------------------------------------------
@@ -1719,6 +1737,33 @@ accounting@acsbeverage.com`
 })()
 
 // -- NAV -----------------------------------------------------------------------
+let _currentPage='dashboard';
+let _bgRefreshInFlight=false;
+let _lastBgRefresh=0;
+const BG_REFRESH_MIN_INTERVAL=20000; // don't refresh more than once every 20s, even with rapid clicking
+const BUILDER_PAGES=['neworder','newtasting']; // pages with in-progress unsaved state -- never force-rerender these
+
+function _dispatchPageRender(page){
+  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO}[page]||(() => {}))();
+}
+
+async function triggerBackgroundRefresh(page){
+  if(_bgRefreshInFlight)return;
+  const now=Date.now();
+  if(now-_lastBgRefresh<BG_REFRESH_MIN_INTERVAL)return;
+  _bgRefreshInFlight=true;_lastBgRefresh=now;
+  try{
+    await loadAllDataFromBackend();
+    updateBadges();
+    // Only re-render if the user is still on the page that triggered this, and it's safe to re-render
+    // (never force-refresh a builder screen -- that would wipe out an in-progress order/tasting)
+    if(_currentPage===page && !BUILDER_PAGES.includes(page)){
+      _dispatchPageRender(page);
+    }
+  }catch(e){console.error('Background refresh failed:',e.message);}
+  finally{_bgRefreshInFlight=false;}
+}
+
 function showPage(page, pushState=true){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
@@ -1729,7 +1774,10 @@ function showPage(page, pushState=true){
   if(pushState){
     history.pushState({page}, '', '#'+page);
   }
-  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO}[page]||(() => {}))();
+  _currentPage=page;
+  _dispatchPageRender(page);
+  // Refresh data in the background on genuine nav clicks (not back/forward, not programmatic restores)
+  if(pushState) triggerBackgroundRefresh(page);
 }
 
 // Handle browser back/forward buttons
