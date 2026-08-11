@@ -246,22 +246,13 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/import-inventory-now', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-inv') return res.status(403).json({ok:false});
+app.get('/api/migrate-ra5', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-ra5') return res.status(403).json({ok:false});
   try {
-    const { query, getAll } = require('./db');
-    const items = require('./db/seed-inventory-data');
-    let updated = 0;
-    const notFound = [];
-    for (const item of items) {
-      const result = await query('UPDATE products SET stock=$1 WHERE sku=$2', [item.stock, item.sku]);
-      if (result.rowCount > 0) updated++;
-      else notFound.push(item.sku + ' (' + item.name + ')');
-    }
-    res.json({ ok: true, updated, notFoundCount: notFound.length, notFound, totalProcessed: items.length });
+    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
+    res.json({ok:true, message:'Migration complete -- vintage/region/account-kind columns added'});
   } catch (err) {
-    console.error('Import inventory error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json({ok:false, error: err.message});
   }
 });
 app.get('*', (req, res) => {
