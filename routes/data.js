@@ -34,6 +34,9 @@ creditLimit: parseFloat(r.credit_limit)||0,
 creditBalance: parseFloat(r.credit_balance)||0,
 avgDaysToPay: parseFloat(r.avg_days_to_pay)||0,
 commissionPct: parseFloat(r.commission_pct)||0,
+region: r.region||'',
+kindPrimary: r.kind_primary||'',
+kindSecondary: r.kind_secondary||'',
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -75,7 +78,8 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
   try {
     const { name, code, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip,
             paymentProvider, onlinePayments, redemption, taxId, resaleNum, warehouseCode,
-            licExpiry, abcDetail, creditLimit, creditBalance, avgDaysToPay, commissionPct } = req.body;
+            licExpiry, abcDetail, creditLimit, creditBalance, avgDaysToPay, commissionPct,
+            region, kindPrimary, kindSecondary } = req.body;
     if (code !== undefined) {
       const trimmed = String(code).trim();
       if (trimmed) {
@@ -92,13 +96,15 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
       payment_provider=$11, online_payments=$12, redemption=$13,
       tax_id=$14, resale_num=$15, warehouse_code=$16, lic_expiry=$17,
       abc_detail=$18, credit_limit=$19, credit_balance=$20,
-      avg_days_to_pay=$21, commission_pct=$22
+      avg_days_to_pay=$21, commission_pct=$22,
+      region=$25, kind_primary=$26, kind_secondary=$27
       WHERE id=$23`,
       [name,contact,phone,email,terms,rep,shipStreet,shipCity,shipState,shipZip,
        paymentProvider||'',onlinePayments||'No',redemption||'No',taxId||'',
        resaleNum||'',warehouseCode||'',licExpiry||'',abcDetail||'',
        creditLimit||0,creditBalance||0,avgDaysToPay||0,commissionPct||0,
-       req.params.id,code]);
+       req.params.id,code,
+       region||'',kindPrimary||'',kindSecondary||'']);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update account error:', err.message);
@@ -132,6 +138,7 @@ router.get('/products', requireAuth, async (req, res) => {
         redemptionEntry: r.redemption_entry||'',
         bottleSize: r.bottle_size||'',
         active: r.active||'Yes',
+        vintage: r.vintage||'',
       } : {
         redemptionEntry: r.redemption_entry||'',
         bottleSize: r.bottle_size||'',
@@ -140,6 +147,7 @@ router.get('/products', requireAuth, async (req, res) => {
         laidInCost: parseFloat(r.laid_in_cost)||0,
         active: r.active||'Yes',
         core: r.core||'No',
+        vintage: r.vintage||'',
       },
       image: r.image_url||'',
     }))});
@@ -175,7 +183,7 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
       price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
       da_frontline=$10,da_mix12=$11,da_acs3=$12,da_brand3=$13,da_brand5=$14,
       stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
-      redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23 WHERE sku=$24`,
+      redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25 WHERE sku=$24`,
       [name,producer,cat,btl,
        prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
        da?.frontline||0,da?.mix12||0,da?.acs3||0,da?.brand3||0,da?.brand5||0,
@@ -183,7 +191,8 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
        _details?.active||'Yes',_details?.core||'No',
        _details?.redemptionEntry||'',_details?.bottleSize||'',_details?.upc||'',
        image||'',
-       req.params.sku]);
+       req.params.sku,
+       _details?.vintage||'']);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update product error:', err.message);
