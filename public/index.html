@@ -6568,51 +6568,66 @@ function exportRA5CSV(){
 // RA40 - CRV
 const CRV_HIGH=0.10, CRV_LOW=0.05;
 function renderRA40(el, orders){
-  let totalCRV=0, rows=[];
+  // Short codes matching your CRV Redemption Entry Sales report format
+  const CRV_CODE_MAP={
+    'CA CRV (24oz and over)':'CACRV24oz+',
+    'CA CRV (under 24oz)':'CACRV24-',
+    'CA CRV CAN (under 24oz)':'CA CRV CAN (<24oz)',
+  };
+  const byType={};
+  let totalSales=0, totalQty=0;
   orders.forEach(o=>{
-    let orderCRV=0;
     o.items.filter(i=>!i._fee).forEach(item=>{
       const p=prodBySku(item.sku);if(!p)return;
-      // CRV based on bottle size
-      const sizeStr=(p._details?.bottleSize||p.bottleSize||'').toLowerCase();
-      const ml=parseFloat(sizeStr)||0;
-      let rate=0;
-      if(ml>=720) rate=CRV_HIGH;
-      else if(ml>0) rate=CRV_LOW;
-      if(rate===0) return;
+      // CRV eligibility and rate come from the product's actual Redemption Entry setting --
+      // the same lookup used when the fee is actually charged on a real order.
+      const entry=p._details?.redemptionEntry||'';
+      const rate=CRV_RATES[entry];
+      if(!rate) return; // 0/undefined = not CRV-eligible
       const btl=itemTotalBottles(item);
       const crv=btl*rate;
-      orderCRV+=crv;
-      rows.push({invoice:o.id,date:o.date,sku:item.sku,product:p.name,btl,rate,crv});
+      if(!byType[entry])byType[entry]={sales:0,qty:0};
+      byType[entry].sales+=crv;
+      byType[entry].qty+=btl;
+      totalSales+=crv;totalQty+=btl;
     });
-    totalCRV+=orderCRV;
   });
+  const rows=Object.entries(byType)
+    .map(([entry,v])=>({entry,code:CRV_CODE_MAP[entry]||entry,sales:v.sales,qty:v.qty}))
+    .sort((a,b)=>b.sales-a.sales);
+  const companyName=(typeof COMPANY!=='undefined'&&COMPANY.name)?COMPANY.name:'ACS Beverage Co. LLC';
+
   el.innerHTML+=`
   <div class="card">
     <div class="card-header">
-      <span class="card-title">RA40 — CRV</span>
-      <span style="font-size:12px;color:var(--text2)">${rows.length} items · ${fmt(totalCRV)} total CRV</span>
+      <span class="card-title">RA40 — CRV Redemption Entry Sales</span>
+      <span style="font-size:12px;color:var(--text2)">${fmt(totalSales)} total CRV</span>
     </div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
-      <table class="tbl">
-        <thead><tr><th>Invoice</th><th>Date</th><th>SKU</th><th>Product</th><th style="text-align:right">Bottles</th><th style="text-align:right">CRV Rate</th><th style="text-align:right">CRV Total</th></tr></thead>
-        <tbody>
+    <table class="tbl">
+      <thead><tr><th>Supplier</th><th>Code</th><th style="text-align:right">Total Sales</th><th style="text-align:right">Total Quantity</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:700">${companyName}</td><td></td><td style="text-align:right;font-weight:700">${fmt(totalSales)}</td><td style="text-align:right;font-weight:700">${totalQty.toLocaleString()}</td></tr>
         ${rows.length?rows.map(r=>`<tr>
-          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
-          <td style="font-size:12px">${r.date}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.sku}</td>
-          <td style="font-size:12px">${r.product}</td>
-          <td style="text-align:right;font-size:12px">${r.btl}</td>
-          <td style="text-align:right;font-size:12px">$${r.rate.toFixed(2)}</td>
-          <td style="text-align:right;font-weight:600">${fmt(r.crv)}</td>
-        </tr>`).join(''):`<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No CRV data</td></tr>`}
-        </tbody>
-        ${rows.length?`<tfoot><tr><td colspan="6" style="padding:10px 12px;font-weight:700">Total CRV</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalCRV)}</td></tr></tfoot>`:''}
-      </table>
-    </div>
+          <td></td>
+          <td style="font-size:12px;color:var(--text2)">${r.code}</td>
+          <td style="text-align:right">${fmt(r.sales)}</td>
+          <td style="text-align:right">${r.qty.toLocaleString()}</td>
+        </tr>`).join(''):'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No CRV data for selected filters</td></tr>'}
+      </tbody>
+      <tfoot><tr>
+        <td style="padding:10px 12px;font-weight:700">Total</td><td></td>
+        <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalSales)}</td>
+        <td style="padding:10px 12px;text-align:right;font-weight:700">${totalQty.toLocaleString()}</td>
+      </tr></tfoot>
+    </table>
   </div>`;
-  window._lastReportRows=rows;
-  window._lastReportCols=['invoice','date','sku','product','btl','rate','crv'];
+
+  window._lastReportRows=[
+    {supplier:companyName, code:'', sales:totalSales.toFixed(2), qty:totalQty},
+    ...rows.map(r=>({supplier:'', code:r.code, sales:r.sales.toFixed(2), qty:r.qty})),
+    {supplier:'Total', code:'', sales:totalSales.toFixed(2), qty:totalQty},
+  ];
+  window._lastReportCols=['supplier','code','sales','qty'];
 }
 
 // RB1 - Inventory by Supplier
