@@ -116,10 +116,30 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
 router.get('/products', requireAuth, async (req, res) => {
   try {
     const isCustomer = req.user.role === 'customer';
+    const seesAllTiers = req.user.role === 'admin' || !!req.user.pricing_admin;
     const rows = await getAll('SELECT * FROM products ORDER BY name');
+
+    // Bulk-fetch all dynamic tier prices, grouped by SKU, filtered by what this user is allowed to see
+    const tierRows = isCustomer ? [] : await getAll(
+      seesAllTiers
+        ? 'SELECT * FROM product_tier_prices ORDER BY sort_order, tier_name'
+        : 'SELECT * FROM product_tier_prices WHERE rep_visible=TRUE ORDER BY sort_order, tier_name'
+    );
+    const tiersBySku = {};
+    tierRows.forEach(t => {
+      if (!tiersBySku[t.sku]) tiersBySku[t.sku] = [];
+      tiersBySku[t.sku].push({
+        name: t.tier_name,
+        price: parseFloat(t.price) || 0,
+        da: parseFloat(t.da_amount) || 0,
+        repVisible: t.rep_visible,
+      });
+    });
+
     res.json({ ok: true, products: rows.map(r => ({
       sku: r.sku, name: r.name, producer: r.producer, cat: r.cat,
       btl: r.btl, stock: parseFloat(r.stock)||0, reorder: r.reorder,
+      extraTiers: tiersBySku[r.sku] || [],
       prices: {
         frontline: parseFloat(r.price_frontline)||0,
         mix12: parseFloat(r.price_mix12)||0,
@@ -234,10 +254,11 @@ router.get('/users', requireAuth, async (req, res) => {
       const rep = acct && acct.rep ? await getOne('SELECT id,fname,lname,email FROM users WHERE id=$1', [acct.rep]) : null;
       return res.json({ ok: true, users: rep ? [{ id: rep.id, fname: rep.fname, lname: rep.lname, email: rep.email, role: 'rep' }] : [] });
     }
-    const rows = await getAll('SELECT id,fname,lname,email,role,commission FROM users ORDER BY fname');
+    const rows = await getAll('SELECT id,fname,lname,email,role,commission,pricing_admin FROM users ORDER BY fname');
     res.json({ ok: true, users: rows.map(r => ({
       id: r.id, fname: r.fname, lname: r.lname, email: r.email,
-      role: r.role, commission: parseFloat(r.commission)||5
+      role: r.role, commission: parseFloat(r.commission)||5,
+      pricingAdmin: !!r.pricing_admin,
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -246,12 +267,12 @@ router.get('/users', requireAuth, async (req, res) => {
 
 router.post('/users', requireAdmin, async (req, res) => {
   try {
-    const { id, fname, lname, email, password, role, commission } = req.body;
+    const { id, fname, lname, email, password, role, commission, pricingAdmin } = req.body;
     if (!email||!password) return res.status(400).json({ ok: false, error: 'Email and password required' });
     const hash = await bcrypt.hash(password, 10);
     await query(
-      'INSERT INTO users (id,fname,lname,email,pw_hash,role,commission) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-      [id||('u'+Date.now()),fname,lname,email.toLowerCase(),hash,role||'rep',commission||5]
+      'INSERT INTO users (id,fname,lname,email,pw_hash,role,commission,pricing_admin) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [id||('u'+Date.now()),fname,lname,email.toLowerCase(),hash,role||'rep',commission||5,!!pricingAdmin]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -262,14 +283,14 @@ router.post('/users', requireAdmin, async (req, res) => {
 
 router.patch('/users/:id', requireAdmin, async (req, res) => {
   try {
-    const { fname, lname, email, role, commission, password } = req.body;
+    const { fname, lname, email, role, commission, password, pricingAdmin } = req.body;
     if (password) {
       const hash = await bcrypt.hash(password, 10);
-      await query('UPDATE users SET fname=$1,lname=$2,email=$3,role=$4,commission=$5,pw_hash=$6 WHERE id=$7',
-        [fname,lname,email?.toLowerCase(),role,commission,hash,req.params.id]);
+      await query('UPDATE users SET fname=$1,lname=$2,email=$3,role=$4,commission=$5,pw_hash=$6,pricing_admin=$7 WHERE id=$8',
+        [fname,lname,email?.toLowerCase(),role,commission,hash,!!pricingAdmin,req.params.id]);
     } else {
-      await query('UPDATE users SET fname=$1,lname=$2,email=$3,role=$4,commission=$5 WHERE id=$6',
-        [fname,lname,email?.toLowerCase(),role,commission,req.params.id]);
+      await query('UPDATE users SET fname=$1,lname=$2,email=$3,role=$4,commission=$5,pricing_admin=$6 WHERE id=$7',
+        [fname,lname,email?.toLowerCase(),role,commission,!!pricingAdmin,req.params.id]);
     }
     res.json({ ok: true });
   } catch (err) {
