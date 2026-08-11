@@ -67,6 +67,11 @@ async function migrate() {
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
 
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS region TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS kind_primary TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS kind_secondary TEXT`);
+
   await query(`CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     acct_id TEXT, rep_id TEXT,
