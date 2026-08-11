@@ -4240,16 +4240,17 @@ function saveAccountDetails(acctId){
   const region=document.getElementById('acct-region')?.value||'';
   const kindPrimary=document.getElementById('acct-kind-primary')?.value||'';
   const kindSecondary=document.getElementById('acct-kind-secondary')?.value||'';
+  const corpGroup=document.getElementById('acct-corp-group')?.value||'';
 
   // Update in memory
-  Object.assign(a,{code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct,region,kindPrimary,kindSecondary});
+  Object.assign(a,{code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct,region,kindPrimary,kindSecondary,corpGroup});
 
   // Save to database
   if(TOASTED_BACKEND_URL&&window._authToken){
     fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId,{
       method:'PATCH',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct,region,kindPrimary,kindSecondary})
+      body:JSON.stringify({code,rep,terms,paymentProvider,onlinePayments,redemption,taxId,resaleNum,warehouseCode,licExpiry,creditLimit,creditBalance,avgDaysToPay,commissionPct,region,kindPrimary,kindSecondary,corpGroup})
     }).then(r=>r.json()).then(d=>{
       if(d.ok){toast('Account saved');openAccountDetail(acctId);}
       else toast(d.error||'Error saving account');
@@ -4334,6 +4335,7 @@ function openAccountDetail(acctId){
   html+='<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
   html+='<div class="card"><div class="card-header"><span class="card-title">Account Info</span></div><div class="card-body" style="font-size:13px;line-height:2">';
   if(a.code)html+='<div><span style="color:var(--text2)">Account Number:</span> <strong>'+a.code+'</strong></div>';
+  if(a.corpGroup)html+='<div><span style="color:var(--text2)">Corp Group:</span> <strong>'+a.corpGroup+'</strong></div>';
   if(a.contact)html+='<div><span style="color:var(--text2)">Contact:</span> '+a.contact+'</div>';
   if(a.email)html+='<div><span style="color:var(--text2)">Email:</span> '+a.email+'</div>';
   if(a.phone)html+='<div><span style="color:var(--text2)">Phone:</span> '+a.phone+'</div>';
@@ -4377,6 +4379,7 @@ function openAccountDetail(acctId){
     html+='<div><label class="flabel">Region</label><input class="finput" id="acct-region" value="'+(a.region||'')+'" placeholder="e.g. North, South" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Account Kind (Primary)</label><input class="finput" id="acct-kind-primary" value="'+(a.kindPrimary||'')+'" placeholder="e.g. On-Premise, Off-Premise" style="font-size:13px"/></div>';
     html+='<div><label class="flabel">Account Kind (Secondary)</label><input class="finput" id="acct-kind-secondary" value="'+(a.kindSecondary||'')+'" placeholder="e.g. Restaurant, Retail" style="font-size:13px"/></div>';
+    html+='<div><label class="flabel">Corp Group</label><input class="finput" id="acct-corp-group" value="'+(a.corpGroup||'')+'" placeholder="e.g. Total Wine, Costco" list="corp-group-suggestions" style="font-size:13px"/><datalist id="corp-group-suggestions"><option value="Total Wine"><option value="Whole Foods"><option value="Costco"><option value="BevMo"><option value="Raley\'s"><option value="Albertsons"><option value="New Leaf Community Markets"><option value="Lunardi\'s Markets"></datalist></div>';
     html+='<div><label class="flabel">Commission %</label><input type="number" class="finput" id="acct-commission" value="'+(a.commissionPct||0)+'" style="font-size:13px"/></div>';
     html+='</div>';
     html+='<button class="btn btn-sm btn-dark" style="width:100%;margin-top:4px" onclick="saveAccountDetails(\''+a.id+'\')"><i class="ti ti-device-floppy"></i> Save Changes</button>';
