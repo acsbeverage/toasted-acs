@@ -6542,48 +6542,6 @@ function renderRA5(el, orders, producerFilter){
       </tbody>
       <tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${totalCases.toFixed(2)}</td><td></td></tr></tfoot>
     </table>
-  </div>
-
-  <!-- Detailed line items -->
-  <div class="card">
-    <div class="card-header"><span class="card-title">Line Item Detail</span><span style="font-size:12px;color:var(--text2)">${rows.length} rows</span></div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
-      <table class="tbl">
-        <thead><tr>
-          <th>Wine Name</th><th>Wine Code</th><th>Producer</th>
-          <th>Account</th><th>Sales Rep</th><th>Date</th>
-          <th style="text-align:right">Quantity (cs)</th>
-          <th>Price Label</th>
-          <th style="text-align:right">Unit Price</th>
-          <th style="text-align:right">Total</th>
-          <th>Invoice #</th><th>PO #</th><th>Sample?</th>
-          <th>ABC #</th><th>City</th><th>State</th>
-          <th style="text-align:right">Bottle Size</th><th style="text-align:right">Pack</th>
-        </tr></thead>
-        <tbody>
-        ${rows.map(r=>`<tr>
-          <td style="font-weight:600;font-size:12px;min-width:200px">${r.wineName}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.wineCode}</td>
-          <td style="font-size:12px;color:var(--text2)">${r.producer}</td>
-          <td style="font-size:12px">${r.account}</td>
-          <td style="font-size:12px;color:var(--text2)">${r.salesRep}</td>
-          <td style="font-size:12px">${r.date}</td>
-          <td style="text-align:right;font-weight:600">${r.quantity.toFixed(4)}</td>
-          <td style="font-size:11px"><span class="tier-pill" style="font-size:10px">${r.priceLabel}</span></td>
-          <td style="text-align:right;font-size:12px">${fmt(r.unitPrice)}</td>
-          <td style="text-align:right;font-size:12px;font-weight:600">${fmt(r.total)}</td>
-          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.poNumber}</td>
-          <td style="font-size:12px;color:${r.sampleOrder?'var(--amber)':'var(--text3)'}">${r.sampleOrder||'--'}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.abcNumber}</td>
-          <td style="font-size:12px">${r.shipCity}</td>
-          <td style="font-size:12px">${r.shipState}</td>
-          <td style="text-align:right;font-size:12px">${r.bottleSize}</td>
-          <td style="text-align:right;font-size:12px">${r.packSize}</td>
-        </tr>`).join('')||'<tr><td colspan="18" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>'}
-        </tbody>
-      </table>
-    </div>
   </div>`;
 
   window._ra5Rows=rows;
