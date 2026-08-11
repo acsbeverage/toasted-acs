@@ -67,6 +67,12 @@ async function migrate() {
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
 
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_frontline NUMERIC(5,2)`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_mix12 NUMERIC(5,2)`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_acs3 NUMERIC(5,2)`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_brand3 NUMERIC(5,2)`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_brand5 NUMERIC(5,2)`);
+
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS region TEXT`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS kind_primary TEXT`);
