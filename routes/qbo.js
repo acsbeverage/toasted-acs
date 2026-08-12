@@ -301,7 +301,24 @@ router.get('/payments', requireAdmin, async (req, res) => {
     const days = parseInt(req.query.days) || 30;
     const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
     const result = await qboQuery(null, `SELECT * FROM Payment WHERE TxnDate >= '${since}' MAXRESULTS 200`);
-    res.json({ payments: result.QueryResponse?.Payment || [] });
+    const payments = result.QueryResponse?.Payment || [];
+
+    // Collect every linked invoice TxnId across all payments, then look up each invoice's
+    // DocNumber in one batch -- DocNumber always equals the Toasted order ID (set when the
+    // invoice was created), so this lets the frontend match reliably even if Toasted's own
+    // record of the invoice ID was never saved.
+    const invoiceIds = new Set();
+    payments.forEach(p => (p.Line || []).forEach(line =>
+      (line.LinkedTxn || []).forEach(lt => { if (lt.TxnType === 'Invoice') invoiceIds.add(lt.TxnId); })
+    ));
+    const docNumberByInvoiceId = {};
+    if (invoiceIds.size > 0) {
+      const idList = [...invoiceIds].map(id => `'${id}'`).join(',');
+      const invResult = await qboQuery(null, `SELECT Id, DocNumber FROM Invoice WHERE Id IN (${idList})`);
+      (invResult.QueryResponse?.Invoice || []).forEach(inv => { docNumberByInvoiceId[inv.Id] = inv.DocNumber; });
+    }
+
+    res.json({ payments, docNumberByInvoiceId });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
