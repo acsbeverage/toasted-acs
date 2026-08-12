@@ -3605,7 +3605,14 @@ function doConfirm(){
   o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
   saveOrderStatusToDB(o.id,{status:'confirmed'});
   updateBadges();
-  printShippingLabel(o.id);
+
+  if(!o.labelsPrinted){
+    printShippingLabel(o.id);
+    o.labelsPrinted=true;
+    saveOrderStatusToDB(o.id,{labelsPrinted:true});
+  } else if(confirm('Labels were already printed for '+o.id+'. Print them again?')){
+    printShippingLabel(o.id);
+  }
 
   // Switch modal to "confirmed" state with PDF button - don't close yet
   document.getElementById('confirm-modal-title').textContent='Order confirmed v';
