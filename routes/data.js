@@ -38,6 +38,28 @@ region: r.region||'',
 kindPrimary: r.kind_primary||'',
 kindSecondary: r.kind_secondary||'',
 corpGroup: r.corp_group||'',
+shipStreet2: r.ship_street2||'', shipCounty: r.ship_county||'',
+billStreet2: r.bill_street2||'', billCounty: r.bill_county||'',
+accountType: r.account_type||'',
+allowedShipDays: r.allowed_ship_days||'',
+tastingHours: r.tasting_hours||'',
+deliveryNotes: r.delivery_notes||'',
+website: r.website||'',
+preferredPaymentMethodName: r.preferred_payment_method_name||'',
+showProductUpc: !!r.show_product_upc,
+avgMonthlySalesEstimate: parseFloat(r.avg_monthly_sales_estimate)||0,
+overrideAvgMonthlySales: !!r.override_avg_monthly_sales,
+isProspective: !!r.is_prospective,
+isSampleAccount: !!r.is_sample_account,
+alternateLicense: r.alternate_license||'',
+alternateLicenseExpiry: r.alternate_license_expiry||'',
+externalIdentifier1: r.external_identifier_1||'',
+prefersMasterInvoice: !!r.prefers_master_invoice,
+allowOrders: r.allow_orders!==false,
+codEmailNotifications: !!r.cod_email_notifications,
+billingInvoiceTitle: r.billing_invoice_title||'',
+pastDue: !!r.past_due,
+notifyInvoiceContactsAR: r.notify_invoice_contacts_ar!==false,
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -47,7 +69,16 @@ router.post('/accounts', requireAdmin, async (req, res) => {
   try {
     const { id, name, code, lic, contact, contactFirst, contactLast, phone, email, address,
             shipStreet, shipCity, shipState, shipZip, billStreet, billCity, billState, billZip,
-            terms, rep } = req.body;
+            terms, rep, corpGroup, region, kindPrimary, kindSecondary,
+            shipStreet2, shipCounty, billStreet2, billCounty,
+            accountType, allowedShipDays, tastingHours, deliveryNotes, website,
+            preferredPaymentMethodName, showProductUpc,
+            avgMonthlySalesEstimate, overrideAvgMonthlySales, isProspective, isSampleAccount,
+            taxId, abcDetail, licExpiry, resaleNum, alternateLicense, alternateLicenseExpiry,
+            externalIdentifier1, redemption, warehouseCode,
+            paymentProvider, onlinePayments, prefersMasterInvoice, allowOrders,
+            codEmailNotifications, billingInvoiceTitle, creditLimit, commissionPct,
+            pastDue, notifyInvoiceContactsAR } = req.body;
     if (!name) return res.status(400).json({ ok: false, error: 'Account name required' });
     const acctId = id || ('a' + Date.now());
 
@@ -62,11 +93,33 @@ router.post('/accounts', requireAdmin, async (req, res) => {
 
     await query(
       `INSERT INTO accounts (id,name,code,lic,contact,contact_first,contact_last,phone,email,address,
-        ship_street,ship_city,ship_state,ship_zip,bill_street,bill_city,bill_state,bill_zip,terms,rep)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+        ship_street,ship_city,ship_state,ship_zip,bill_street,bill_city,bill_state,bill_zip,terms,rep,
+        corp_group,region,kind_primary,kind_secondary,
+        ship_street2,ship_county,bill_street2,bill_county,
+        account_type,allowed_ship_days,tasting_hours,delivery_notes,website,
+        preferred_payment_method_name,show_product_upc,
+        avg_monthly_sales_estimate,override_avg_monthly_sales,is_prospective,is_sample_account,
+        tax_id,abc_detail,lic_expiry,resale_num,alternate_license,alternate_license_expiry,
+        external_identifier_1,redemption,warehouse_code,
+        payment_provider,online_payments,prefers_master_invoice,allow_orders,
+        cod_email_notifications,billing_invoice_title,credit_limit,commission_pct,
+        past_due,notify_invoice_contacts_ar)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
+        $41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58)`,
       [acctId, name, acctCode, lic||'', contact||'', contactFirst||'', contactLast||'', phone||'', email||'', address||'',
        shipStreet||'', shipCity||'', shipState||'', shipZip||'', billStreet||'', billCity||'', billState||'', billZip||'',
-       terms||'Net 30', rep||null]
+       terms||'Net 30', rep||null,
+       corpGroup||'', region||'', kindPrimary||'', kindSecondary||'',
+       shipStreet2||'', shipCounty||'', billStreet2||'', billCounty||'',
+       accountType||'', allowedShipDays||'', tastingHours||'', deliveryNotes||'', website||'',
+       preferredPaymentMethodName||'', !!showProductUpc,
+       avgMonthlySalesEstimate||0, !!overrideAvgMonthlySales, !!isProspective, !!isSampleAccount,
+       taxId||'', abcDetail||'', licExpiry||'', resaleNum||'', alternateLicense||'', alternateLicenseExpiry||'',
+       externalIdentifier1||'', redemption||'No', warehouseCode||'',
+       paymentProvider||'', onlinePayments||'No', !!prefersMasterInvoice, allowOrders!==false,
+       !!codEmailNotifications, billingInvoiceTitle||'', creditLimit||0, commissionPct||0,
+       !!pastDue, notifyInvoiceContactsAR!==false]
     );
     res.json({ ok: true, id: acctId, code: acctCode });
   } catch (err) {
@@ -77,35 +130,48 @@ router.post('/accounts', requireAdmin, async (req, res) => {
 
 router.patch('/accounts/:id', requireAdmin, async (req, res) => {
   try {
-    const { name, code, contact, phone, email, terms, rep, shipStreet, shipCity, shipState, shipZip,
-            paymentProvider, onlinePayments, redemption, taxId, resaleNum, warehouseCode,
-            licExpiry, abcDetail, creditLimit, creditBalance, avgDaysToPay, commissionPct,
-            region, kindPrimary, kindSecondary, corpGroup } = req.body;
-    if (code !== undefined) {
-      const trimmed = String(code).trim();
+    const b = req.body;
+    if (b.code !== undefined) {
+      const trimmed = String(b.code).trim();
       if (trimmed) {
         const clash = await getOne('SELECT id FROM accounts WHERE code=$1 AND id<>$2', [trimmed, req.params.id]);
         if (clash) return res.status(400).json({ ok: false, error: 'That account number is already in use' });
       }
     }
-    await query(`UPDATE accounts SET
-      name=COALESCE($1,name), code=COALESCE($24,code), contact=COALESCE($2,contact),
-      phone=COALESCE($3,phone), email=COALESCE($4,email),
-      terms=COALESCE($5,terms), rep=COALESCE($6,rep),
-      ship_street=COALESCE($7,ship_street), ship_city=COALESCE($8,ship_city),
-      ship_state=COALESCE($9,ship_state), ship_zip=COALESCE($10,ship_zip),
-      payment_provider=$11, online_payments=$12, redemption=$13,
-      tax_id=$14, resale_num=$15, warehouse_code=$16, lic_expiry=$17,
-      abc_detail=$18, credit_limit=$19, credit_balance=$20,
-      avg_days_to_pay=$21, commission_pct=$22,
-      region=$25, kind_primary=$26, kind_secondary=$27, corp_group=$28
-      WHERE id=$23`,
-      [name,contact,phone,email,terms,rep,shipStreet,shipCity,shipState,shipZip,
-       paymentProvider||'',onlinePayments||'No',redemption||'No',taxId||'',
-       resaleNum||'',warehouseCode||'',licExpiry||'',abcDetail||'',
-       creditLimit||0,creditBalance||0,avgDaysToPay||0,commissionPct||0,
-       req.params.id,code,
-       region||'',kindPrimary||'',kindSecondary||'',corpGroup||'']);
+
+    // Maps request field name -> DB column name. Only fields actually present in the request get updated.
+    const fieldMap = {
+      name:'name', code:'code', contact:'contact', contactFirst:'contact_first', contactLast:'contact_last',
+      phone:'phone', email:'email', address:'address', terms:'terms', rep:'rep',
+      shipStreet:'ship_street', shipCity:'ship_city', shipState:'ship_state', shipZip:'ship_zip',
+      billStreet:'bill_street', billCity:'bill_city', billState:'bill_state', billZip:'bill_zip',
+      paymentProvider:'payment_provider', onlinePayments:'online_payments', redemption:'redemption',
+      taxId:'tax_id', resaleNum:'resale_num', warehouseCode:'warehouse_code',
+      licExpiry:'lic_expiry', abcDetail:'abc_detail', creditLimit:'credit_limit', creditBalance:'credit_balance',
+      avgDaysToPay:'avg_days_to_pay', commissionPct:'commission_pct',
+      region:'region', kindPrimary:'kind_primary', kindSecondary:'kind_secondary', corpGroup:'corp_group',
+      shipStreet2:'ship_street2', shipCounty:'ship_county', billStreet2:'bill_street2', billCounty:'bill_county',
+      accountType:'account_type', allowedShipDays:'allowed_ship_days', tastingHours:'tasting_hours',
+      deliveryNotes:'delivery_notes', website:'website',
+      preferredPaymentMethodName:'preferred_payment_method_name', showProductUpc:'show_product_upc',
+      avgMonthlySalesEstimate:'avg_monthly_sales_estimate', overrideAvgMonthlySales:'override_avg_monthly_sales',
+      isProspective:'is_prospective', isSampleAccount:'is_sample_account',
+      alternateLicense:'alternate_license', alternateLicenseExpiry:'alternate_license_expiry',
+      externalIdentifier1:'external_identifier_1',
+      prefersMasterInvoice:'prefers_master_invoice', allowOrders:'allow_orders',
+      codEmailNotifications:'cod_email_notifications', billingInvoiceTitle:'billing_invoice_title',
+      pastDue:'past_due', notifyInvoiceContactsAR:'notify_invoice_contacts_ar',
+      lic:'lic', abcNum:'abc_num',
+    };
+
+    const updates = [], values = [];
+    let idx = 1;
+    Object.keys(fieldMap).forEach(key => {
+      if (b[key] !== undefined) { updates.push(`${fieldMap[key]}=$${idx++}`); values.push(b[key]); }
+    });
+    if (updates.length === 0) return res.json({ ok: true }); // nothing to update
+    values.push(req.params.id);
+    await query(`UPDATE accounts SET ${updates.join(', ')} WHERE id=$${idx}`, values);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update account error:', err.message);
