@@ -9274,7 +9274,7 @@ function runScheduleNow(id){
 
 // -- ACCOUNTS RECEIVABLE -------------------------------------------------------
 // AR state: filters persisted across re-renders
-let _arFilters={rep:'',acct:'',terms:'',status:'open',fromDate:'',toDate:'',minAmt:'',maxAmt:'',overdue:false};
+let _arFilters={rep:'',acct:'',terms:'',status:'open',fromDate:'',toDate:'',minAmt:'',maxAmt:'',overdue:false,search:''};
 
 function arOrders(){
   return ORDERS.filter(o=>o.status==='delivered');
@@ -9365,6 +9365,10 @@ function renderAR(){
     <div class="card-body" style="padding:12px 16px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <div>
+          <div class="flabel" style="margin-bottom:3px">Search</div>
+          <div class="search-wrap" style="width:220px"><i class="ti ti-search si"></i><input class="search-input" id="ar-f-search" value="${_arFilters.search}" placeholder="Invoice # or account..." oninput="_arFilters.search=this.value;renderARTable()"/></div>
+        </div>
+        <div>
           <div class="flabel" style="margin-bottom:3px">Status</div>
           <select class="finput" id="ar-f-status" onchange="_arFilters.status=this.value;renderARTable()" style="width:130px;padding:6px 8px">
             <option value="open" ${_arFilters.status==='open'?'selected':''}>Open</option>
@@ -9443,7 +9447,7 @@ function renderAR(){
 }
 
 function clearARFilters(){
-  _arFilters={rep:'',acct:'',terms:'',status:'open',fromDate:'',toDate:'',minAmt:'',maxAmt:'',overdue:false};
+  _arFilters={rep:'',acct:'',terms:'',status:'open',fromDate:'',toDate:'',minAmt:'',maxAmt:'',overdue:false,search:''};
   renderAR();
 }
 
@@ -9453,6 +9457,14 @@ function applyARFilters(orders){
   if(f.status==='open')res=res.filter(o=>!o.paid);
   else if(f.status==='overdue')res=res.filter(o=>!o.paid&&arDaysOverdue(o)>0);
   else if(f.status==='paid')res=res.filter(o=>o.paid);
+  if(f.search){
+    const q=f.search.trim().toLowerCase();
+    res=res.filter(o=>{
+      if(o.id.toLowerCase().includes(q))return true;
+      const acct=acctById(o.acct);
+      return acct&&acct.name.toLowerCase().includes(q);
+    });
+  }
   if(f.rep)res=res.filter(o=>o.rep===f.rep);
   if(f.acct)res=res.filter(o=>o.acct===f.acct);
   if(f.terms){res=res.filter(o=>{const acct=acctById(o.acct);return(acct&&acct.terms||'Net 30')===f.terms});}
