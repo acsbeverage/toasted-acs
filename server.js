@@ -257,6 +257,31 @@ app.get('/api/list-blank-crv', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/migrate-restricted', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-restricted') return res.status(403).json({ok:false});
+  try {
+    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
+    res.json({ok:true, message:'Migration complete -- restricted column added'});
+  } catch (err) {
+    res.status(500).json({ok:false, error: err.message});
+  }
+});
+app.get('/api/restrict-liber-12pack', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-restrictliber') return res.status(403).json({ok:false});
+  try {
+    const { query, getAll } = require('./db');
+    const matches = await getAll(
+      `SELECT sku, name, producer, btl FROM products WHERE producer ILIKE '%liber%' AND btl=12`
+    );
+    for (const m of matches) {
+      await query(`UPDATE products SET restricted=TRUE WHERE sku=$1`, [m.sku]);
+    }
+    res.json({ ok: true, restrictedCount: matches.length, products: matches });
+  } catch (err) {
+    console.error('Restrict Liber 12-pack error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
