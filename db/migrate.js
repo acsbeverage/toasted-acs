@@ -74,6 +74,20 @@ async function migrate() {
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS comm_brand5 NUMERIC(5,2)`);
 
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS corp_group TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS qbo_id TEXT`);
+
+  await query(`CREATE TABLE IF NOT EXISTS qbo_connection (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    access_token TEXT,
+    refresh_token TEXT,
+    realm_id TEXT,
+    company_name TEXT,
+    environment TEXT DEFAULT 'sandbox',
+    token_expires_at TIMESTAMPTZ,
+    refresh_token_expires_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT single_row CHECK (id = 1)
+  )`);
   await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS labels_printed BOOLEAN DEFAULT FALSE`);
 
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
