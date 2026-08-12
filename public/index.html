@@ -10092,7 +10092,7 @@ function _renderProductRows(filtered){
     const d=p._details;
     const fl=(p.prices?.frontline||0)*p.btl;
     return`<tr style="cursor:pointer" onclick="openProductPricing('${p.sku}')" title="Click to edit pricing">
-      <td style="font-weight:500;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
+      <td style="font-weight:500">${p.name}</td>
       <td style="font-size:12px;color:var(--text2)">${p.sku}</td>
       <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
       <td><span class="tier-pill" style="font-size:11px">${p.cat||'--'}</span></td>
