@@ -67,6 +67,7 @@ router.get('/', requireAuth, async (req, res) => {
       paidDate: r.paid_date ? r.paid_date.toISOString().slice(0,10) : null,
       paidAmount: r.paid_amount ? parseFloat(r.paid_amount) : null,
       qboInvoiceId: r.qbo_invoice_id, qboSyncedAt: r.qbo_synced_at,
+      partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
       items: itemsByOrder[r.id] || [],
     }));
     res.json({ ok: true, orders });
@@ -175,7 +176,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
   try {
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
-            date, delivery, po, notes, items, labelsPrinted } = req.body;
+            date, delivery, po, notes, items, labelsPrinted, partialPaidAmount } = req.body;
     const updates = [], values = [];
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
@@ -190,6 +191,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (po !== undefined)           { updates.push(`po=$${idx++}`);             values.push(po); }
     if (notes !== undefined)        { updates.push(`notes=$${idx++}`);          values.push(notes); }
     if (labelsPrinted !== undefined){ updates.push(`labels_printed=$${idx++}`); values.push(labelsPrinted); }
+    if (partialPaidAmount !== undefined) { updates.push(`partial_paid_amount=$${idx++}`); values.push(partialPaidAmount); }
     if (updates.length > 0) {
       values.push(req.params.id);
       await query(`UPDATE orders SET ${updates.join(',')} WHERE id=$${idx}`, values);
