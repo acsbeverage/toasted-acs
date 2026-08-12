@@ -76,6 +76,36 @@ async function migrate() {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS corp_group TEXT`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS qbo_id TEXT`);
 
+  // Address detail
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ship_street2 TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ship_county TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS bill_street2 TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS bill_county TEXT`);
+  // General
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS allowed_ship_days TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS tasting_hours TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS delivery_notes TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS website TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS preferred_payment_method_name TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS show_product_upc BOOLEAN DEFAULT FALSE`);
+  // Sales / prospect tracking
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS avg_monthly_sales_estimate NUMERIC(10,2)`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS override_avg_monthly_sales BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_prospective BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_sample_account BOOLEAN DEFAULT FALSE`);
+  // Tax & legal
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS alternate_license TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS alternate_license_expiry TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS external_identifier_1 TEXT`);
+  // Invoicing / delivery
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS prefers_master_invoice BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS allow_orders BOOLEAN DEFAULT TRUE`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS cod_email_notifications BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS billing_invoice_title TEXT`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS past_due BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS notify_invoice_contacts_ar BOOLEAN DEFAULT TRUE`);
+
   await query(`CREATE TABLE IF NOT EXISTS qbo_connection (
     id INTEGER PRIMARY KEY DEFAULT 1,
     access_token TEXT,
