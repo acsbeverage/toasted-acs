@@ -646,6 +646,16 @@ const plusDays=(d,n)=>{const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt
 const tierName=id=>{const t=TIERS.find(x=>x.id===id);return t?t.name:id};
 const myAccounts=()=>currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id);
 const itemTotalBottles=item=>{const p=PRODUCTS.find(y=>y.sku===item.sku);return(item.cases||0)*((p&&p.btl)||12)+(item.bottles||0);};
+// Parses a bottle size string ("750ml", "1.75L", "375 ml", "1L") into liters. Defaults to 750ml when unset/unparseable.
+function bottleSizeToLiters(sizeStr){
+  const s=(sizeStr||'').toString().toLowerCase().trim();
+  if(!s)return 0.75;
+  const num=parseFloat(s);
+  if(isNaN(num))return 0.75;
+  if(s.includes('ml'))return num/1000;
+  if(s.includes('l'))return num;
+  return num>=100?num/1000:num; // no unit given -- assume ml for large numbers, liters for small
+}
 
 // Format order quantity as "Xcs Ybtl" or just "Xcs" or "Ybtl"
 function orderQtyLabel(items){
@@ -6438,19 +6448,24 @@ function renderRA2(el, orders, producerFilter){
       if(producerFilter && p.producer!==producerFilter) return;
       const price=itemPrice(p,item.tier||'frontline');
       const total=itemLineTotal(item);
-      rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,sku:item.sku,product:p.name,producer:p.producer,cases:item.cases,bottles:item.bottles,tier:item.tier,unitPrice:price,total});
+      const totalBtl=itemTotalBottles(item);
+      const totalLiters=totalBtl*bottleSizeToLiters(p._details?.bottleSize);
+      const totalGallons=totalLiters*0.264172;
+      rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,sku:item.sku,product:p.name,producer:p.producer,cases:item.cases,bottles:item.bottles,tier:item.tier,unitPrice:price,total,totalLiters,totalGallons});
     });
   });
   const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+  const grandLiters=rows.reduce((s,r)=>s+r.totalLiters,0);
+  const grandGallons=rows.reduce((s,r)=>s+r.totalGallons,0);
   el.innerHTML+=`
   <div class="card">
     <div class="card-header">
       <span class="card-title">RA2 — Invoice Line Item</span>
-      <span style="font-size:12px;color:var(--text2)">${rows.length} line items · ${fmt(grandTotal)}</span>
+      <span style="font-size:12px;color:var(--text2)">${rows.length} line items · ${fmt(grandTotal)} · ${grandLiters.toFixed(2)} L · ${grandGallons.toFixed(2)} gal</span>
     </div>
     <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
       <table class="tbl">
-        <thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th>SKU</th><th>Product</th><th>Producer</th><th>Cases</th><th>Btl</th><th>Tier</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead>
+        <thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th>SKU</th><th>Product</th><th>Producer</th><th>Cases</th><th>Btl</th><th>Tier</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th><th style="text-align:right">Total Liters</th><th style="text-align:right">Total Gallons</th></tr></thead>
         <tbody>
         ${rows.length?rows.map(r=>`<tr>
           <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
@@ -6465,14 +6480,16 @@ function renderRA2(el, orders, producerFilter){
           <td style="font-size:11px"><span class="tier-pill">${r.tier}</span></td>
           <td style="text-align:right;font-size:12px">${fmt(r.unitPrice)}</td>
           <td style="text-align:right;font-weight:600">${fmt(r.total)}</td>
-        </tr>`).join(''):`<tr><td colspan="12" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>`}
+          <td style="text-align:right;font-size:12px">${r.totalLiters.toFixed(2)}</td>
+          <td style="text-align:right;font-size:12px">${r.totalGallons.toFixed(2)}</td>
+        </tr>`).join(''):`<tr><td colspan="14" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>`}
         </tbody>
-        ${rows.length?`<tfoot><tr><td colspan="11" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandTotal)}</td></tr></tfoot>`:''}
+        ${rows.length?`<tfoot><tr><td colspan="11" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandTotal)}</td><td style="padding:10px 12px;text-align:right;font-weight:700">${grandLiters.toFixed(2)}</td><td style="padding:10px 12px;text-align:right;font-weight:700">${grandGallons.toFixed(2)}</td></tr></tfoot>`:''}
       </table>
     </div>
   </div>`;
   window._lastReportRows = rows;
-  window._lastReportCols = ['invoice','date','acct','rep','sku','product','producer','cases','bottles','tier','unitPrice','total'];
+  window._lastReportCols = ['invoice','date','acct','rep','sku','product','producer','cases','bottles','tier','unitPrice','total','totalLiters','totalGallons'];
 }
 
 // RA5 - Depletion by Producer
