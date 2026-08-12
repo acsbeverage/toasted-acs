@@ -394,6 +394,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div class="nav-sec">Catalog</div>
     <div class="nav-item" onclick="showPage('catalog')" id="nav-catalog"><i class="ti ti-bottle"></i> Products</div>
     <div class="nav-item admin-only hidden" onclick="showPage('inventory')" id="nav-inventory"><i class="ti ti-package"></i> Inventory <span class="nav-badge red hidden" id="low-badge">0</span></div>
+    <div class="nav-item admin-only hidden" onclick="showPage('logistics')" id="nav-logistics"><i class="ti ti-building-warehouse"></i> ACS Logistics</div>
     <div class="nav-item" onclick="showPage('docs')" id="nav-docs"><i class="ti ti-files"></i> Documents</div>
     <div class="nav-sec admin-only hidden">Admin</div>
     <div class="nav-item admin-only hidden" onclick="showPage('users')" id="nav-users"><i class="ti ti-users"></i> Users</div>
@@ -713,6 +714,10 @@ const itemLineTotal=item=>{
   return gross*(1-disc/100);
 };
 const orderTotal=o=>o.items.reduce((s,x)=>s+itemLineTotal(x),0);
+// ACS Logistics is a separate, admin-only inventory pool for warehousing clients' stock --
+// kept fully separate from ACS's own sellable inventory everywhere in the app.
+const mainInventory=()=>PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics');
+const logisticsInventory=()=>PRODUCTS.filter(p=>p.warehouse==='acs_logistics');
 // Detects dedicated sample-tracking accounts by name (e.g. "Samples-Aaron Goldman", "Sample Customer")
 function isSampleAcct(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);
@@ -779,8 +784,8 @@ function matchesSearch(text,query){
   return words.every(w=>t.includes(w));
 }
 const fmt=n=>'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const lowStock=()=>PRODUCTS.filter(p=>p.stock>0&&p.stock<=p.reorder);
-const outOfStock=()=>PRODUCTS.filter(p=>p.stock===0);
+const lowStock=()=>mainInventory().filter(p=>p.stock>0&&p.stock<=p.reorder);
+const outOfStock=()=>mainInventory().filter(p=>p.stock===0);
 const unconfirmedCount=()=>ORDERS.filter(o=>o.status==='unconfirmed').length;
 
 const CAT_BADGE={
@@ -1579,7 +1584,7 @@ function doLogout(){
     if(nm)nm.textContent=(u.fname||'')+' '+(u.lname||'');
     if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
-    const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','docs','users','pricing','settings','import','reports','ar','products','po'];
+    const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','logistics','docs','users','pricing','settings','import','reports','ar','products','po'];
     const hashPage=(location.hash||'').replace('#','');
     const restorePage=RESTORABLE_PAGES.includes(hashPage)?hashPage:'dashboard';
     loadAllDataFromBackend().then(()=>{updateBadges();showPage(restorePage,false);});
@@ -1786,7 +1791,7 @@ const BG_REFRESH_MIN_INTERVAL=20000; // don't refresh more than once every 20s, 
 const BUILDER_PAGES=['neworder','newtasting']; // pages with in-progress unsaved state -- never force-rerender these
 
 function _dispatchPageRender(page){
-  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO}[page]||(() => {}))();
+  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,logistics:renderACSLogistics,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO}[page]||(() => {}))();
 }
 
 async function triggerBackgroundRefresh(page){
@@ -1809,7 +1814,7 @@ async function triggerBackgroundRefresh(page){
 function showPage(page, pushState=true){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
-  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders'};
+  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',logistics:'ACS Logistics',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   document.getElementById('topbar-right').innerHTML='';
   // Push to browser history so back button works within app
@@ -2240,7 +2245,7 @@ function selectOrderAcct(id){
 function onProdSearch(val){
   const dd=document.getElementById('prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=PRODUCTS.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
+  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addLineItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -2747,7 +2752,7 @@ function renderNewTasting(){
 function onTastingProdSearch(val){
   const dd=document.getElementById('ts-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=PRODUCTS.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
+  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addTastingItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -3655,7 +3660,7 @@ function openEditOrder(orderId){
 function onEditSearch(val){
   const dd=document.getElementById('edit-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=PRODUCTS.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,8);
+  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,8);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`<div class="dd-item" onmousedown="addEditItem('${p.sku.replace(/'/g,"\\'")}')"><div><div class="dd-name">${p.name}</div><div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div><div style="margin-top:2px">${stockChip(p)}</div></div></div>`).join('');
   dd.classList.add('open');
@@ -3860,6 +3865,7 @@ function filterHistory(){
 // -- INVENTORY -----------------------------------------------------------------
 function renderInventory(){
   const isAdmin=currentUser.role==='admin';
+  const inv=mainInventory();
   const low=[...outOfStock(),...lowStock()];
   const cats=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
   document.getElementById('topbar-right').innerHTML=isAdmin?`<button class="btn btn-dark btn-sm" onclick="openReceive()"><i class="ti ti-adjustments"></i> Adjust inventory</button>`:'';
@@ -3868,12 +3874,12 @@ function renderInventory(){
   <table class="tbl"><thead><tr><th>Product</th><th>SKU</th><th>Pack</th><th>In stock</th><th>Reorder point</th><th>Status</th><th></th></tr></thead>
   <tbody>${low.slice(0,8).map(p=>`<tr><td style="font-weight:500">${p.name}</td><td style="font-size:12px;color:var(--text2)">${p.sku}</td><td style="color:var(--text2)">${p.btl}pk</td><td>${p.stock}</td><td>${p.reorder}</td><td>${stockBadge(p)}</td><td><button class="btn btn-sm btn-dark" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-adjustments"></i> Adjust</button></td></tr>`).join('')}</tbody></table></div>`:''}
   <div class="card">
-    <div class="card-header"><span class="card-title">${PRODUCTS.length} products</span>
+    <div class="card-header"><span class="card-title">${inv.length} products</span>
       <div style="display:flex;gap:8px">
         <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="inv-search" placeholder="Search name or SKU..." oninput="filterInv(this.value)" style="width:200px"/></div>
         <select class="finput" id="inv-cat" onchange="filterInv(document.getElementById('inv-search').value)" style="width:140px;padding:7px 9px"><option value="">All categories</option>${cats.map(c=>`<option>${c}</option>`).join('')}</select>
         <select class="finput" id="inv-stock" onchange="filterInv(document.getElementById('inv-search').value)" style="width:130px;padding:7px 9px"><option value="">All stock levels</option><option value="out">Out of stock</option><option value="low">Low stock</option><option value="ok">In stock</option></select>
-        <select class="finput" id="inv-prod" onchange="filterInv(document.getElementById('inv-search').value)" style="width:160px;padding:7px 9px"><option value="">All producers</option>${[...new Set(PRODUCTS.map(p=>p.producer))].sort().map(pr=>`<option>${pr}</option>`).join('')}</select>
+        <select class="finput" id="inv-prod" onchange="filterInv(document.getElementById('inv-search').value)" style="width:160px;padding:7px 9px"><option value="">All producers</option>${[...new Set(inv.map(p=>p.producer))].sort().map(pr=>`<option>${pr}</option>`).join('')}</select>
       </div>
     </div>
     <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Cat</th><th>Pack</th><th>Stock</th><th>Cases</th><th>Reorder</th><th>Status</th>${isAdmin?'<th></th>':''}</tr></thead>
@@ -3889,20 +3895,56 @@ function renderInventory(){
     return`<tr><td style="color:var(--text2)">${r.date}</td><td style="font-weight:500">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.sku}</td><td><span class="tier-pill" style="font-size:11px">${r.reason||'--'}</span></td><td style="font-weight:600;color:${color}">${signChar}${qtyParts}</td><td style="color:var(--text2);font-size:12px">${r.notes||'--'}</td><td style="color:var(--text2);font-size:12px">${r.by||'--'}</td></tr>`;
   }).join('')}</tbody>
   </table></div>`:''}`;
-  renderInvBody(PRODUCTS);
+  renderInvBody(inv);
 }
 function filterInv(q){
   const cat=document.getElementById('inv-cat').value;const sf=document.getElementById('inv-stock').value;const pf=document.getElementById('inv-prod').value;
-  let res=PRODUCTS.filter(p=>(!q||p.name.toLowerCase().includes(q.toLowerCase())||p.sku.toLowerCase().includes(q.toLowerCase()))&&(!cat||p.cat===cat)&&(!pf||p.producer===pf));
+  let res=mainInventory().filter(p=>(!q||p.name.toLowerCase().includes(q.toLowerCase())||p.sku.toLowerCase().includes(q.toLowerCase()))&&(!cat||p.cat===cat)&&(!pf||p.producer===pf));
   if(sf==='out')res=res.filter(p=>p.stock===0);else if(sf==='low')res=res.filter(p=>p.stock>0&&p.stock<=p.reorder);else if(sf==='ok')res=res.filter(p=>p.stock>p.reorder);
   renderInvBody(res);
+}
+function renderACSLogistics(){
+  const isAdmin=currentUser.role==='admin';
+  if(!isAdmin){document.getElementById('main-content').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:60px;color:var(--text3)">Admin access only.</div></div>';return;}
+  const inv=logisticsInventory();
+  const cats=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+  document.getElementById('topbar-right').innerHTML=`<button class="btn btn-dark btn-sm" onclick="openReceive('','acs_logistics')"><i class="ti ti-adjustments"></i> Adjust inventory</button>`;
+  document.getElementById('main-content').innerHTML=`
+  <div class="card" style="margin-bottom:16px;background:#fdf8ef;border-color:#e8d9b8">
+    <div class="card-body" style="padding:14px 18px;font-size:13px;color:#7a6220">
+      <i class="ti ti-building-warehouse" style="vertical-align:-2px;margin-right:6px"></i>
+      This is a separate inventory pool for warehousing clients' stock -- kept distinct from ACS's own sellable inventory. Not visible to reps or customers, and not searchable when building orders.
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">${inv.length} products in ACS Logistics</span>
+      <div style="display:flex;gap:8px">
+        <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="log-search" placeholder="Search name or SKU..." oninput="filterLogisticsInv(this.value)" style="width:200px"/></div>
+        <select class="finput" id="log-cat" onchange="filterLogisticsInv(document.getElementById('log-search').value)" style="width:140px;padding:7px 9px"><option value="">All categories</option>${cats.map(c=>`<option>${c}</option>`).join('')}</select>
+        <select class="finput" id="log-prod" onchange="filterLogisticsInv(document.getElementById('log-search').value)" style="width:160px;padding:7px 9px"><option value="">All producers</option>${[...new Set(inv.map(p=>p.producer))].sort().map(pr=>`<option>${pr}</option>`).join('')}</select>
+      </div>
+    </div>
+    <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Cat</th><th>Pack</th><th>Stock</th><th>Cases</th><th>Reorder</th><th>Status</th><th></th></tr></thead>
+    <tbody id="log-body"></tbody></table>
+  </div>`;
+  renderLogisticsBody(inv);
+}
+function filterLogisticsInv(q){
+  const cat=document.getElementById('log-cat').value;const pf=document.getElementById('log-prod').value;
+  const res=logisticsInventory().filter(p=>(!q||p.name.toLowerCase().includes(q.toLowerCase())||p.sku.toLowerCase().includes(q.toLowerCase()))&&(!cat||p.cat===cat)&&(!pf||p.producer===pf));
+  renderLogisticsBody(res);
+}
+function renderLogisticsBody(prods){
+  const b=document.getElementById('log-body');if(!b)return;
+  b.innerHTML=prods.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td><td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}','acs_logistics')"><i class="ti ti-plus"></i></button></td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No products in ACS Logistics yet</td></tr>';
 }
 function renderInvBody(prods){
   const isAdmin=currentUser.role==='admin';const b=document.getElementById('inv-body');if(!b)return;
   b.innerHTML=prods.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500;max-width:200px">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td>${isAdmin?`<td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button></td>`:''}</tr>`).join('');
 }
-function openReceive(sku=''){
-  document.getElementById('recv-sku').innerHTML=PRODUCTS.map(p=>`<option value="${p.sku}" ${p.sku===sku?'selected':''}>${p.name} (${p.sku}) -- ${p.stock} cases</option>`).join('');
+function openReceive(sku='',warehouse='main'){
+  const pool=warehouse==='acs_logistics'?logisticsInventory():mainInventory();
+  document.getElementById('recv-sku').innerHTML=pool.map(p=>`<option value="${p.sku}" ${p.sku===sku?'selected':''}>${p.name} (${p.sku}) -- ${p.stock} cases</option>`).join('');
   document.getElementById('recv-cases').value='';document.getElementById('recv-bottles').value='';document.getElementById('recv-notes').value='';document.getElementById('recv-reason').value='';
   document.getElementById('recv-reorder').value=sku?(PRODUCTS.find(x=>x.sku===sku)||{}).reorder||'':'';
   document.getElementById('modal-receive').classList.add('open');
@@ -4498,10 +4540,10 @@ function startOrderForAccount(acctId){
 
 // -- CATALOG (Products - visible to all reps) ----------------------------------
 function renderCatalog(){
-  const cats=[...new Set(PRODUCTS.map(p=>p.cat))].sort();
+  const cats=[...new Set(mainInventory().map(p=>p.cat))].sort();
   let _q='',_cat='';
 
-  const filtered=()=>PRODUCTS.filter(p=>
+  const filtered=()=>mainInventory().filter(p=>
     (!_q||(p.name||'').toLowerCase().includes(_q)||(p.sku||'').toLowerCase().includes(_q)||(p.producer||'').toLowerCase().includes(_q))
     &&(!_cat||p.cat===_cat)
   ).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -4514,7 +4556,7 @@ function renderCatalog(){
       const fl=(p.prices?.frontline||0)*p.btl;
       const inStock=p.stock>0;
       return`<tr>
-        <td style="font-weight:500;max-width:200px">${p.name}</td>
+        <td style="font-weight:500">${p.name}</td>
         <td style="font-size:12px;color:var(--text2)">${p.sku}</td>
         <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
         <td>${catBadge(p.cat)}</td>
@@ -10080,7 +10122,7 @@ async function deleteProduct(sku){
   else showPage('products');
 }
 function _filterProductsList(){
-  return PRODUCTS.filter(p=>{
+  return mainInventory().filter(p=>{
     const matchQ=!_prodSearch.trim()||matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),_prodSearch);
     const matchCat=!_prodCat||p.cat===_prodCat;
     return matchQ&&matchCat;
