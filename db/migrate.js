@@ -89,6 +89,9 @@ async function migrate() {
     UNIQUE(sku, tier_name)
   )`);
   await query(`CREATE INDEX IF NOT EXISTS idx_ptp_sku ON product_tier_prices(sku)`);
+  await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE`);
+  await query(`ALTER TABLE product_tier_prices DROP CONSTRAINT IF EXISTS product_tier_prices_sku_tier_name_key`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_ptp_account ON product_tier_prices(account_id)`);
 
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_admin BOOLEAN DEFAULT FALSE`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS region TEXT`);
