@@ -3548,18 +3548,20 @@ function buildZPLShippingLabel(acct,order,copies){
 ^LH0,0
 ^CF0,32
 ^FO20,30^FDACS Beverage Co.^FS
-^FO20,68^GB416,3,3^FS
+^CF0,20
+^FO20,66^FD531 Getty Ct. STE D, Benicia CA 94510^FS
+^FO20,90^GB416,3,3^FS
 ^CF0,24
-^FO20,90^FDSHIP TO:^FS
-^CF0,42
-^FO20,130^FB416,2,0,L^FD${name}^FS
+^FO20,108^FDSHIP TO:^FS
+^CF0,54
+^FO20,138^FB416,2,0,L^FD${name}^FS
 ^CF0,30
-^FO20,240^FB416,2,0,L^FD${street}^FS
-^FO20,300^FB416,2,0,L^FD${cityStateZip}^FS
-^FO20,560^GB416,2,2^FS
+^FO20,278^FB416,2,0,L^FD${street}^FS
+^FO20,338^FB416,2,0,L^FD${cityStateZip}^FS
+^FO20,568^GB416,2,2^FS
 ^CF0,22
-^FO20,580^FDOrder: ${orderId}^FS
-^FO20,608^FDDeliver: ${delivery}^FS
+^FO20,588^FDOrder: ${orderId}^FS
+^FO20,616^FDDeliver: ${delivery}^FS
 ^XZ`;
 }
 function printShippingLabel(orderId){
