@@ -992,7 +992,7 @@ function saveProductToDB(sku){
   fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||''})
+    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||'',restricted:!!p.restricted})
   }).catch(e=>console.error('Save product error:',e.message));
 }
 function saveNewProductToDB(p){
@@ -10567,6 +10567,8 @@ function renderProductForm(p,isNew){
       <label class="flabel">Vintage</label>
       <input id="pf-vintage" type="text" class="finput" value="${d.vintage||''}" placeholder="e.g. 2021" style="margin-bottom:12px"/>
 
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px;background:#fffbe8;border-radius:var(--radius)"><input type="checkbox" id="pf-restricted" ${p.restricted?'checked':''} style="width:16px;height:16px"/><label for="pf-restricted" style="font-size:13px;cursor:pointer">Restricted -- only visible to Admin and users with "Full pricing visibility"</label></div>
+
       <label class="flabel">SKU / Code</label>
       <input id="pf-sku" type="text" class="finput" value="${p.sku||''}" placeholder="Unique SKU" ${!isNew?'readonly style="background:var(--bg3);margin-bottom:12px"':'style="margin-bottom:12px"'}/>
 
@@ -10696,6 +10698,7 @@ function saveProduct(){
       btl:parseInt(document.getElementById('pf-btl').value)||6,
       stock:0,reorder:6,prices:{},
       image:window._pfImageData||'',
+      restricted:document.getElementById('pf-restricted').checked,
       _details:details
     };
     PRODUCTS.push(newProduct);
@@ -10709,6 +10712,7 @@ function saveProduct(){
     p.cat=document.getElementById('pf-cat').value;
     p.btl=parseInt(document.getElementById('pf-btl').value)||6;
     p.image=window._pfImageData||'';
+    p.restricted=document.getElementById('pf-restricted').checked;
     p._details=details;
     saveProductToDB(p.sku);
     toast('Product saved -- '+name);
