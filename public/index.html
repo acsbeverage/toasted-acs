@@ -2316,7 +2316,7 @@ function renderLineItems(){
     const p=prodBySku(item.sku);if(!p)return'';
     const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
     return`<tr>
-      <td style="font-weight:500;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
+      <td style="font-weight:500">${p.name}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.sku}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.producer}</td>
       <td>${stockChip(p)}</td>
