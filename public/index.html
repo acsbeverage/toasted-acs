@@ -4467,7 +4467,7 @@ function openAccountDetail(acctId){
   html+='<div><div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">'+a.name+(a.code?' <span style="font-size:12px;font-weight:600;color:var(--gold);background:var(--bg3);padding:3px 9px;border-radius:20px;vertical-align:middle">#'+a.code+'</span>':'')+'</div>';
   html+='<div style="font-size:13px;color:var(--text2)">'+[a.shipStreet,a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div>';
   html+=(a.lic?'<div style="font-size:13px;color:var(--text2)">ABC: '+a.lic+(a.phone?' &nbsp;&middot;&nbsp; '+a.phone:'')+'</div>':'');
-  html+='</div><div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="startOrderForAccount(\''+a.id+'\')"><i class="ti ti-plus"></i> New Order</button></div>';
+  html+='</div><div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="startOrderForAccount(\''+a.id+'\')"><i class="ti ti-plus"></i> New Order</button>'+(isAdmin?'<button class="btn" style="color:#2CA01C;border-color:#2CA01C" onclick="qboSyncAccount(\''+a.id+'\')"><i class="ti ti-brand-quickbooks"></i> '+(a.qboId?'Update in QBO':'Sync to QBO')+'</button>':'')+'</div>';
   html+='</div></div></div>';
 
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:14px">';
@@ -4482,6 +4482,7 @@ function openAccountDetail(acctId){
   html+='<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
   html+='<div class="card"><div class="card-header"><span class="card-title">Account Info</span></div><div class="card-body" style="font-size:13px;line-height:2">';
   if(a.code)html+='<div><span style="color:var(--text2)">Account Number:</span> <strong>'+a.code+'</strong></div>';
+  html+='<div><span style="color:var(--text2)">QuickBooks:</span> '+(a.qboId?'<span style="color:#2CA01C;font-weight:600"><i class="ti ti-circle-check" style="vertical-align:-2px"></i> Linked</span>':'<span style="color:var(--text3)">Not synced</span>')+'</div>';
   if(a.corpGroup)html+='<div><span style="color:var(--text2)">Corp Group:</span> <strong>'+a.corpGroup+'</strong></div>';
   if(a.contact)html+='<div><span style="color:var(--text2)">Contact:</span> '+a.contact+'</div>';
   if(a.email)html+='<div><span style="color:var(--text2)">Email:</span> '+a.email+'</div>';
@@ -10713,6 +10714,21 @@ function qboDisconnect(){
 }
 
 // -- SEND SINGLE INVOICE -------------------------------------------------------
+// -- SYNC ONE ACCOUNT TO QUICKBOOKS AS A CUSTOMER ------------------------------
+function qboSyncAccount(acctId){
+  const acct=acctById(acctId);
+  if(!acct){toast('Account not found');return}
+  if(!QBO_STATE.connected){toast('Not connected to QuickBooks -- check Settings');return}
+  toast('Syncing '+acct.name+' to QuickBooks...');
+  qboFetch('/api/qbo/customers/sync','POST',{accountId:acctId})
+    .then(data=>{
+      acct.qboId=data.qboId;
+      toast(acct.name+' synced to QuickBooks (#'+data.qboId+')');
+      openAccountDetail(acctId); // refresh to show the updated status
+    })
+    .catch(e=>toast('QBO sync error: '+e.message));
+}
+
 function qboSendInvoice(orderId){
   const o=ORDERS.find(x=>x.id===orderId);
   if(!o){toast('Order not found');return}
