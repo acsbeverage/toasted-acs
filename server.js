@@ -246,13 +246,30 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-labelsprinted', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-labelsprinted') return res.status(403).json({ok:false});
+app.get('/api/migrate-logistics', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-logistics') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- labels_printed column added'});
+    res.json({ok:true, message:'Migration complete -- warehouse column added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
+  }
+});
+app.get('/api/move-to-logistics', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-movelogistics') return res.status(403).json({ok:false});
+  try {
+    const { query, getAll } = require('./db');
+    const matches = await getAll(`SELECT sku, name FROM products WHERE name LIKE '%***%'`);
+    let moved = 0;
+    for (const m of matches) {
+      const cleanName = m.name.replace(/\*\*\*/g, '').replace(/\s+/g, ' ').trim();
+      await query(`UPDATE products SET warehouse='acs_logistics', name=$1 WHERE sku=$2`, [cleanName, m.sku]);
+      moved++;
+    }
+    res.json({ ok: true, moved, products: matches.map(m => ({ sku: m.sku, originalName: m.name })) });
+  } catch (err) {
+    console.error('Move to logistics error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 app.get('*', (req, res) => {
