@@ -725,9 +725,14 @@ function syncFees(){
   // Remove auto-calculated fees (but preserve manually-added broken case fees)
   currentOrder.items=currentOrder.items.filter(x=>x.sku!==CRV_SKU&&!(x.sku===BROKEN_CASE_SKU&&!x._manual));
 
-  // Broken case fee: $1.50 per line item with loose bottles (auto)
+  // Broken case fee: $1.50 per line item with loose bottles that don't add up to a full case (auto)
   if(!currentOrder.waiveBrokenCase){
-    const brokenLines=currentOrder.items.filter(x=>x.sku!==DELIVERY_FEE_SKU&&!x._fee&&x.bottles>0);
+    const brokenLines=currentOrder.items.filter(x=>{
+      if(x.sku===DELIVERY_FEE_SKU||x._fee||!(x.bottles>0))return false;
+      const p=PRODUCTS.find(y=>y.sku===x.sku);
+      const btl=(p&&p.btl)||12;
+      return x.bottles%btl!==0; // loose bottles exactly filling one or more cases isn't "broken"
+    });
     if(brokenLines.length>0){
       currentOrder.items.push({sku:BROKEN_CASE_SKU,feeAmt:BROKEN_CASE_FEE_AMT,count:brokenLines.length,_fee:true,_locked:true});
     }
@@ -2262,7 +2267,7 @@ function removeLineItem(idx){currentOrder.items.splice(idx,1);syncFees();renderL
 function updateField(idx,field,val){
   const v=Math.max(0,parseInt(val)||0);currentOrder.items[idx][field]=v;
   const p=PRODUCTS.find(y=>y.sku===currentOrder.items[idx].sku);
-  const maxLoose=p?p.btl-1:11;
+  const maxLoose=p?p.btl:12;
   if(field==='bottles'&&v>maxLoose)currentOrder.items[idx].bottles=maxLoose;
   syncFees();renderLineItems();
 }
@@ -2324,7 +2329,7 @@ function renderLineItems(){
       </tr>`;
     }
     const p=prodBySku(item.sku);if(!p)return'';
-    const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
+    const price=itemPrice(p,item.tier);const maxLoose=p.btl;
     return`<tr>
       <td style="font-weight:500">${p.name}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.sku}</td>
@@ -2372,7 +2377,7 @@ function renderLineItems(){
       </div>`;
     }
     const p=prodBySku(item.sku);if(!p)return'';
-    const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
+    const price=itemPrice(p,item.tier);const maxLoose=p.btl;
     const grossTotal=price*itemTotalBottles(item);
     return`<div class="li-card">
       <button class="li-trash" onclick="removeLineItem(${idx})"><i class="ti ti-trash"></i></button>
@@ -3654,12 +3659,12 @@ function renderEditItems(){
   const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;
 
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead><tbody>`+
-  window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
+  window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl;
     return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     const p=prodBySku(item.sku);if(!p)return'';
-    const price=itemPrice(p,item.tier);const maxLoose=p.btl-1;
+    const price=itemPrice(p,item.tier);const maxLoose=p.btl;
     const grossTotal=price*itemTotalBottles(item);
     return`<div class="li-card">
       <button class="li-trash" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button>
