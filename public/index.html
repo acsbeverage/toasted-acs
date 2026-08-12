@@ -10904,6 +10904,7 @@ function qboSendInvoice(orderId){
     .then(data=>{
       o.qboInvoiceId=data.invoiceIds?.[0]||data.invoiceId||'';
       o.qboSyncedAt=today();
+      saveOrderStatusToDB(o.id,{qboInvoiceId:o.qboInvoiceId,qboSyncedAt:o.qboSyncedAt});
       toast(orderId+' sent to QuickBooks'+(o.qboInvoiceId?' (#'+o.qboInvoiceId+')':''));
       // Refresh current page
       const active=document.querySelector('.nav-item.active');
@@ -10922,7 +10923,10 @@ function qboBatchSend(orderIds){
   qboFetch('/api/qbo/invoices','POST',{invoices:payloads})
     .then(data=>{
       (data.invoiceIds||[]).forEach((qid,i)=>{
-        if(orders[i]){orders[i].qboInvoiceId=qid;orders[i].qboSyncedAt=today();}
+        if(orders[i]){
+          orders[i].qboInvoiceId=qid;orders[i].qboSyncedAt=today();
+          saveOrderStatusToDB(orders[i].id,{qboInvoiceId:qid,qboSyncedAt:orders[i].qboSyncedAt});
+        }
       });
       toast(payloads.length+' invoice'+(payloads.length!==1?'s':'')+' sent to QuickBooks');
       renderQBOBatchModal(false);
@@ -11098,9 +11102,11 @@ function _qboFetchDaysParam(selectId){
 // payment can apply partial amounts across multiple invoices) -- so this sums applied amounts
 // per invoice and only marks an order fully paid once the applied total actually covers it.
 // Anything less is recorded as a partial payment and the order stays open in AR.
-function _qboReconcilePayments(payments, logFn){
+function _qboReconcilePayments(payments, logFn, docNumberByInvoiceId){
+  docNumberByInvoiceId=docNumberByInvoiceId||{};
   const amountByKey={}; // qboInvoiceId (or 'doc:<orderId>' fallback) -> amount applied
   const paymentIdByKey={};
+  const orderIdByKey={}; // key -> the actual Toasted order ID this resolves to, once known
 
   payments.forEach(p=>{
     let hasLineLink=false;
@@ -11108,25 +11114,40 @@ function _qboReconcilePayments(payments, logFn){
       (line.LinkedTxn||[]).forEach(lt=>{
         if(lt.TxnType!=='Invoice')return;
         hasLineLink=true;
-        amountByKey[lt.TxnId]=(amountByKey[lt.TxnId]||0)+(parseFloat(line.Amount)||0);
-        paymentIdByKey[lt.TxnId]=p.Id;
+        const key=lt.TxnId;
+        amountByKey[key]=(amountByKey[key]||0)+(parseFloat(line.Amount)||0);
+        paymentIdByKey[key]=p.Id;
+        // The invoice's own DocNumber is always the Toasted order ID (set at creation) --
+        // use it directly if we have it, regardless of whether qboInvoiceId was ever saved.
+        const docNum=docNumberByInvoiceId[lt.TxnId];
+        if(docNum)orderIdByKey[key]=docNum;
       });
     });
     if(!hasLineLink){
-      // No invoice-linked line found -- fall back to matching the whole payment by doc number
       const docNum=p.PaymentRefNum||p.DocNumber||'';
       const order=ORDERS.find(o=>o.id===docNum);
       if(order){
         const key=order.qboInvoiceId||('doc:'+order.id);
         amountByKey[key]=(amountByKey[key]||0)+(parseFloat(p.TotalAmt)||0);
         paymentIdByKey[key]=p.Id;
+        orderIdByKey[key]=order.id;
       }
     }
   });
 
   let fullyPaid=0, partial=0, skipped=0;
   Object.keys(amountByKey).forEach(key=>{
-    const order=ORDERS.find(o=>o.qboInvoiceId===key || o.id===key.replace('doc:',''));
+    let order=ORDERS.find(o=>o.qboInvoiceId===key || o.id===key.replace('doc:',''));
+    if(!order && orderIdByKey[key]){
+      // Recovered via invoice DocNumber even though qboInvoiceId wasn't on record -- find by order ID
+      // and re-link it now so future fetches match directly without needing this fallback again.
+      order=ORDERS.find(o=>o.id===orderIdByKey[key]);
+      if(order && !order.qboInvoiceId){
+        order.qboInvoiceId=key;
+        saveOrderStatusToDB(order.id,{qboInvoiceId:key});
+        logFn('Re-linked '+order.id+' to QBO invoice #'+key,'info');
+      }
+    }
     if(!order || order.paid){skipped++;return;}
     const applied=amountByKey[key];
     const total=orderTotal(order);
@@ -11157,7 +11178,7 @@ function qboFetchPayments(){
     .then(data=>{
       const payments=data.payments||[];
       _qboFetchLog('Found '+payments.length+' payment'+(payments.length!==1?'s':'')+' in QBO','ok');
-      const result=_qboReconcilePayments(payments,_qboFetchLog);
+      const result=_qboReconcilePayments(payments,_qboFetchLog,data.docNumberByInvoiceId);
       QBO_STATE.lastPaymentFetch=today()+' '+new Date().toLocaleTimeString();
       _qboFetchLog('Done: '+result.fullyPaid+' fully paid, '+result.partial+' partially paid, '+result.skipped+' skipped/unmatched','ok');
       toast('Payments fetched: '+result.fullyPaid+' paid, '+result.partial+' partial');
@@ -11320,7 +11341,7 @@ function doQuickFetchPayments(){
     .then(data=>{
       const payments=data.payments||[];
       addLog('Found '+payments.length+' payment'+(payments.length!==1?'s':'')+' in QBO','ok');
-      const result=_qboReconcilePayments(payments,addLog);
+      const result=_qboReconcilePayments(payments,addLog,data.docNumberByInvoiceId);
       QBO_STATE.lastPaymentFetch=today()+' '+new Date().toLocaleTimeString();
       addLog(result.fullyPaid+' fully paid, '+result.partial+' partially paid','ok');
       toast('Done -- '+result.fullyPaid+' paid, '+result.partial+' partial');
