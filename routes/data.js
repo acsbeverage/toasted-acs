@@ -259,6 +259,25 @@ router.post('/products/bulk-inventory', requireAdmin, async (req, res) => {
   }
 });
 
+router.get('/products/:sku/usage', requireAdmin, async (req, res) => {
+  try {
+    const row = await getOne('SELECT COUNT(*) as cnt FROM order_items WHERE sku=$1', [req.params.sku]);
+    res.json({ ok: true, orderCount: parseInt(row.cnt) || 0 });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.delete('/products/:sku', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM products WHERE sku=$1', [req.params.sku]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete product error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
     const { name, producer, cat, btl, prices, da, stock, _details, image } = req.body;
