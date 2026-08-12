@@ -448,19 +448,98 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   </div>
 </div>
 <div class="modal-bg" id="modal-account">
-  <div class="modal">
-    <div class="modal-title">Add account</div>
-    <div class="form-grid form-grid-2" style="gap:12px">
-      <div><label class="flabel">Account name</label><input class="finput" id="a-name"/></div>
-      <div><label class="flabel">License #</label><input class="finput" id="a-lic"/></div>
+  <div class="modal" style="max-width:760px;max-height:88vh;overflow-y:auto">
+    <div class="modal-title">Add Account</div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px">Basic Info</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="flabel">Account name *</label><input class="finput" id="a-name"/></div>
+      <div><label class="flabel">Account Code</label><input class="finput" id="a-code" placeholder="Leave blank to auto-assign"/></div>
+      <div><label class="flabel">Corp Group</label><input class="finput" id="a-corp-group" list="corp-group-suggestions-add" placeholder="e.g. Total Wine, Costco"/><datalist id="corp-group-suggestions-add"><option value="Total Wine"><option value="Whole Foods"><option value="Costco"><option value="BevMo"><option value="Raley's"><option value="Albertsons"><option value="New Leaf Community Markets"><option value="Lunardi's Markets"></datalist></div>
+      <div><label class="flabel">Assigned rep</label><select class="finput" id="a-rep"></select></div>
+      <div><label class="flabel">Past Due?</label><select class="finput" id="a-past-due"><option value="false">No</option><option value="true">Yes</option></select></div>
+      <div><label class="flabel">Notify Invoice Contacts for A/R?</label><select class="finput" id="a-notify-ar"><option value="true">Yes</option><option value="false">No</option></select></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Shipping Address</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+      <div style="grid-column:1/-1"><label class="flabel">Street</label><input class="finput" id="a-ship-street"/></div>
+      <div style="grid-column:1/-1"><label class="flabel">Street 2</label><input class="finput" id="a-ship-street2"/></div>
+      <div><label class="flabel">City</label><input class="finput" id="a-ship-city"/></div>
+      <div><label class="flabel">State</label><input class="finput" id="a-ship-state"/></div>
+      <div><label class="flabel">Zip</label><input class="finput" id="a-ship-zip"/></div>
+      <div><label class="flabel">County</label><input class="finput" id="a-ship-county"/></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Billing Address</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><input type="checkbox" id="a-bill-same" onchange="toggleBillSameAsShip()" style="width:16px;height:16px"/><label for="a-bill-same" style="font-size:13px;cursor:pointer">Use same address as Shipping?</label></div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px" id="a-bill-fields">
+      <div style="grid-column:1/-1"><label class="flabel">Street</label><input class="finput" id="a-bill-street"/></div>
+      <div style="grid-column:1/-1"><label class="flabel">Street 2</label><input class="finput" id="a-bill-street2"/></div>
+      <div><label class="flabel">City</label><input class="finput" id="a-bill-city"/></div>
+      <div><label class="flabel">State</label><input class="finput" id="a-bill-state"/></div>
+      <div><label class="flabel">Zip</label><input class="finput" id="a-bill-zip"/></div>
+      <div><label class="flabel">County</label><input class="finput" id="a-bill-county"/></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Contact & Payment</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
       <div><label class="flabel">Contact name</label><input class="finput" id="a-contact"/></div>
       <div><label class="flabel">Phone</label><input class="finput" id="a-phone"/></div>
       <div><label class="flabel">Email</label><input class="finput" id="a-email" placeholder="billing@account.com"/></div>
-      <div><label class="flabel">Assigned rep</label><select class="finput" id="a-rep"></select></div>
       <div><label class="flabel">Payment terms</label><select class="finput" id="a-terms"><option value="Net 30">Net 30</option><option value="Net 15">Net 15</option><option value="Net 45">Net 45</option><option value="Net 60">Net 60</option><option value="Due on receipt">Due on receipt</option><option value="COD">COD</option></select></div>
-      <div style="grid-column:1/-1"><label class="flabel">Address</label><input class="finput" id="a-addr"/></div>
+      <div><label class="flabel">Payment Provider</label><input class="finput" id="a-payment-provider" placeholder="e.g. Stripe, none"/></div>
+      <div><label class="flabel">Preferred Payment Method Name</label><input class="finput" id="a-preferred-payment-method"/></div>
     </div>
-    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-account')">Cancel</button><button class="btn btn-dark" onclick="saveAccount()">Save account</button></div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">General</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="flabel">Type</label><select class="finput" id="a-type"><option value="">-- Select --</option><option>Restaurant</option><option>Bar</option><option>Retail Store</option><option>Hotel</option><option>Distributor</option><option>Other</option></select></div>
+      <div><label class="flabel">Region</label><input class="finput" id="a-region" placeholder="e.g. North, South"/></div>
+      <div style="grid-column:1/-1"><label class="flabel">Allowed Ship Days</label><select class="finput" id="a-ship-days" multiple style="height:100px"><option value="Monday">Monday</option><option value="Tuesday">Tuesday</option><option value="Wednesday">Wednesday</option><option value="Thursday">Thursday</option><option value="Friday">Friday</option><option value="Saturday">Saturday</option><option value="Sunday">Sunday</option></select></div>
+      <div style="grid-column:1/-1"><label class="flabel">Tasting Hours</label><textarea class="finput" id="a-tasting-hours" style="min-height:50px"></textarea></div>
+      <div style="grid-column:1/-1"><label class="flabel">Delivery Notes</label><textarea class="finput" id="a-delivery-notes" style="min-height:50px"></textarea></div>
+      <div><label class="flabel">Website</label><input class="finput" id="a-website" placeholder="https://"/></div>
+      <div><label class="flabel">Warehouse Code</label><input class="finput" id="a-warehouse-code"/></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-top:20px"><input type="checkbox" id="a-show-upc" style="width:16px;height:16px"/><label for="a-show-upc" style="font-size:13px;cursor:pointer">Show Product UPC on invoices</label></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Sales</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="flabel">Avg. Monthly Sales Estimate</label><input class="finput" type="number" id="a-avg-monthly-sales" value="0"/></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-top:20px"><input type="checkbox" id="a-override-avg-sales" style="width:16px;height:16px"/><label for="a-override-avg-sales" style="font-size:13px;cursor:pointer">Override the Avg. Monthly Sales?</label></div>
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-prospective" style="width:16px;height:16px"/><label for="a-prospective" style="font-size:13px;cursor:pointer">Prospective?</label></div>
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-sample" style="width:16px;height:16px"/><label for="a-sample" style="font-size:13px;cursor:pointer">Sample account?</label></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Tax & Legal</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-redemption" checked style="width:16px;height:16px"/><label for="a-redemption" style="font-size:13px;cursor:pointer">Redemption Enabled?</label></div>
+      <div><label class="flabel">Tax ID #</label><input class="finput" id="a-tax-id"/></div>
+      <div><label class="flabel">ABC #</label><input class="finput" id="a-lic"/></div>
+      <div><label class="flabel">ABC License Detail</label><input class="finput" id="a-abc-detail" placeholder="Unknown"/></div>
+      <div><label class="flabel">License Expiration</label><input class="finput" id="a-lic-expiry" placeholder="MM/DD/YYYY"/></div>
+      <div><label class="flabel">Resale #</label><input class="finput" id="a-resale-num"/></div>
+      <div><label class="flabel">Alternate License</label><input class="finput" id="a-alt-license"/></div>
+      <div><label class="flabel">Alternate License Expiration</label><input class="finput" id="a-alt-license-expiry" placeholder="MM/DD/YYYY"/></div>
+      <div style="grid-column:1/-1"><label class="flabel">External Identifier (1)</label><input class="finput" id="a-external-id"/></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Invoicing / Delivery</div>
+    <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-online-payments" style="width:16px;height:16px"/><label for="a-online-payments" style="font-size:13px;cursor:pointer">Online Payments Enabled?</label></div>
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-master-invoice" style="width:16px;height:16px"/><label for="a-master-invoice" style="font-size:13px;cursor:pointer">Prefers Master Invoice?</label></div>
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-allow-orders" checked style="width:16px;height:16px"/><label for="a-allow-orders" style="font-size:13px;cursor:pointer">Allow Orders?</label></div>
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="a-cod-email" style="width:16px;height:16px"/><label for="a-cod-email" style="font-size:13px;cursor:pointer">COD Email Notifications?</label></div>
+      <div style="grid-column:1/-1"><label class="flabel">Billing Invoice Title</label><input class="finput" id="a-billing-invoice-title" placeholder="Leave blank to use Account name"/></div>
+      <div><label class="flabel">Credit Limit</label><input class="finput" type="number" id="a-credit-limit" value="0"/></div>
+      <div><label class="flabel">Commission Rate (%)</label><input class="finput" type="number" id="a-commission" value="0"/></div>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;color:#2CA01C;margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">QuickBooks Online</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><input type="checkbox" id="a-create-in-qb" style="width:16px;height:16px"/><label for="a-create-in-qb" style="font-size:13px;cursor:pointer">Create / Update in QuickBooks after saving?</label></div>
+
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-account')">Cancel</button><button class="btn btn-dark" onclick="saveAccount()">Create Account</button></div>
   </div>
 </div>
 <div class="modal-bg" id="modal-change-pw">
@@ -746,7 +825,8 @@ function orderSortSelectHtml(id,onchangeFn,current){
 // Detects dedicated sample-tracking accounts by name (e.g. "Samples-Aaron Goldman", "Sample Customer")
 function isSampleAcct(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);
-  return !!(a&&/^samples?\b/i.test((a.name||'').trim()));
+  if(!a)return false;
+  return !!(a.isSampleAccount||/^samples?\b/i.test((a.name||'').trim()));
 }
 
 // Auto-sync fees on currentOrder whenever items change
@@ -4335,7 +4415,7 @@ function renderAccountsPage(){
   _acctSearch='';_acctRepFilter='';_acctPage=1;
   const filtered=_filterAcctsList();
 
-  document.getElementById('topbar-right').innerHTML=`<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button>`;
+  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button></div>`;
 
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
@@ -4663,15 +4743,10 @@ function addProductToOrder(sku){
 
 function renderUsers(){
   document.getElementById('main-content').innerHTML=`
-  <div class="tabs"><div class="tab active" onclick="switchTab('tab-u','tab-a tab-cp',this)">Users</div><div class="tab" onclick="switchTab('tab-a','tab-u tab-cp',this)">Accounts</div><div class="tab" onclick="switchTab('tab-cp','tab-u tab-a',this)">Customer Logins</div></div>
+  <div class="tabs"><div class="tab active" onclick="switchTab('tab-u','tab-cp',this)">Users</div><div class="tab" onclick="switchTab('tab-cp','tab-u',this)">Customer Logins</div></div>
   <div id="tab-u"><div class="card"><div class="card-header"><span class="card-title">${USERS.length} users</span><button class="btn btn-sm btn-dark" onclick="openAddUser()"><i class="ti ti-plus"></i> Add user</button></div>
   <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Commission</th><th>Accounts assigned</th><th></th></tr></thead>
   <tbody>${USERS.map(u=>`<tr><td style="font-weight:600">${u.fname} ${u.lname}</td><td style="color:var(--text2)">${u.email}</td><td><span class="badge ${u.role==='admin'?'badge-admin':'badge-rep'}">${u.role==='admin'?'Admin':'Sales Rep'}</span></td><td>${u.role==='rep'?`<span class="tier-pill">${u.commission||0}%</span>`:'--'}</td><td style="font-size:12px;color:var(--text2)">${u.role==='admin'?'All accounts':ACCOUNTS.filter(a=>a.rep===u.id).length+' accounts'}</td><td style="display:flex;gap:6px"><button class="btn btn-sm" onclick="openEditUser('${u.id}')"><i class="ti ti-edit"></i></button>${u.id!==currentUser.id?`<button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteUser('${u.id}')" title="Delete user"><i class="ti ti-trash"></i></button>`:''}</td></tr>`).join('')}
-  </tbody></table></div></div>
-  <div id="tab-a" class="hidden"><div class="card"><div class="card-header"><span class="card-title">${ACCOUNTS.length} accounts</span><button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add account</button></div>
-  <table class="tbl"><thead><tr><th>Account</th><th>License</th><th>Contact</th><th>Email</th><th>Terms</th><th>Address</th><th>Rep</th></tr></thead>
-  <tbody>${ACCOUNTS.map(a=>{const rep=USERS.find(u=>u.id===a.rep);return`<tr><td style="font-weight:600">${a.name}</td><td style="font-size:12px;color:var(--text2)">${a.lic}</td><td>${a.contact}</td><td style="color:var(--text2);font-size:12px">${a.email||'--'}</td><td><span class="tier-pill">${a.terms||'Net 30'}</span></td><td style="color:var(--text2);font-size:12px">${a.address}</td><td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td></tr>`}).join('')}
-  <tbody>${ACCOUNTS.map(a=>{const rep=USERS.find(u=>u.id===a.rep);return`<tr><td style="font-weight:600">${a.name}</td><td style="font-size:12px;color:var(--text2)">${a.lic}</td><td>${a.contact}</td><td style="color:var(--text2);font-size:12px">${a.email||'--'}</td><td><span class="tier-pill">${a.terms||'Net 30'}</span></td><td style="color:var(--text2);font-size:12px">${a.address}</td><td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td></tr>`}).join('')}
   </tbody></table></div></div>
   <div id="tab-cp" class="hidden"><div class="card"><div class="card-header"><span class="card-title">${CUSTOMER_USERS.length} customer portal logins</span><button class="btn btn-sm btn-dark" onclick="openAddCustomerLogin()"><i class="ti ti-plus"></i> Add customer login</button></div>
   <div style="padding:10px 18px;background:#fffbe8;border-bottom:1px solid var(--border);font-size:12px;color:#8a6a00"><i class="ti ti-info-circle" style="vertical-align:-2px;margin-right:4px"></i>Customer portal logins give account holders access to view their invoices, order history, and place orders directly.</div>
@@ -4747,7 +4822,50 @@ async function saveUser(){const fname=document.getElementById('u-fname').value.t
   }
   closeModal('modal-user');toast('User saved');renderUsers();
 }
-function openAddAccount(){document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');['a-name','a-lic','a-contact','a-phone','a-email','a-addr'].forEach(id=>document.getElementById(id).value='');document.getElementById('a-terms').value='Net 30';document.getElementById('modal-account').classList.add('open')}
+function toggleBillSameAsShip(){
+  const same=document.getElementById('a-bill-same').checked;
+  document.getElementById('a-bill-fields').style.opacity=same?'0.5':'1';
+  document.getElementById('a-bill-fields').style.pointerEvents=same?'none':'auto';
+  if(same){
+    document.getElementById('a-bill-street').value=document.getElementById('a-ship-street').value;
+    document.getElementById('a-bill-street2').value=document.getElementById('a-ship-street2').value;
+    document.getElementById('a-bill-city').value=document.getElementById('a-ship-city').value;
+    document.getElementById('a-bill-state').value=document.getElementById('a-ship-state').value;
+    document.getElementById('a-bill-zip').value=document.getElementById('a-ship-zip').value;
+    document.getElementById('a-bill-county').value=document.getElementById('a-ship-county').value;
+  }
+}
+function openAddAccount(){
+  document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');
+  ['a-name','a-code','a-corp-group','a-lic','a-contact','a-phone','a-email',
+   'a-ship-street','a-ship-street2','a-ship-city','a-ship-state','a-ship-zip','a-ship-county',
+   'a-bill-street','a-bill-street2','a-bill-city','a-bill-state','a-bill-zip','a-bill-county',
+   'a-payment-provider','a-preferred-payment-method','a-region','a-tasting-hours','a-delivery-notes',
+   'a-website','a-warehouse-code','a-tax-id','a-abc-detail','a-lic-expiry','a-resale-num',
+   'a-alt-license','a-alt-license-expiry','a-external-id','a-billing-invoice-title'
+  ].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('a-terms').value='Net 30';
+  document.getElementById('a-type').value='';
+  document.getElementById('a-past-due').value='false';
+  document.getElementById('a-notify-ar').value='true';
+  document.getElementById('a-avg-monthly-sales').value='0';
+  document.getElementById('a-credit-limit').value='0';
+  document.getElementById('a-commission').value='0';
+  [...document.getElementById('a-ship-days').options].forEach(o=>o.selected=false);
+  document.getElementById('a-bill-same').checked=false;
+  document.getElementById('a-show-upc').checked=false;
+  document.getElementById('a-override-avg-sales').checked=false;
+  document.getElementById('a-prospective').checked=false;
+  document.getElementById('a-sample').checked=false;
+  document.getElementById('a-redemption').checked=true;
+  document.getElementById('a-online-payments').checked=false;
+  document.getElementById('a-master-invoice').checked=false;
+  document.getElementById('a-allow-orders').checked=true;
+  document.getElementById('a-cod-email').checked=false;
+  document.getElementById('a-create-in-qb').checked=false;
+  toggleBillSameAsShip();
+  document.getElementById('modal-account').classList.add('open');
+}
 async function deleteUser(id){
   const u=USERS.find(x=>x.id===id);
   if(!u)return;
@@ -4775,15 +4893,64 @@ function saveAccount(){
   const name=document.getElementById('a-name').value.trim();
   if(!name){alert('Account name required.');return}
   const rep=document.getElementById('a-rep').value;
+  const shipStreet=document.getElementById('a-ship-street').value;
+  const shipCity=document.getElementById('a-ship-city').value;
+  const shipState=document.getElementById('a-ship-state').value;
+  const shipZip=document.getElementById('a-ship-zip').value;
+  const billSame=document.getElementById('a-bill-same').checked;
   const payload={
-    name,lic:document.getElementById('a-lic').value,
+    name,
+    code:document.getElementById('a-code').value.trim()||undefined,
+    corpGroup:document.getElementById('a-corp-group').value,
+    lic:document.getElementById('a-lic').value,
     contact:document.getElementById('a-contact').value,
     phone:document.getElementById('a-phone').value,
     email:document.getElementById('a-email').value,
-    address:document.getElementById('a-addr').value,
+    address:[shipStreet,shipCity,shipState,shipZip].filter(Boolean).join(', '),
     terms:document.getElementById('a-terms').value||'Net 30',
-    rep
+    rep,
+    pastDue:document.getElementById('a-past-due').value==='true',
+    notifyInvoiceContactsAR:document.getElementById('a-notify-ar').value==='true',
+    shipStreet, shipStreet2:document.getElementById('a-ship-street2').value,
+    shipCity, shipState, shipZip,
+    shipCounty:document.getElementById('a-ship-county').value,
+    billStreet:billSame?shipStreet:document.getElementById('a-bill-street').value,
+    billStreet2:billSame?document.getElementById('a-ship-street2').value:document.getElementById('a-bill-street2').value,
+    billCity:billSame?shipCity:document.getElementById('a-bill-city').value,
+    billState:billSame?shipState:document.getElementById('a-bill-state').value,
+    billZip:billSame?shipZip:document.getElementById('a-bill-zip').value,
+    billCounty:billSame?document.getElementById('a-ship-county').value:document.getElementById('a-bill-county').value,
+    paymentProvider:document.getElementById('a-payment-provider').value,
+    preferredPaymentMethodName:document.getElementById('a-preferred-payment-method').value,
+    accountType:document.getElementById('a-type').value,
+    region:document.getElementById('a-region').value,
+    allowedShipDays:[...document.getElementById('a-ship-days').selectedOptions].map(o=>o.value).join(','),
+    tastingHours:document.getElementById('a-tasting-hours').value,
+    deliveryNotes:document.getElementById('a-delivery-notes').value,
+    website:document.getElementById('a-website').value,
+    warehouseCode:document.getElementById('a-warehouse-code').value,
+    showProductUpc:document.getElementById('a-show-upc').checked,
+    avgMonthlySalesEstimate:parseFloat(document.getElementById('a-avg-monthly-sales').value)||0,
+    overrideAvgMonthlySales:document.getElementById('a-override-avg-sales').checked,
+    isProspective:document.getElementById('a-prospective').checked,
+    isSampleAccount:document.getElementById('a-sample').checked,
+    redemption:document.getElementById('a-redemption').checked?'Yes':'No',
+    taxId:document.getElementById('a-tax-id').value,
+    abcDetail:document.getElementById('a-abc-detail').value,
+    licExpiry:document.getElementById('a-lic-expiry').value,
+    resaleNum:document.getElementById('a-resale-num').value,
+    alternateLicense:document.getElementById('a-alt-license').value,
+    alternateLicenseExpiry:document.getElementById('a-alt-license-expiry').value,
+    externalIdentifier1:document.getElementById('a-external-id').value,
+    onlinePayments:document.getElementById('a-online-payments').checked?'Yes':'No',
+    prefersMasterInvoice:document.getElementById('a-master-invoice').checked,
+    allowOrders:document.getElementById('a-allow-orders').checked,
+    codEmailNotifications:document.getElementById('a-cod-email').checked,
+    billingInvoiceTitle:document.getElementById('a-billing-invoice-title').value,
+    creditLimit:parseFloat(document.getElementById('a-credit-limit').value)||0,
+    commissionPct:parseFloat(document.getElementById('a-commission').value)||0,
   };
+  const createInQB=document.getElementById('a-create-in-qb').checked;
   fetch(TOASTED_BACKEND_URL+'/api/accounts',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
@@ -4795,7 +4962,8 @@ function saveAccount(){
     if(ru&&ru.accounts&&!ru.accounts.includes(res.id))ru.accounts.push(res.id);
     closeModal('modal-account');
     toast('Account added -- assigned #'+res.code);
-    renderUsers();
+    if(currentUser.role==='admin')showPage('accounts');
+    if(createInQB)qboSyncAccount(res.id);
   }).catch(()=>alert('Could not create account -- check connection'));
 }
 
