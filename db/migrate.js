@@ -89,6 +89,7 @@ async function migrate() {
     CONSTRAINT single_row CHECK (id = 1)
   )`);
   await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS labels_printed BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS partial_paid_amount NUMERIC(10,2)`);
 
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS warehouse TEXT DEFAULT 'main'`);
