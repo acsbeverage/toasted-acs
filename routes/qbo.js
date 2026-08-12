@@ -344,4 +344,63 @@ router.get('/config', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── SYNC ONE ACCOUNT TO QUICKBOOKS AS A CUSTOMER ─────────────────────────
+router.post('/customers/sync', requireAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.body;
+    if (!accountId) return res.status(400).json({ ok: false, message: 'accountId required' });
+
+    const acct = await getOne('SELECT * FROM accounts WHERE id=$1', [accountId]);
+    if (!acct) return res.status(404).json({ ok: false, message: 'Account not found in Toasted' });
+
+    const conn = await getConnection();
+    if (!conn || !conn.access_token) return res.status(400).json({ ok: false, message: 'Not connected to QuickBooks' });
+
+    const addr = (acct.ship_street || acct.ship_city) ? {
+      Line1: acct.ship_street || '',
+      City: acct.ship_city || '',
+      CountrySubDivisionCode: acct.ship_state || '',
+      PostalCode: acct.ship_zip || '',
+    } : undefined;
+
+    let qboCustomer;
+
+    if (acct.qbo_id) {
+      // Already linked -- fetch current SyncToken (required by QBO for any update) and push changes
+      const current = await qboApi('GET', `/v3/company/${conn.realm_id}/customer/${acct.qbo_id}?minorversion=65`);
+      const result = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
+        Id: current.Customer.Id,
+        SyncToken: current.Customer.SyncToken,
+        sparse: true,
+        DisplayName: acct.name,
+        PrimaryEmailAddr: acct.email ? { Address: acct.email } : undefined,
+        PrimaryPhone: acct.phone ? { FreeFormNumber: acct.phone } : undefined,
+        BillAddr: addr,
+      });
+      qboCustomer = result.Customer;
+    } else {
+      // Not linked yet -- check QBO for an existing customer with this exact name first, to avoid creating a duplicate
+      const safeName = acct.name.replace(/'/g, "\\'");
+      const found = await qboQuery(null, `SELECT * FROM Customer WHERE DisplayName = '${safeName}'`);
+      if (found.QueryResponse?.Customer?.length) {
+        qboCustomer = found.QueryResponse.Customer[0];
+      } else {
+        const created = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
+          DisplayName: acct.name,
+          PrimaryEmailAddr: acct.email ? { Address: acct.email } : undefined,
+          PrimaryPhone: acct.phone ? { FreeFormNumber: acct.phone } : undefined,
+          BillAddr: addr,
+        });
+        qboCustomer = created.Customer;
+      }
+    }
+
+    await query('UPDATE accounts SET qbo_id=$1 WHERE id=$2', [qboCustomer.Id, accountId]);
+    res.json({ ok: true, qboId: qboCustomer.Id, displayName: qboCustomer.DisplayName });
+  } catch (err) {
+    console.error('QBO customer sync error:', err.message);
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
 module.exports = router;
