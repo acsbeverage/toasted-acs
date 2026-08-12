@@ -247,87 +247,13 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/diagnose-tier-prices', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-diagprices') return res.status(403).json({ok:false});
-  try {
-    const { query, getAll } = require('./db');
 
-    // True duplicates: exact same sku+tier_name+account_id appearing more than once
-    // (should be impossible given app-level checks, but worth confirming)
-    const exactDupes = await getAll(`
-      SELECT sku, tier_name, account_id, COUNT(*) as cnt, array_agg(id) as ids, array_agg(price) as prices
-      FROM product_tier_prices
-      GROUP BY sku, tier_name, account_id
-      HAVING COUNT(*) > 1
-    `);
-
-    // Zero-priced entries -- a tier that exists but has no price set
-    const zeroPriced = await getAll(`
-      SELECT sku, tier_name, id FROM product_tier_prices WHERE price = 0 OR price IS NULL
-    `);
-
-    // Same-price clusters: a product where multiple universal (non-account-specific) tiers
-    // share the identical price -- these might be duplicate labels for the same deal, or
-    // might be genuinely different named deals that happen to cost the same. Flagged for review, not auto-deleted.
-    const samePriceClusters = await getAll(`
-      SELECT sku, price, COUNT(*) as cnt, array_agg(tier_name) as tier_names, array_agg(id) as ids
-      FROM product_tier_prices
-      WHERE account_id IS NULL AND price > 0
-      GROUP BY sku, price
-      HAVING COUNT(*) > 1
-      ORDER BY cnt DESC
-      LIMIT 30
-    `);
-
-    const totalRows = await getAll(`SELECT COUNT(*) as cnt FROM product_tier_prices`);
-
-    res.json({
-      ok: true,
-      totalRows: parseInt(totalRows[0].cnt),
-      exactDuplicates: { count: exactDupes.length, sample: exactDupes.slice(0, 20) },
-      zeroPriced: { count: zeroPriced.length, sample: zeroPriced.slice(0, 20) },
-      samePriceClusters: { count: samePriceClusters.length, sample: samePriceClusters },
-    });
   } catch (err) {
     console.error('Diagnose tier prices error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-app.get('/api/fix-tier-redundancy', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-fixtiers') return res.status(403).json({ok:false});
-  try {
-    const { query, getAll } = require('./db');
-    // Maps the canonical tier name (as imported) to its original fixed-column pair
-    const tierColMap = {
-      'Frontline': { price: 'price_frontline', da: 'da_frontline' },
-      '12 Bottle Mix Match': { price: 'price_mix12', da: 'da_mix12' },
-      '3 Case Mix Match ACS': { price: 'price_acs3', da: 'da_acs3' },
-      '3 Case Mix - Brand Family Only': { price: 'price_brand3', da: 'da_brand3' },
-      '5 Case Mix - Brand Family Only': { price: 'price_brand5', da: 'da_brand5' },
-    };
-    let migrated = 0, removed = 0;
-    const details = [];
-    for (const [tierName, cols] of Object.entries(tierColMap)) {
-      // Only universal (non-account-specific) rows -- account-specific pricing has no fixed-column equivalent
-      const rows = await getAll(
-        `SELECT id, sku, price, da_amount FROM product_tier_prices WHERE tier_name=$1 AND account_id IS NULL`,
-        [tierName]
-      );
-      for (const r of rows) {
-        await query(`UPDATE products SET ${cols.price}=$1, ${cols.da}=$2 WHERE sku=$3`, [r.price, r.da_amount || 0, r.sku]);
-        await query(`DELETE FROM product_tier_prices WHERE id=$1`, [r.id]);
-        migrated++;
-      }
-      removed += rows.length;
-      details.push({ tierName, rowsMoved: rows.length });
-    }
-    const remaining = await getAll(`SELECT COUNT(*) as cnt FROM product_tier_prices`);
-    res.json({ ok: true, migrated, removed, details, remainingSpecialPricingRows: parseInt(remaining[0].cnt) });
-  } catch (err) {
-    console.error('Fix tier redundancy error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
+
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
