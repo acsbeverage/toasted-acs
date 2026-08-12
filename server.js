@@ -293,6 +293,41 @@ app.get('/api/diagnose-tier-prices', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/fix-tier-redundancy', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-fixtiers') return res.status(403).json({ok:false});
+  try {
+    const { query, getAll } = require('./db');
+    // Maps the canonical tier name (as imported) to its original fixed-column pair
+    const tierColMap = {
+      'Frontline': { price: 'price_frontline', da: 'da_frontline' },
+      '12 Bottle Mix Match': { price: 'price_mix12', da: 'da_mix12' },
+      '3 Case Mix Match ACS': { price: 'price_acs3', da: 'da_acs3' },
+      '3 Case Mix - Brand Family Only': { price: 'price_brand3', da: 'da_brand3' },
+      '5 Case Mix - Brand Family Only': { price: 'price_brand5', da: 'da_brand5' },
+    };
+    let migrated = 0, removed = 0;
+    const details = [];
+    for (const [tierName, cols] of Object.entries(tierColMap)) {
+      // Only universal (non-account-specific) rows -- account-specific pricing has no fixed-column equivalent
+      const rows = await getAll(
+        `SELECT id, sku, price, da_amount FROM product_tier_prices WHERE tier_name=$1 AND account_id IS NULL`,
+        [tierName]
+      );
+      for (const r of rows) {
+        await query(`UPDATE products SET ${cols.price}=$1, ${cols.da}=$2 WHERE sku=$3`, [r.price, r.da_amount || 0, r.sku]);
+        await query(`DELETE FROM product_tier_prices WHERE id=$1`, [r.id]);
+        migrated++;
+      }
+      removed += rows.length;
+      details.push({ tierName, rowsMoved: rows.length });
+    }
+    const remaining = await getAll(`SELECT COUNT(*) as cnt FROM product_tier_prices`);
+    res.json({ ok: true, migrated, removed, details, remainingSpecialPricingRows: parseInt(remaining[0].cnt) });
+  } catch (err) {
+    console.error('Fix tier redundancy error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
