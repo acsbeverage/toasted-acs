@@ -12,6 +12,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth',   require('./routes/auth'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/po',     require('./routes/purchaseOrders'));
+app.use('/api/qbo',    require('./routes/qbo'));
 app.use('/api',        require('./routes/data'));
 
 app.get('/health', (req, res) => res.json({
