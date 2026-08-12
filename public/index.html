@@ -1138,8 +1138,11 @@ async function triggerBackgroundPortalRefresh(page){
   _bgPortalRefreshInFlight=true;_lastBgPortalRefresh=now;
   try{
     await loadPortalData();
-    // Never force-rerender the order builder -- would wipe out an in-progress order
-    if(page!=='neworder'){
+    // Never force-rerender the order builder -- would wipe out an in-progress order.
+    // Also skip if the customer is actively typing somewhere -- don't wipe unsaved input.
+    const activeTag=document.activeElement?document.activeElement.tagName:'';
+    const isTyping=activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT';
+    if(page!=='neworder' && !isTyping){
       const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices};
       if(fns[page])fns[page]();
     }
@@ -1826,9 +1829,12 @@ async function triggerBackgroundRefresh(page){
   try{
     await loadAllDataFromBackend();
     updateBadges();
-    // Only re-render if the user is still on the page that triggered this, and it's safe to re-render
-    // (never force-refresh a builder screen -- that would wipe out an in-progress order/tasting)
-    if(_currentPage===page && !BUILDER_PAGES.includes(page)){
+    // Only re-render if the user is still on the page that triggered this, it's safe to re-render
+    // (never force-refresh a builder screen -- that would wipe out an in-progress order/tasting),
+    // and they're not actively typing somewhere -- a re-render would wipe out unsaved input.
+    const activeTag=document.activeElement?document.activeElement.tagName:'';
+    const isTyping=activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT';
+    if(_currentPage===page && !BUILDER_PAGES.includes(page) && !isTyping){
       _dispatchPageRender(page);
     }
   }catch(e){console.error('Background refresh failed:',e.message);}
