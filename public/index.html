@@ -2278,6 +2278,9 @@ function updateItemDiscount(idx,val){
   currentOrder.items[idx].discountPct=pct;
   renderLineItems();
 }
+function updateItemNotes(idx,val){
+  currentOrder.items[idx].notes=val.trim();
+}
 
 function renderLineItems(){
   const wrap=document.getElementById('line-items-wrap');if(!wrap)return;
@@ -2288,12 +2291,12 @@ function renderLineItems(){
 
   // -- DESKTOP TABLE VIEW --------------------------------------------------
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl">
-  <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead>
+  <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th><th></th></tr></thead>
   <tbody>`+
   currentOrder.items.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
       return`<tr style="background:#F5F3FF">
-        <td colspan="10" style="font-size:12px;color:#5B4FA0;font-weight:500">
+        <td colspan="11" style="font-size:12px;color:#5B4FA0;font-weight:500">
           <i class="ti ti-truck-delivery" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
           Delivery fee
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveDelivery()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:'<span style="font-size:11px;color:var(--text3);margin-left:6px">(standard)</span>'}
@@ -2308,7 +2311,7 @@ function renderLineItems(){
         ?`removeLineItem(${idx})`
         :`waiveBrokenCase()`;
       return`<tr style="background:#FFF8E8">
-        <td colspan="10" style="font-size:12px;color:var(--amber);font-weight:500">
+        <td colspan="11" style="font-size:12px;color:var(--amber);font-weight:500">
           <i class="ti ti-puzzle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
           Broken case fee${isManual?' (manual)':' -- '+item.count+' line item'+(item.count!==1?'s':'')+' with loose bottles'} × $${(item.feeAmt||BROKEN_CASE_FEE_AMT).toFixed(2)}
           <span style="font-size:11px;color:var(--text3);margin-left:8px"><button onclick="${removeAction}" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>
@@ -2319,7 +2322,7 @@ function renderLineItems(){
     }
     if(item.sku===CRV_SKU){
       return`<tr style="background:#E8F8F5">
-        <td colspan="10" style="font-size:12px;color:#0D7A5F;font-weight:500">
+        <td colspan="11" style="font-size:12px;color:#0D7A5F;font-weight:500">
           <i class="ti ti-recycle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
           CRV -- ${item.bottles} bottle${item.bottles!==1?'s':''} × $${item.rate.toFixed(2)} (${item.label})
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:''}
@@ -2344,6 +2347,7 @@ function renderLineItems(){
       <td><div style="display:flex;align-items:center;gap:4px"><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateField(${idx},'bottles',this.value)"/><span style="font-size:10px;color:var(--text3)">/${maxLoose}</span></div></td>
       <td id="tb-${idx}" style="font-size:12px;color:var(--text2);white-space:nowrap">${itemTotalBottles(item)} btl</td>
       <td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateItemDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td>
+      <td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateItemNotes(${idx},this.value)"/></td>
       <td id="lt-${idx}" style="font-weight:600;white-space:nowrap">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td>
       <td><button class="btn-delete-item" onclick="removeLineItem(${idx})"><i class="ti ti-trash"></i></button></td>
     </tr>`;
@@ -2394,6 +2398,11 @@ function renderLineItems(){
       <label class="li-label">% Disc.</label>
       <div class="li-row">
         <input type="number" class="li-disc-input" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateItemDiscount(${idx},this.value)"/>
+      </div>
+
+      <label class="li-label">Notes</label>
+      <div class="li-row">
+        <input type="text" class="finput" style="font-size:15px;padding:10px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateItemNotes(${idx},this.value)"/>
       </div>
 
       <div class="li-field-row">
@@ -3653,14 +3662,17 @@ function updateEditDiscount(idx,val){
   window._editItems[idx].discountPct=pct;
   renderEditItems();
 }
+function updateEditNotes(idx,val){
+  window._editItems[idx].notes=val.trim();
+}
 function renderEditItems(){
   const wrap=document.getElementById('edit-line-items');
   if(!window._editItems.length){wrap.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No products -- search above to add</div>';document.getElementById('edit-total').textContent='';return}
   const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;
 
-  const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Line total</th><th></th></tr></thead><tbody>`+
+  const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th><th></th></tr></thead><tbody>`+
   window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemPrice(p,item.tier);const maxLoose=p.btl;
-    return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+    return`<tr><td style="font-weight:500">${p.name}</td><td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemPrice(p,item.tier)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     const p=prodBySku(item.sku);if(!p)return'';
@@ -3681,6 +3693,11 @@ function renderEditItems(){
       <label class="li-label">% Disc.</label>
       <div class="li-row">
         <input type="number" class="li-disc-input" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/>
+      </div>
+
+      <label class="li-label">Notes</label>
+      <div class="li-row">
+        <input type="text" class="finput" style="font-size:15px;padding:10px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/>
       </div>
 
       <div class="li-field-row">
@@ -6534,7 +6551,7 @@ function renderRA5(el, orders, producerFilter){
         quantity:qty,
         unitPrice:unitPrice,
         total:itemLineTotal(item),
-        notes:o.notes||'',
+        notes:item.notes||o.notes||'',
         invoice:o.id,
         poNumber:o.po||'',
         warehouse:'ACS Warehouse',
@@ -6806,7 +6823,7 @@ function renderRC12(el, from, to, producerFilter){
       acctMap[o.acct].lines.push({
         invoice:o.id,date:o.date,sku:item.sku,product:p.name,producer:p.producer,
         qtyCases,qtyBottles,defaultPrice,fobPrice,laidInCost,sampleBillBack,totalSampleBillBack,
-        totalSamplePrice,totalFobPrice,notes:o.notes||'',
+        totalSamplePrice,totalFobPrice,notes:item.notes||o.notes||'',
       });
       acctMap[o.acct].orderTotal+=itemLineTotal(item);
     });
