@@ -1136,6 +1136,7 @@ function doLogin(){
     if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
     updateBadges();
+    if(u.role==='admin')qboCheckStatus();
     loadAllDataFromBackend().then(()=>showPage('dashboard'));
   }).catch(err=>{
     console.error('Login error:',err);
@@ -1692,6 +1693,7 @@ function doLogout(){
     if(nm)nm.textContent=(u.fname||'')+' '+(u.lname||'');
     if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
+    if(u.role==='admin')qboCheckStatus();
     const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','logistics','fetchqbo','docs','users','pricing','settings','import','reports','ar','products','po'];
     const hashPage=(location.hash||'').replace('#','');
     const restorePage=RESTORABLE_PAGES.includes(hashPage)?hashPage:'dashboard';
