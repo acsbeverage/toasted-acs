@@ -5031,6 +5031,10 @@ function renderSettings(){
   `;
   document.getElementById('main-content').innerHTML += renderQBOSettings();
   renderQBOStatusBadge();
+  qboCheckStatus().then(()=>{
+    const qboCard=document.getElementById('qbo-status-badge')?.closest('.card');
+    if(qboCard)qboCard.outerHTML=renderQBOSettings();
+  });
 }
 function saveSettings(){COMPANY.name=document.getElementById('co-name').value;COMPANY.address=document.getElementById('co-addr').value;COMPANY.phone=document.getElementById('co-phone').value;COMPANY.email=document.getElementById('co-email').value;COMPANY.website=document.getElementById('co-website').value;COMPANY.license=document.getElementById('co-lic').value;toast('Settings saved')}
 function previewInvoice(){const c=ORDERS.find(o=>o.status==='confirmed');if(c)downloadInvoice(c.id);else toast('No confirmed orders to preview')}
@@ -10541,38 +10545,39 @@ function saveProduct(){
 // Architecture:
 //   Browser -> [Backend Proxy] -> QBO API
 //   OAuth tokens stored server-side only. Browser never sees client_secret.
-//   When backend is deployed, set QBO_BACKEND_URL to your server URL.
-//   All QBO_* calls go through /api/qbo/* on your backend.
-//
-// Backend required endpoints (see stub below):
-//   POST /api/qbo/auth-url      -> returns {url} for OAuth redirect
-//   POST /api/qbo/callback      -> exchanges code->token, returns {connected:true}
+// QuickBooks integration runs on the same backend as the rest of Toasted.
+// All QBO_* calls go through /api/qbo/* -- see routes/qbo.js in the backend.
+//   POST /api/qbo/auth-url      -> returns {url} for OAuth redirect (popup)
+//   GET  /api/qbo/callback      -> Intuit redirects here directly; not called from JS
 //   GET  /api/qbo/status        -> returns {connected, companyName, realmId}
 //   POST /api/qbo/disconnect    -> revokes token
-//   POST /api/qbo/invoices      -> creates invoice(s), returns {invoiceId}
-//   POST /api/qbo/customers     -> upserts customer, returns {customerId}
-//   GET  /api/qbo/items         -> returns QBO items/products list
+//   POST /api/qbo/invoices      -> creates invoice(s), returns {invoiceIds}
+//   GET  /api/qbo/payments      -> returns {payments}
+//   GET  /api/qbo/customers     -> returns {customers}
+//   GET  /api/qbo/items         -> returns {items}
+//   GET  /api/qbo/config        -> returns {items} (payment methods, terms, classes, departments)
 
-const QBO_BACKEND_URL = ''; // e.g. 'https://your-backend.onrender.com' - set when deployed
 let QBO_STATE = {
   connected: false,
   companyName: '',
   realmId: '',
   environment: 'sandbox', // 'sandbox' | 'production'
-  clientId: '',           // entered in Settings (safe - not secret)
   lastSync: null,
   pendingOrders: [],      // order IDs queued for QBO sync
 };
 
 // -- HELPERS ------------------------------------------------------------------
 function qboFetch(path, method='GET', body=null){
-  if(!QBO_BACKEND_URL){
-    return Promise.reject(new Error('Backend not configured. Set QBO_BACKEND_URL in Settings.'));
+  if(!TOASTED_BACKEND_URL){
+    return Promise.reject(new Error('Not connected to the Toasted backend.'));
   }
-  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(!window._authToken){
+    return Promise.reject(new Error('Not logged in.'));
+  }
+  const opts={method,headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken}};
   if(body)opts.body=JSON.stringify(body);
-  return fetch(QBO_BACKEND_URL+path, opts).then(r=>{
-    if(!r.ok)return r.json().then(e=>{throw new Error(e.message||'QBO API error '+r.status)});
+  return fetch(TOASTED_BACKEND_URL+path, opts).then(r=>{
+    if(!r.ok)return r.json().then(e=>{throw new Error(e.message||e.error||'QBO API error '+r.status)});
     return r.json();
   });
 }
@@ -10639,7 +10644,7 @@ function qboOrderToInvoice(order){
 
 // -- QBO STATUS CHECK ---------------------------------------------------------
 function qboCheckStatus(){
-  if(!QBO_BACKEND_URL){
+  if(!TOASTED_BACKEND_URL||!window._authToken){
     QBO_STATE.connected=false;
     renderQBOStatusBadge();
     return Promise.resolve({connected:false});
@@ -10648,6 +10653,7 @@ function qboCheckStatus(){
     QBO_STATE.connected=!!data.connected;
     QBO_STATE.companyName=data.companyName||'';
     QBO_STATE.realmId=data.realmId||'';
+    if(data.environment)QBO_STATE.environment=data.environment;
     renderQBOStatusBadge();
     return data;
   }).catch(()=>{
@@ -10658,9 +10664,7 @@ function qboCheckStatus(){
 
 function renderQBOStatusBadge(){
   const el=document.getElementById('qbo-status-badge');if(!el)return;
-  if(!QBO_BACKEND_URL){
-    el.innerHTML=`<span style="color:var(--text3);font-size:12px"><i class="ti ti-plug-x" style="vertical-align:-2px"></i> Backend not configured</span>`;
-  } else if(QBO_STATE.connected){
+  if(QBO_STATE.connected){
     el.innerHTML=`<span style="color:var(--green);font-weight:600;font-size:13px"><i class="ti ti-circle-check" style="vertical-align:-2px;margin-right:4px"></i>Connected to QuickBooks Online</span><span style="color:var(--text2);font-size:12px;margin-left:8px">${QBO_STATE.companyName}</span>`;
   } else {
     el.innerHTML=`<span style="color:var(--amber);font-size:12px"><i class="ti ti-alert-circle" style="vertical-align:-2px;margin-right:4px"></i>Not connected to QuickBooks</span>`;
@@ -10669,11 +10673,7 @@ function renderQBOStatusBadge(){
 
 // -- OAUTH CONNECT -------------------------------------------------------------
 function qboConnect(){
-  if(!QBO_BACKEND_URL){
-    alert('Backend URL not configured.\n\nEnter your backend URL in the QuickBooks settings below and save first.');
-    return;
-  }
-  qboFetch('/api/qbo/auth-url','POST',{environment:QBO_STATE.environment,clientId:QBO_STATE.clientId})
+  qboFetch('/api/qbo/auth-url','POST',{environment:QBO_STATE.environment})
     .then(data=>{
       if(!data.url)throw new Error('No auth URL returned from backend');
       // Open OAuth popup
@@ -10802,13 +10802,11 @@ function renderQBOSettings(){
   html+='<span class="card-title"><i class="ti ti-brand-quickbooks" style="vertical-align:-2px;margin-right:6px;color:#2CA01C"></i>QuickBooks Online</span>';
   html+='<div id="qbo-status-badge"></div></div><div class="card-body">';
   html+='<div style="background:#F0FFF4;border:1px solid #A3E6B8;border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:12px;color:#1A6B34;line-height:1.6">';
-  html+='<strong>How this works:</strong> Toasted uses QuickBooks Online\'s OAuth2 API to push delivered invoices directly into your QBO account as AR invoices. Deploy the backend proxy and paste the URL below to go live.';
-  html+='<div style="margin-top:6px"><a href="https://developer.intuit.com/app/developer/qbo/docs/get-started" target="_blank" style="color:#1A6B34;font-weight:600">Intuit Developer Docs</a> &nbsp;&middot;&nbsp; <a href="https://developer.intuit.com/app/developer/appdetails" target="_blank" style="color:#1A6B34;font-weight:600">Create QBO App</a></div></div>';
+  html+='<strong>How this works:</strong> Toasted pushes delivered invoices directly into your QuickBooks Online account as AR invoices via QuickBooks\' official OAuth2 API. Use Sandbox to test safely against fake QBO data before switching to Production.';
+  html+='<div style="margin-top:6px"><a href="https://developer.intuit.com/app/developer/qbo/docs/get-started" target="_blank" style="color:#1A6B34;font-weight:600">Intuit Developer Docs</a> &nbsp;&middot;&nbsp; <a href="https://developer.intuit.com/app/developer/appdetails" target="_blank" style="color:#1A6B34;font-weight:600">Your QBO Apps</a></div></div>';
   html+='<div class="form-grid form-grid-2" style="gap:14px;margin-bottom:16px">';
-  html+='<div><label class="flabel">Backend proxy URL</label><input class="finput" id="qbo-backend-url" value="'+QBO_BACKEND_URL+'" placeholder="https://your-backend.onrender.com"/></div>';
-  html+='<div><label class="flabel">QBO Client ID</label><input class="finput" id="qbo-client-id" value="'+QBO_STATE.clientId+'" placeholder="ABcdefghij..."/></div>';
-  html+='<div><label class="flabel">Environment</label><select class="finput" id="qbo-environment"><option value="sandbox" '+(QBO_STATE.environment==='sandbox'?'selected':'')+'>Sandbox (testing)</option><option value="production" '+(QBO_STATE.environment==='production'?'selected':'')+'>Production</option></select></div>';
-  html+='<div style="display:flex;align-items:flex-end"><button class="btn btn-dark btn-sm" onclick="saveQBOConfig()"><i class="ti ti-device-floppy"></i> Save config</button></div></div>';
+  html+='<div><label class="flabel">Environment</label><select class="finput" id="qbo-environment" onchange="QBO_STATE.environment=this.value"><option value="sandbox" '+(QBO_STATE.environment==='sandbox'?'selected':'')+'>Sandbox (testing)</option><option value="production" '+(QBO_STATE.environment==='production'?'selected':'')+'>Production</option></select></div>';
+  html+='</div>';
   html+='<div style="display:flex;gap:8px;align-items:center;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap">';
   if(QBO_STATE.connected){
     html+='<button class="btn btn-success" onclick="openQBOBatch()"><i class="ti ti-send"></i> Batch send invoices to QBO</button>';
@@ -10816,12 +10814,12 @@ function renderQBOSettings(){
     html+='<button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="qboDisconnect()"><i class="ti ti-plug-x"></i> Disconnect</button>';
   } else {
     html+='<button class="btn btn-dark" onclick="qboConnect()">Connect to QuickBooks</button>';
-    html+='<span style="font-size:12px;color:var(--text3)">'+(QBO_BACKEND_URL?'Click to authorize via QuickBooks OAuth2':'Save backend URL first, then connect')+'</span>';
+    html+='<span style="font-size:12px;color:var(--text3)">Pick your environment above, then click to authorize via QuickBooks OAuth2</span>';
   }
   html+='</div>';
   if(QBO_STATE.connected){
     html+='<div style="margin-top:12px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius);font-size:12px;color:var(--text2)">';
-    html+='<strong>Realm ID:</strong> '+QBO_STATE.realmId+' &nbsp;&middot;&nbsp; <strong>Company:</strong> '+QBO_STATE.companyName+' &nbsp;&middot;&nbsp; <strong>Last sync:</strong> '+(QBO_STATE.lastSync||'Never')+'</div>';
+    html+='<strong>Realm ID:</strong> '+QBO_STATE.realmId+' &nbsp;&middot;&nbsp; <strong>Company:</strong> '+QBO_STATE.companyName+' &nbsp;&middot;&nbsp; <strong>Environment:</strong> '+QBO_STATE.environment+' &nbsp;&middot;&nbsp; <strong>Last sync:</strong> '+(QBO_STATE.lastSync||'Never')+'</div>';
   }
 
   // ── FETCH FROM QBO ──────────────────────────────────────────────────────
@@ -10878,30 +10876,11 @@ function renderQBOSettings(){
   html+='<div id="qbo-fetch-log-body" style="background:#1E1E2E;border-radius:var(--radius);padding:12px;font-size:11px;font-family:monospace;color:#CDD6F4;line-height:1.8;max-height:200px;overflow-y:auto"></div></div>';
   html+='</div>'; // end fetch section
 
-  html+='<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;color:var(--text3);user-select:none">> Backend setup guide & Node.js stub</summary>';
-  html+='<div style="margin-top:10px;background:#1E1E2E;border-radius:var(--radius);padding:14px;font-size:11px;font-family:monospace;color:#CDD6F4;line-height:1.7;overflow-x:auto;white-space:pre">'+escHtml(QBO_BACKEND_STUB)+'</div></details>';
+  html+='<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;color:var(--text3);user-select:none">> One-time setup (admin/developer)</summary>';
+  html+='<div style="margin-top:10px;background:#1E1E2E;border-radius:var(--radius);padding:14px;font-size:11px;font-family:monospace;color:#CDD6F4;line-height:1.7;overflow-x:auto;white-space:pre">'+escHtml(QBO_SETUP_GUIDE)+'</div></details>';
   html+='</div></div>';
   return html;
 }
-function saveQBOConfig(){
-  const url=document.getElementById('qbo-backend-url').value.trim().replace(/\/$/,'');
-  const cid=document.getElementById('qbo-client-id').value.trim();
-  const env=document.getElementById('qbo-environment').value;
-  // We can't reassign the const, so we mutate the state
-  QBO_STATE.clientId=cid;QBO_STATE.environment=env;
-  // Store backend URL in state (we'll use it via QBO_BACKEND_URL alias below)
-  QBO_STATE._backendUrl=url;
-  // Patch the module-level reference
-  Object.defineProperty(window,'_QBO_BACKEND_URL_LIVE',{value:url,writable:true,configurable:true});
-  window._QBO_BACKEND_URL_LIVE=url;
-  // Update qboFetch to use live value
-  toast('QBO config saved');
-  if(url){
-    qboCheckStatus().then(()=>renderSettings());
-  }
-}
-
-// QBO fetch uses mutable backend url from state
 
 // ── QBO FETCH FUNCTIONS (Two-way sync: QBO -> Toasted) ─────────────────────
 
@@ -11147,7 +11126,7 @@ function doQuickFetchPayments(){
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 // -- BACKEND STUB (Node.js / Express) -----------------------------------------
-const QBO_BACKEND_STUB = "Backend stub code available at:\nhttps://github.com/your-org/toasted-qbo-backend\n\nSetup steps:\n1. Clone the repo\n2. Copy .env.example to .env and fill in your QBO credentials\n3. Deploy to Render.com (free tier) with one click\n4. Paste your Render URL into the Backend proxy URL field above\n5. Click Connect to QuickBooks\n\nRequired .env variables:\nQBO_CLIENT_ID=your_client_id_from_intuit_developer\nQBO_CLIENT_SECRET=your_client_secret_NEVER_IN_BROWSER\nQBO_REDIRECT_URI=https://your-backend.onrender.com/api/qbo/callback\nQBO_ENVIRONMENT=sandbox\nPORT=3000";
+const QBO_SETUP_GUIDE = "This is already built into your Toasted backend (routes/qbo.js) -- nothing extra to deploy.\n\nOne-time setup, done once by an admin:\n\n1. Go to developer.intuit.com and sign in (or create a free account)\n2. Create an app -> select 'QuickBooks Online and Payments'\n3. In that app's Keys & OAuth page, grab the Sandbox (or Production) Client ID and Client Secret\n4. Under Redirect URIs, add exactly:\n   https://toasted-acs.onrender.com/api/qbo/callback\n5. On Render, open the toasted-acs service -> Environment, and add:\n   QBO_CLIENT_ID=<your client id>\n   QBO_CLIENT_SECRET=<your client secret>\n   QBO_REDIRECT_URI=https://toasted-acs.onrender.com/api/qbo/callback\n6. Save -- Render will redeploy automatically\n7. Come back here, pick Sandbox (recommended first), click Connect to QuickBooks\n\nSandbox gives you a free fake QBO company from Intuit -- perfect for testing invoice sync\nwith zero risk to real books. Switch the Environment dropdown to Production and reconnect\nwhen you're ready to go live (Production needs its own separate Client ID/Secret from the\nsame Intuit app -- the Keys & OAuth page has both side by side).";
 
 </script>
 </body>
