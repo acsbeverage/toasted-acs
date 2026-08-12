@@ -246,11 +246,11 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-lanes', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-lanes') return res.status(403).json({ok:false});
+app.get('/api/migrate-labelsprinted', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-labelsprinted') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- account-specific pricing lane support added'});
+    res.json({ok:true, message:'Migration complete -- labels_printed column added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
   }
