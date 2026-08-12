@@ -77,6 +77,7 @@ async function migrate() {
   await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS labels_printed BOOLEAN DEFAULT FALSE`);
 
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vintage TEXT`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS warehouse TEXT DEFAULT 'main'`);
 
   await query(`CREATE TABLE IF NOT EXISTS product_tier_prices (
     id SERIAL PRIMARY KEY,
