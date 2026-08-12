@@ -117,8 +117,13 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
 router.get('/products', requireAuth, async (req, res) => {
   try {
     const isCustomer = req.user.role === 'customer';
-    const seesAllTiers = req.user.role === 'admin' || !!req.user.pricing_admin;
-    const rows = await getAll('SELECT * FROM products ORDER BY name');
+    const isAdmin = req.user.role === 'admin';
+    const seesAllTiers = isAdmin || !!req.user.pricing_admin;
+    const rows = await getAll(
+      isAdmin
+        ? 'SELECT * FROM products ORDER BY name'
+        : `SELECT * FROM products WHERE COALESCE(warehouse,'main')<>'acs_logistics' ORDER BY name`
+    );
 
     // Bulk-fetch all dynamic tier prices, grouped by SKU, filtered by what this user is allowed to see
     const tierRows = isCustomer ? [] : await getAll(
@@ -140,6 +145,7 @@ router.get('/products', requireAuth, async (req, res) => {
 
     res.json({ ok: true, products: rows.map(r => ({
       sku: r.sku, name: r.name, producer: r.producer, cat: r.cat,
+      warehouse: r.warehouse||'main',
       btl: r.btl, stock: parseFloat(r.stock)||0, reorder: r.reorder,
       extraTiers: tiersBySku[r.sku] || [],
       prices: {
@@ -280,14 +286,15 @@ router.delete('/products/:sku', requireAdmin, async (req, res) => {
 
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
-    const { name, producer, cat, btl, prices, da, stock, _details, image } = req.body;
+    const { name, producer, cat, btl, prices, da, stock, _details, image, warehouse } = req.body;
     await query(`UPDATE products SET
       name=COALESCE($1,name), producer=COALESCE($2,producer), cat=COALESCE($3,cat), btl=COALESCE($4,btl),
       price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
       da_frontline=$10,da_mix12=$11,da_acs3=$12,da_brand3=$13,da_brand5=$14,
       stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
       redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25,
-      comm_frontline=$26,comm_mix12=$27,comm_acs3=$28,comm_brand3=$29,comm_brand5=$30
+      comm_frontline=$26,comm_mix12=$27,comm_acs3=$28,comm_brand3=$29,comm_brand5=$30,
+      warehouse=COALESCE($31,warehouse)
       WHERE sku=$24`,
       [name,producer,cat,btl,
        prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
@@ -299,7 +306,8 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
        req.params.sku,
        _details?.vintage||'',
        prices?.__comm_frontline ?? null, prices?.__comm_mix12 ?? null,
-       prices?.__comm_acs3 ?? null, prices?.__comm_brand3 ?? null, prices?.__comm_brand5 ?? null]);
+       prices?.__comm_acs3 ?? null, prices?.__comm_brand3 ?? null, prices?.__comm_brand5 ?? null,
+       warehouse||null]);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update product error:', err.message);
