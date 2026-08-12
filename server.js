@@ -247,13 +247,6 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-
-  } catch (err) {
-    console.error('Diagnose tier prices error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
