@@ -27,7 +27,7 @@ function requireAdmin(req, res, next) {
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role, fname: user.fname, lname: user.lname },
+    { id: user.id, email: user.email, role: user.role, fname: user.fname, lname: user.lname, pricing_admin: !!user.pricing_admin },
     JWT_SECRET,
     { expiresIn: '30d' }
   );
