@@ -9828,7 +9828,10 @@ function openProductPricing(sku){
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-body" style="padding:16px 20px">
-        <div style="font-size:18px;font-weight:700;margin-bottom:6px">Pricing for ${p.name} -- ${p.sku}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="font-size:18px;font-weight:700;margin-bottom:6px">Pricing for ${p.name} -- ${p.sku}</div>
+          <button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteProduct('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Delete Product</button>
+        </div>
         <div style="display:flex;gap:24px;font-size:13px;color:var(--text2);flex-wrap:wrap">
           <span><b>Category:</b> ${p.cat||'--'}</span>
           <span><b>Pack:</b> ${p.btl}/case</span>
@@ -9986,6 +9989,18 @@ async function deletePricingLane(id,sku){
   }catch(e){toast('Could not delete -- check connection');}
 }
 
+// Shows a brief, hard-to-miss "Saved" confirmation right next to the field that was just edited
+function flashSaved(inputEl){
+  if(!inputEl||!inputEl.parentElement)return;
+  const old=inputEl.parentElement.querySelector('.field-saved-flash');
+  if(old)old.remove();
+  const flash=document.createElement('span');
+  flash.className='field-saved-flash';
+  flash.style.cssText='color:#1a8a4a;font-size:11px;font-weight:700;margin-left:6px;white-space:nowrap';
+  flash.innerHTML='<i class="ti ti-check" style="vertical-align:-1px"></i> Saved';
+  inputEl.insertAdjacentElement('afterend',flash);
+  setTimeout(()=>flash.remove(),1800);
+}
 function setPricingPageCasePrice(sku,tierId,val,btl){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const casePrice=parseFloat(val)||0;
@@ -9998,6 +10013,7 @@ function setPricingPageCasePrice(sku,tierId,val,btl){
   }
   saveProductToDB(sku);
   toast('Price updated & saved');
+  if(inp)flashSaved(inp);
 }
 
 function setPricingPageComm(sku,tierId,val,inputEl){
@@ -10015,6 +10031,7 @@ function setPricingPageComm(sku,tierId,val,inputEl){
     toast('Commission override set to '+pct+'%');
   }
   saveProductToDB(sku);
+  if(inputEl)flashSaved(inputEl);
 }
 
 function setPricingPageDA(sku,tierId,val){
@@ -10025,6 +10042,7 @@ function setPricingPageDA(sku,tierId,val){
   updatePPNet(sku,tierId,p.btl);
   saveProductToDB(sku);
   toast('DA support updated & saved');
+  flashSaved(event.target);
 }
 
 function updatePPNet(sku,tierId,btl){
@@ -10036,6 +10054,31 @@ function updatePPNet(sku,tierId,btl){
   if(el)el.parentElement.innerHTML=(net>0?'<span style="font-weight:700;color:#1a6a3a">$'+net.toFixed(2)+'</span>':'<span style="color:#aaa">--</span>');
 }
 
+async function deleteProduct(sku){
+  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  if(!TOASTED_BACKEND_URL||!window._authToken){toast('Not connected -- cannot delete');return;}
+
+  let orderCount=0;
+  try{
+    const usage=await fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku)+'/usage',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(usage.ok)orderCount=usage.orderCount;
+  }catch(e){/* if the usage check fails, fall through to a generic confirmation */}
+
+  const msg=orderCount>0
+    ?`"${p.name}" appears on ${orderCount} existing order${orderCount!==1?'s':''}. Deleting it will make it show as blank/missing on those past orders and invoices. Delete anyway?`
+    :`Delete "${p.name}"? This cannot be undone.`;
+  if(!confirm(msg))return;
+
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku),{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not delete product');return;}
+  }catch(e){toast('Could not delete -- check your connection and try again');return;}
+
+  PRODUCTS=PRODUCTS.filter(x=>x.sku!==sku);
+  toast('"'+p.name+'" deleted');
+  if(document.getElementById('products-tbody'))filterProducts();
+  else showPage('products');
+}
 function _filterProductsList(){
   return PRODUCTS.filter(p=>{
     const matchQ=!_prodSearch.trim()||matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),_prodSearch);
@@ -10059,6 +10102,7 @@ function _renderProductRows(filtered){
       <td><span class="badge" style="background:${d.active==='Yes'?'var(--green-bg)':'var(--red-bg)'};color:${d.active==='Yes'?'var(--green)':'var(--red)'};font-size:11px">${d.active}</span></td>
       <td style="white-space:nowrap;text-align:right">
         <button class="btn btn-sm btn-warning" onclick="event.stopPropagation();openEditProduct('${p.sku}')"><i class="ti ti-edit"></i> Edit</button>
+        <button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="event.stopPropagation();deleteProduct('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
       </td>
     </tr>`;
   }).join('')||'<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No products match</td></tr>';
