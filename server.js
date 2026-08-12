@@ -247,6 +247,52 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
+app.get('/api/diagnose-tier-prices', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-diagprices') return res.status(403).json({ok:false});
+  try {
+    const { query, getAll } = require('./db');
+
+    // True duplicates: exact same sku+tier_name+account_id appearing more than once
+    // (should be impossible given app-level checks, but worth confirming)
+    const exactDupes = await getAll(`
+      SELECT sku, tier_name, account_id, COUNT(*) as cnt, array_agg(id) as ids, array_agg(price) as prices
+      FROM product_tier_prices
+      GROUP BY sku, tier_name, account_id
+      HAVING COUNT(*) > 1
+    `);
+
+    // Zero-priced entries -- a tier that exists but has no price set
+    const zeroPriced = await getAll(`
+      SELECT sku, tier_name, id FROM product_tier_prices WHERE price = 0 OR price IS NULL
+    `);
+
+    // Same-price clusters: a product where multiple universal (non-account-specific) tiers
+    // share the identical price -- these might be duplicate labels for the same deal, or
+    // might be genuinely different named deals that happen to cost the same. Flagged for review, not auto-deleted.
+    const samePriceClusters = await getAll(`
+      SELECT sku, price, COUNT(*) as cnt, array_agg(tier_name) as tier_names, array_agg(id) as ids
+      FROM product_tier_prices
+      WHERE account_id IS NULL AND price > 0
+      GROUP BY sku, price
+      HAVING COUNT(*) > 1
+      ORDER BY cnt DESC
+      LIMIT 30
+    `);
+
+    const totalRows = await getAll(`SELECT COUNT(*) as cnt FROM product_tier_prices`);
+
+    res.json({
+      ok: true,
+      totalRows: parseInt(totalRows[0].cnt),
+      exactDuplicates: { count: exactDupes.length, sample: exactDupes.slice(0, 20) },
+      zeroPriced: { count: zeroPriced.length, sample: zeroPriced.slice(0, 20) },
+      samePriceClusters: { count: samePriceClusters.length, sample: samePriceClusters },
+    });
+  } catch (err) {
+    console.error('Diagnose tier prices error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
