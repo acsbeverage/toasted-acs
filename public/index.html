@@ -718,6 +718,30 @@ const orderTotal=o=>o.items.reduce((s,x)=>s+itemLineTotal(x),0);
 // kept fully separate from ACS's own sellable inventory everywhere in the app.
 const mainInventory=()=>PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics');
 const logisticsInventory=()=>PRODUCTS.filter(p=>p.warehouse==='acs_logistics');
+// Shared sort logic for order lists (History, Unconfirmed, Deliveries) so "most recent first" means
+// the same thing everywhere, and every page offers the same sort choices.
+function sortOrdersBy(orders,sortKey){
+  const arr=orders.slice();
+  switch(sortKey){
+    case 'date_asc':     return arr.sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
+    case 'delivery_desc':return arr.sort((a,b)=>b.delivery.localeCompare(a.delivery)||b.id.localeCompare(a.id));
+    case 'delivery_asc': return arr.sort((a,b)=>a.delivery.localeCompare(b.delivery)||a.id.localeCompare(b.id));
+    case 'account':       return arr.sort((a,b)=>((acctById(a.acct)||{}).name||'').localeCompare((acctById(b.acct)||{}).name||''));
+    case 'total_desc':    return arr.sort((a,b)=>orderTotal(b)-orderTotal(a));
+    case 'date_desc': default: return arr.sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  }
+}
+const ORDER_SORT_OPTIONS=[
+  {v:'date_desc',l:'Order Date (Newest first)'},
+  {v:'date_asc',l:'Order Date (Oldest first)'},
+  {v:'delivery_desc',l:'Delivery Date (Latest first)'},
+  {v:'delivery_asc',l:'Delivery Date (Soonest first)'},
+  {v:'account',l:'Account Name (A-Z)'},
+  {v:'total_desc',l:'Total $ (Highest first)'},
+];
+function orderSortSelectHtml(id,onchangeFn,current){
+  return `<select class="finput" id="${id}" onchange="${onchangeFn}" style="width:210px;padding:7px 9px">${ORDER_SORT_OPTIONS.map(o=>`<option value="${o.v}" ${o.v===current?'selected':''}>${o.l}</option>`).join('')}</select>`;
+}
 // Detects dedicated sample-tracking accounts by name (e.g. "Samples-Aaron Goldman", "Sample Customer")
 function isSampleAcct(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);
@@ -3493,9 +3517,18 @@ async function sendPOEmailToSupplier(id){
 }
 
 // -- UNCONFIRMED ----------------------------------------------------------------
+const UNCONF_PAGE_SIZE=50;
+let _unconfPage=1;
+let _unconfSort='date_desc';
+function unconfGoToPage(p){_unconfPage=p;renderUnconfirmed();}
 function renderUnconfirmed(){
-  const unconf=ORDERS.filter(o=>o.status==='unconfirmed');
+  const allUnconf=ORDERS.filter(o=>o.status==='unconfirmed');
+  const sortedAll=sortOrdersBy(allUnconf,_unconfSort);
   const isAdmin=currentUser.role==='admin';
+  const totalPages=Math.max(1,Math.ceil(sortedAll.length/UNCONF_PAGE_SIZE));
+  if(_unconfPage>totalPages)_unconfPage=totalPages;
+  const startIdx=(_unconfPage-1)*UNCONF_PAGE_SIZE;
+  const unconf=sortedAll.slice(startIdx,startIdx+UNCONF_PAGE_SIZE);
 
   const tableHtml=`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
     <tbody>${unconf.map(o=>{const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
@@ -3525,9 +3558,16 @@ function renderUnconfirmed(){
     </div>`;
   }).join('');
 
+  const pagHtml=totalPages<=1?'':`
+    <button class="btn btn-sm" ${_unconfPage<=1?'disabled':''} onclick="unconfGoToPage(${_unconfPage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
+    <span style="font-size:13px;color:var(--text2)">Page ${_unconfPage} of ${totalPages}</span>
+    <button class="btn btn-sm" ${_unconfPage>=totalPages?'disabled':''} onclick="unconfGoToPage(${_unconfPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+
   document.getElementById('main-content').innerHTML=`<div class="card">
-    <div class="card-header"><span class="card-title">${unconf.length} order${unconf.length!==1?'s':''} awaiting confirmation</span></div>
-    ${unconf.length?`<div id="unconf-table-view">${tableHtml}</div><div id="unconf-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
+    <div class="card-header"><span class="card-title">${sortedAll.length} order${sortedAll.length!==1?'s':''} awaiting confirmation</span>
+      ${sortedAll.length?orderSortSelectHtml('unconf-sort',"_unconfSort=this.value;_unconfPage=1;renderUnconfirmed()",_unconfSort):''}
+    </div>
+    ${sortedAll.length?`<div id="unconf-table-view">${tableHtml}</div><div id="unconf-cards-view" style="display:none;padding:14px">${cardsHtml}</div><div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)">${pagHtml}</div>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
   </div>`;
 }
 // -- ZEBRA LABEL PRINTING (2.25in x 4in, 203dpi) --------------------------------
@@ -3770,12 +3810,13 @@ function saveEditOrder(){
 // -- HISTORY --------------------------------------------------------------------
 function renderHistory(){
   const isAdmin=currentUser.role==='admin';const mine=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
-  _histPage=1;
+  _histPage=1;_histSort='date_desc';
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <div class="search-wrap" style="max-width:280px"><i class="ti ti-search si"></i><input class="search-input" id="hist-search" placeholder="Search order ID or account..." oninput="_histPage=1;filterHistory()"/></div>
     <select class="finput" id="hist-status" onchange="_histPage=1;filterHistory()" style="width:160px;padding:7px 9px"><option value="">All statuses</option><option value="unconfirmed">Unconfirmed</option><option value="confirmed">Confirmed (Pending delivery)</option><option value="delivered">Delivered (In AR)</option></select>
     ${isAdmin?`<select class="finput" id="hist-rep" onchange="_histPage=1;filterHistory()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
+    ${orderSortSelectHtml('hist-sort',"_histSort=this.value;_histPage=1;filterHistory()",'date_desc')}
   </div>
   <div class="card"><div class="card-header"><span class="card-title" id="hist-count">${mine.length} orders</span></div>
   <div id="hist-table-view"><table class="tbl"><thead><tr><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
@@ -3785,8 +3826,9 @@ function renderHistory(){
   </div>`;
   window._histOrders=mine;filterHistory();
 }
-const HIST_PAGE_SIZE=100;
+const HIST_PAGE_SIZE=50;
 let _histPage=1;
+let _histSort='date_desc';
 function histGoToPage(p){_histPage=p;filterHistory();}
 function filterHistory(){
   const sf=document.getElementById('hist-status')?.value||'';const rf=document.getElementById('hist-rep')?.value||'';
@@ -3799,7 +3841,7 @@ function filterHistory(){
     return acct&&acct.name.toLowerCase().includes(sq);
   });
   document.getElementById('hist-count').textContent=res.length+' orders';
-  const sortedAll=res.slice().reverse();
+  const sortedAll=sortOrdersBy(res,_histSort);
   const totalPages=Math.max(1,Math.ceil(sortedAll.length/HIST_PAGE_SIZE));
   if(_histPage>totalPages)_histPage=totalPages;
   const startIdx=(_histPage-1)*HIST_PAGE_SIZE;
@@ -5393,10 +5435,26 @@ function calcDue(dateStr,acct){
 }
 
 // -- DELIVERIES ----------------------------------------------------------------
+const DELIV_PAGE_SIZE=50;
+let _delivPendingSort='delivery_asc';
+let _delivPendingPage=1;
+let _delivDoneSort='delivery_desc';
+let _delivDonePage=1;
+function delivPendingGoToPage(p){_delivPendingPage=p;renderDeliveries();}
+function delivDoneGoToPage(p){_delivDonePage=p;renderDeliveries();}
 function renderDeliveries(){
   const isAdmin=currentUser&&currentUser.role==='admin';
-  const pending=ORDERS.filter(o=>o.status==='confirmed').sort((a,b)=>a.delivery.localeCompare(b.delivery));
-  const delivered=ORDERS.filter(o=>o.status==='delivered').sort((a,b)=>b.delivery.localeCompare(a.delivery));
+  const pendingAll=sortOrdersBy(ORDERS.filter(o=>o.status==='confirmed'),_delivPendingSort);
+  const doneAll=sortOrdersBy(ORDERS.filter(o=>o.status==='delivered'),_delivDoneSort);
+
+  const pendingTotalPages=Math.max(1,Math.ceil(pendingAll.length/DELIV_PAGE_SIZE));
+  if(_delivPendingPage>pendingTotalPages)_delivPendingPage=pendingTotalPages;
+  const pending=pendingAll.slice((_delivPendingPage-1)*DELIV_PAGE_SIZE,_delivPendingPage*DELIV_PAGE_SIZE);
+
+  const doneTotalPages=Math.max(1,Math.ceil(doneAll.length/DELIV_PAGE_SIZE));
+  if(_delivDonePage>doneTotalPages)_delivDonePage=doneTotalPages;
+  const delivered=doneAll.slice((_delivDonePage-1)*DELIV_PAGE_SIZE,_delivDonePage*DELIV_PAGE_SIZE);
+
   document.getElementById('topbar-right').innerHTML=`
     <div style="display:flex;gap:8px">
       <button class="btn btn-sm" onclick="selectAllDeliveries(true)"><i class="ti ti-checks"></i> Select all</button>
@@ -5405,11 +5463,24 @@ function renderDeliveries(){
       <button class="btn btn-sm btn-pdf" onclick="exportManifest()"><i class="ti ti-file-download"></i> Export manifest</button>
     </div>`;
 
+  const pendingPagHtml=pendingTotalPages<=1?'':`
+    <button class="btn btn-sm" ${_delivPendingPage<=1?'disabled':''} onclick="delivPendingGoToPage(${_delivPendingPage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
+    <span style="font-size:13px;color:var(--text2)">Page ${_delivPendingPage} of ${pendingTotalPages}</span>
+    <button class="btn btn-sm" ${_delivPendingPage>=pendingTotalPages?'disabled':''} onclick="delivPendingGoToPage(${_delivPendingPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+
+  const donePagHtml=doneTotalPages<=1?'':`
+    <button class="btn btn-sm" ${_delivDonePage<=1?'disabled':''} onclick="delivDoneGoToPage(${_delivDonePage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
+    <span style="font-size:13px;color:var(--text2)">Page ${_delivDonePage} of ${doneTotalPages}</span>
+    <button class="btn btn-sm" ${_delivDonePage>=doneTotalPages?'disabled':''} onclick="delivDoneGoToPage(${_delivDonePage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+
   document.getElementById('main-content').innerHTML=`
   <div class="card" style="margin-bottom:16px">
-    <div class="card-header">
-      <span class="card-title"><i class="ti ti-clock" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Pending delivery -- ${pending.length} order${pending.length!==1?'s':''}</span>
-      <span style="font-size:12px;color:var(--text2)">Select orders then use the buttons above</span>
+    <div class="card-header" style="flex-wrap:wrap;gap:10px">
+      <span class="card-title"><i class="ti ti-clock" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Pending delivery -- ${pendingAll.length} order${pendingAll.length!==1?'s':''}</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;color:var(--text2)">Select orders then use the buttons above</span>
+        ${pendingAll.length?orderSortSelectHtml('deliv-pending-sort',"_delivPendingSort=this.value;_delivPendingPage=1;renderDeliveries()",_delivPendingSort):''}
+      </div>
     </div>
     ${pending.length?`
     <div style="overflow-x:auto">
@@ -5461,20 +5532,29 @@ function renderDeliveries(){
       }).join('')}
       </tbody>
     </table>
-    </div>`:`<div style="padding:48px;text-align:center;color:var(--text3)"><i class="ti ti-truck-delivery" style="font-size:36px;display:block;margin-bottom:10px;color:var(--green)"></i>No pending deliveries</div>`}
+    </div>
+    ${pendingTotalPages>1?`<div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)">${pendingPagHtml}</div>`:''}
+    `:`<div style="padding:48px;text-align:center;color:var(--text3)"><i class="ti ti-truck-delivery" style="font-size:36px;display:block;margin-bottom:10px;color:var(--green)"></i>No pending deliveries</div>`}
   </div>
 
-  ${delivered.length?`
+  ${doneAll.length?`
   <div class="card">
-    <div class="card-header"><span class="card-title"><i class="ti ti-circle-check" style="font-size:13px;vertical-align:-2px;margin-right:5px;color:var(--green)"></i>Recently delivered -- ${Math.min(delivered.length,20)} shown</span><span style="font-size:12px;color:var(--text2)"><i class="ti ti-receipt" style="vertical-align:-2px"></i> These invoices are now in AR</span></div>
+    <div class="card-header" style="flex-wrap:wrap;gap:10px">
+      <span class="card-title"><i class="ti ti-circle-check" style="font-size:13px;vertical-align:-2px;margin-right:5px;color:var(--green)"></i>Recently delivered -- ${doneAll.length} total</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;color:var(--text2)"><i class="ti ti-receipt" style="vertical-align:-2px"></i> These invoices are now in AR</span>
+        ${orderSortSelectHtml('deliv-done-sort',"_delivDoneSort=this.value;_delivDonePage=1;renderDeliveries()",_delivDoneSort)}
+      </div>
+    </div>
     <table class="tbl">
       <thead><tr><th>Account</th><th>Invoice #</th><th>Delivered</th><th>Sales Rep</th><th>Total</th><th></th></tr></thead>
-      <tbody>${delivered.slice(0,20).map(o=>{
+      <tbody>${delivered.map(o=>{
         const acct=acctById(o.acct);const rep=userById(o.rep);
         return`<tr><td style="font-weight:500">${acct?acct.name:'--'}</td><td style="color:var(--text2);font-size:12px">${o.id}</td><td style="color:var(--text2);font-size:12px">${o.deliveredAt||o.delivery}</td><td style="color:var(--text2);font-size:12px">${rep?rep.fname+' '+rep.lname:'--'}</td><td style="font-weight:600;font-size:12px">${fmt(orderTotal(o))}</td><td style="white-space:nowrap;display:flex;gap:4px">${pdfSplitBtn(o.id)}${!o.qboSyncedAt?`<button class="btn btn-sm" style="color:#2CA01C;border-color:#2CA01C" onclick="qboSendInvoice('${o.id}')" title="Send to QuickBooks"><i class="ti ti-brand-quickbooks"></i> QBO</button>`:`<span style="font-size:11px;color:var(--green);align-self:center" title="Synced ${o.qboSyncedAt}"><i class="ti ti-circle-check"></i> QBO</span>`}<button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed"><i class="ti ti-arrow-back-up"></i> Unconfirm</button><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteOrderFromDeliveries('${o.id}')" title="Delete order"><i class="ti ti-trash"></i> Delete</button></td></tr>`;
       }).join('')}
       </tbody>
     </table>
+    ${doneTotalPages>1?`<div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)">${donePagHtml}</div>`:''}
   </div>`:''}`;
 }
 
