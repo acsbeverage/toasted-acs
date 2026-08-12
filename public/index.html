@@ -9345,9 +9345,11 @@ function renderARTable(){
       <td>
         ${o.paid
           ?`<span class="badge" style="background:var(--green-bg);color:var(--green);font-size:11px">Paid</span>`
-          :`<span class="badge" style="background:${agingBgColors[bucket]};color:${agingColors[bucket]};font-size:11px">${bucket==='current'?'Current':bucket+' days'}</span>`}
+          :o.partialPaidAmount>0
+            ?`<span class="badge" style="background:#FFF3D6;color:#8A6100;font-size:11px" title="${fmt(o.partialPaidAmount)} of ${fmt(amt)} received">Partial</span>`
+            :`<span class="badge" style="background:${agingBgColors[bucket]};color:${agingColors[bucket]};font-size:11px">${bucket==='current'?'Current':bucket+' days'}</span>`}
       </td>
-      <td style="text-align:right;font-weight:700;font-size:14px">${fmt(amt)}</td>
+      <td style="text-align:right;font-weight:700;font-size:14px">${fmt(amt)}${(!o.paid&&o.partialPaidAmount>0)?`<div style="font-size:11px;font-weight:500;color:#8A6100">${fmt(o.partialPaidAmount)} paid &middot; ${fmt(amt-o.partialPaidAmount)} due</div>`:''}</td>
       <td>
         ${o.paid
           ?`<span style="font-size:11px;color:var(--text2)">Paid ${o.paidAt||''}</span>`
@@ -10923,6 +10925,61 @@ function _qboFetchDaysParam(selectId){
 }
 
 // ── FETCH PAYMENTS ────────────────────────────────────────────────────────────
+// Correctly reconciles QBO payments against Toasted orders. QuickBooks' actual data shape links
+// payments to invoices inside Payment.Line[].LinkedTxn (not on the payment root, and a single
+// payment can apply partial amounts across multiple invoices) -- so this sums applied amounts
+// per invoice and only marks an order fully paid once the applied total actually covers it.
+// Anything less is recorded as a partial payment and the order stays open in AR.
+function _qboReconcilePayments(payments, logFn){
+  const amountByKey={}; // qboInvoiceId (or 'doc:<orderId>' fallback) -> amount applied
+  const paymentIdByKey={};
+
+  payments.forEach(p=>{
+    let hasLineLink=false;
+    (p.Line||[]).forEach(line=>{
+      (line.LinkedTxn||[]).forEach(lt=>{
+        if(lt.TxnType!=='Invoice')return;
+        hasLineLink=true;
+        amountByKey[lt.TxnId]=(amountByKey[lt.TxnId]||0)+(parseFloat(line.Amount)||0);
+        paymentIdByKey[lt.TxnId]=p.Id;
+      });
+    });
+    if(!hasLineLink){
+      // No invoice-linked line found -- fall back to matching the whole payment by doc number
+      const docNum=p.PaymentRefNum||p.DocNumber||'';
+      const order=ORDERS.find(o=>o.id===docNum);
+      if(order){
+        const key=order.qboInvoiceId||('doc:'+order.id);
+        amountByKey[key]=(amountByKey[key]||0)+(parseFloat(p.TotalAmt)||0);
+        paymentIdByKey[key]=p.Id;
+      }
+    }
+  });
+
+  let fullyPaid=0, partial=0, skipped=0;
+  Object.keys(amountByKey).forEach(key=>{
+    const order=ORDERS.find(o=>o.qboInvoiceId===key || o.id===key.replace('doc:',''));
+    if(!order || order.paid){skipped++;return;}
+    const applied=amountByKey[key];
+    const total=orderTotal(order);
+    order.qboPaymentId=paymentIdByKey[key];
+    if(applied>=total-0.01){ // small tolerance for rounding
+      order.paid=true;order.paidDate=today();order.paidAmount=applied;order.partialPaidAmount=null;
+      fullyPaid++;
+      logFn('Fully paid: '+order.id+' ('+fmt(applied)+' of '+fmt(total)+')','ok');
+      saveOrderStatusToDB(order.id,{paid:true,paidDate:order.paidDate,paidAmount:applied,partialPaidAmount:null,qboPaymentId:order.qboPaymentId});
+    } else if(applied>0){
+      order.partialPaidAmount=applied;
+      partial++;
+      logFn('Partial payment: '+order.id+' -- '+fmt(applied)+' of '+fmt(total)+' ('+fmt(total-applied)+' still due)','warn');
+      saveOrderStatusToDB(order.id,{partialPaidAmount:applied,qboPaymentId:order.qboPaymentId});
+    } else {
+      skipped++;
+    }
+  });
+  return {fullyPaid,partial,skipped};
+}
+
 function qboFetchPayments(){
   if(!QBO_STATE.connected){toast('Connect to QuickBooks first');return;}
   const days=_qboFetchDaysParam('qbo-fetch-payments-range');
@@ -10932,31 +10989,10 @@ function qboFetchPayments(){
     .then(data=>{
       const payments=data.payments||[];
       _qboFetchLog('Found '+payments.length+' payment'+(payments.length!==1?'s':'')+' in QBO','ok');
-      let matched=0, skipped=0;
-      payments.forEach(p=>{
-        // Match by invoice/docNumber to Toasted order ID
-        const invoiceRef=p.LinkedTxn&&p.LinkedTxn[0]&&p.LinkedTxn[0].TxnId;
-        const docNum=p.PaymentRefNum||p.DocNumber||'';
-        // Try matching by order ID in memo or doc number
-        const order=ORDERS.find(o=>
-          o.id===docNum||
-          o.qboInvoiceId===invoiceRef||
-          (p.CustomerRef&&p.CustomerRef.name&&o.acct&&ACCOUNTS.find(a=>a.id===o.acct&&a.name===p.CustomerRef.name)&&!o.paid)
-        );
-        if(order&&!order.paid){
-          order.paid=true;
-          order.paidDate=today();
-          order.paidAmount=parseFloat(p.TotalAmt)||0;
-          order.qboPaymentId=p.Id;
-          matched++;
-          _qboFetchLog('Marked paid: '+order.id+' ('+fmt(order.paidAmount)+')','ok');
-        } else {
-          skipped++;
-        }
-      });
+      const result=_qboReconcilePayments(payments,_qboFetchLog);
       QBO_STATE.lastPaymentFetch=today()+' '+new Date().toLocaleTimeString();
-      _qboFetchLog('Done: '+matched+' invoice'+(matched!==1?'s':'')+' marked paid, '+skipped+' already paid or unmatched','ok');
-      toast('Payments fetched: '+matched+' invoice'+(matched!==1?'s':'')+' updated');
+      _qboFetchLog('Done: '+result.fullyPaid+' fully paid, '+result.partial+' partially paid, '+result.skipped+' skipped/unmatched','ok');
+      toast('Payments fetched: '+result.fullyPaid+' paid, '+result.partial+' partial');
       updateBadges();
       // Refresh AR if on that page
       const active=document.querySelector('.nav-item.active');
@@ -11110,37 +11146,21 @@ function doQuickFetchPayments(){
   const days=parseInt(document.getElementById('qfm-range')?.value)||7;
   const log=document.getElementById('qfm-log');
   if(log){log.style.display='block';log.innerHTML='';}
-  const addLog=(msg,color)=>{if(log)log.innerHTML+=`<span style="color:${color||'#CDD6F4'}">${msg}</span>\n`;};
-  addLog('Fetching payments from last '+days+' days...','#F9E2AF');
+  const addLog=(msg,type)=>{if(log)log.innerHTML+=`<span style="color:${type==='ok'?'#A6E3A1':type==='warn'?'#F9E2AF':type==='err'?'#F38BA8':'#CDD6F4'}">${msg}</span>\n`;};
+  addLog('Fetching payments from last '+days+' days...','info');
   qboFetch('/api/qbo/payments?days='+days)
     .then(data=>{
       const payments=data.payments||[];
-      addLog('Found '+payments.length+' payment'+(payments.length!==1?'s':'')+' in QBO','#A6E3A1');
-      let matched=0;
-      payments.forEach(p=>{
-        const invoiceRef=p.LinkedTxn&&p.LinkedTxn[0]&&p.LinkedTxn[0].TxnId;
-        const docNum=p.PaymentRefNum||p.DocNumber||'';
-        const order=ORDERS.find(o=>
-          (!o.paid)&&(o.id===docNum||o.qboInvoiceId===invoiceRef||
-          (p.CustomerRef&&ACCOUNTS.find(a=>a.id===o.acct&&a.name===p.CustomerRef.name)))
-        );
-        if(order&&!order.paid){
-          order.paid=true;
-          order.paidDate=today();
-          order.paidAmount=parseFloat(p.TotalAmt)||0;
-          order.qboPaymentId=p.Id;
-          matched++;
-          addLog('Paid: '+order.id+' ('+fmt(order.paidAmount)+')','#A6E3A1');
-        }
-      });
+      addLog('Found '+payments.length+' payment'+(payments.length!==1?'s':'')+' in QBO','ok');
+      const result=_qboReconcilePayments(payments,addLog);
       QBO_STATE.lastPaymentFetch=today()+' '+new Date().toLocaleTimeString();
-      addLog(matched+' invoice'+(matched!==1?'s':'')+' marked paid','#A6E3A1');
-      toast('Done -- '+matched+' invoice'+(matched!==1?'s':'')+' reconciled');
+      addLog(result.fullyPaid+' fully paid, '+result.partial+' partially paid','ok');
+      toast('Done -- '+result.fullyPaid+' paid, '+result.partial+' partial');
       updateBadges();
       renderARTable();
     })
     .catch(e=>{
-      addLog('Error: '+e.message,'#F38BA8');
+      addLog('Error: '+e.message,'err');
       toast('Fetch failed: '+e.message);
     });
 }
