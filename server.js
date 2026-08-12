@@ -247,6 +247,38 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
+app.get('/api/diagnose-crv', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-diagcrv') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    const rows = await getAll(`SELECT sku, name, producer, redemption_entry, bottle_size FROM products ORDER BY producer, name`);
+    const total = rows.length;
+    const blank = rows.filter(r => !r.redemption_entry || r.redemption_entry.trim() === '');
+    const explicitNone = rows.filter(r => (r.redemption_entry || '').trim() === '- None -');
+    const crvSet = rows.filter(r => {
+      const e = (r.redemption_entry || '').trim();
+      return e && e !== '- None -';
+    });
+    // Group blanks by producer so it's easy to see patterns (e.g. one whole brand never configured)
+    const blankByProducer = {};
+    blank.forEach(r => {
+      const p = r.producer || 'Unknown';
+      if (!blankByProducer[p]) blankByProducer[p] = 0;
+      blankByProducer[p]++;
+    });
+    res.json({
+      ok: true,
+      totalProducts: total,
+      blankRedemptionEntry: { count: blank.length, sample: blank.slice(0, 40).map(r => ({ sku: r.sku, name: r.name, producer: r.producer })) },
+      explicitlyNone: { count: explicitNone.length },
+      hasRealCrvCategory: { count: crvSet.length },
+      blankCountByProducer: blankByProducer,
+    });
+  } catch (err) {
+    console.error('Diagnose CRV error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
