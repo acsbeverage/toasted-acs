@@ -3669,7 +3669,7 @@ function onEditSearch(val){
   dd.classList.add('open');
 }
 function closeEditDD(){const dd=document.getElementById('edit-prod-dd');if(dd)dd.classList.remove('open');const s=document.getElementById('edit-prod-search');if(s)s.value=''}
-function addEditItem(sku){const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;const ex=window._editItems.find(x=>x.sku===sku);const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;const freeItem=isSampleAcct(editingAcctId)?{discountPct:100}:{};if(ex)ex.cases+=1;else window._editItems.unshift({sku,cases:1,bottles:0,tier:'frontline',...freeItem});closeEditDD();renderEditItems()}
+function addEditItem(sku){const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;const ex=window._editItems.find(x=>x.sku===sku);const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;const freeItem=isSampleAcct(editingAcctId)?{discountPct:100}:{};if(ex)ex.cases+=1;else window._editItems.unshift({sku,cases:0,bottles:0,tier:'frontline',...freeItem});closeEditDD();renderEditItems()}
 function removeEditItem(idx){window._editItems.splice(idx,1);renderEditItems()}
 function updateEditField(idx,field,val){window._editItems[idx][field]=Math.max(0,parseInt(val)||0);renderEditTotal();const c=document.getElementById(`elt-${idx}`);if(c)c.textContent=fmt(itemLineTotal(window._editItems[idx]));const b=document.getElementById(`etb-${idx}`);if(b)b.textContent=itemTotalBottles(window._editItems[idx])+' btl'}
 function updateEditTier(idx,tier){window._editItems[idx].tier=tier;renderEditItems()}
