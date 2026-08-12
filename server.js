@@ -247,11 +247,11 @@ app.get('/api/migrate-accounts', async (req, res) => {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) DEFAULT 0`);
   res.json({ok:true, message:'Account columns added'});
 });
-app.get('/api/migrate-qbo', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-qbo') return res.status(403).json({ok:false});
+app.get('/api/migrate-partialpay', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-partialpay') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- qbo_connection table created'});
+    res.json({ok:true, message:'Migration complete -- partial_paid_amount column added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
   }
