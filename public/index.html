@@ -6762,46 +6762,78 @@ function renderRB2(el, producerFilter){
 
 // RC12 - Samples
 function renderRC12(el, from, to, producerFilter){
-  let orders=ORDERS.filter(o=>o.isSample||o.orderType==='sample');
+  const isSampleAccount=acct=>acct&&/^samples?\b/i.test((acct.name||'').trim());
+  let orders=ORDERS.filter(o=>{
+    if(o.isSample||o.orderType==='sample')return true;
+    return isSampleAccount(acctById(o.acct));
+  });
   if(from)orders=orders.filter(o=>o.date>=from);
   if(to)  orders=orders.filter(o=>o.date<=to);
-  const rows=[];
+
+  // Group line items by account, matching the reference report's layout
+  const acctMap={};
   orders.forEach(o=>{
     const acct=acctById(o.acct)||{name:'Unknown'};
     const rep=userById(o.rep)||{fname:'',lname:''};
     o.items.filter(i=>!i._fee).forEach(item=>{
       const p=prodBySku(item.sku);if(!p)return;
       if(producerFilter&&p.producer!==producerFilter)return;
-      rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,sku:item.sku,product:p.name,producer:p.producer,cases:item.cases,bottles:item.bottles});
+      const qtyCases=item.cases+(item.bottles>0?item.bottles/(p.btl||12):0);
+      const qtyBottles=itemTotalBottles(item);
+      const defaultPrice=(p.prices.frontline||0)*p.btl;
+      const fobPrice=p._details?.fobPrice||0;
+      const laidInCost=p._details?.laidInCost||0;
+      const sampleBillBack=(p.da?.frontline||0)*p.btl;
+      const totalSampleBillBack=sampleBillBack*qtyCases;
+      const totalSamplePrice=defaultPrice*qtyCases;
+      const totalFobPrice=fobPrice*p.btl*qtyCases;
+      if(!acctMap[o.acct])acctMap[o.acct]={acct:acct.name,rep:rep.fname+' '+(rep.lname||''),lines:[],orderTotal:0};
+      acctMap[o.acct].lines.push({
+        invoice:o.id,date:o.date,sku:item.sku,product:p.name,producer:p.producer,
+        qtyCases,qtyBottles,defaultPrice,fobPrice,laidInCost,sampleBillBack,totalSampleBillBack,
+        totalSamplePrice,totalFobPrice,notes:o.notes||'',
+      });
+      acctMap[o.acct].orderTotal+=itemLineTotal(item);
     });
   });
+  const acctGroups=Object.values(acctMap).filter(g=>g.lines.length).sort((a,b)=>a.acct.localeCompare(b.acct));
+  const allLines=acctGroups.flatMap(g=>g.lines.map(l=>({...l,acct:g.acct,rep:g.rep})));
+  const grandSamplePrice=allLines.reduce((s,l)=>s+l.totalSamplePrice,0);
+  const grandBillBack=allLines.reduce((s,l)=>s+l.totalSampleBillBack,0);
+
   el.innerHTML+=`
   <div class="card">
     <div class="card-header">
       <span class="card-title">RC12 — Samples</span>
-      <span style="font-size:12px;color:var(--text2)">${orders.length} sample orders · ${rows.length} line items</span>
+      <span style="font-size:12px;color:var(--text2)">${orders.length} sample orders · ${allLines.length} line items · ${fmt(grandSamplePrice)} notional value</span>
     </div>
     <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
       <table class="tbl">
-        <thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th></tr></thead>
+        <thead><tr><th>Account / Product</th><th>Wine Code</th><th>Supplier</th><th style="text-align:right">Qty (cs)</th><th style="text-align:right">Qty (btl)</th><th style="text-align:right">Default Price</th><th style="text-align:right">Sample Bill Back</th><th style="text-align:right">Total Bill Back</th><th style="text-align:right">Total Sample Price</th><th>Notes</th></tr></thead>
         <tbody>
-        ${rows.length?rows.map(r=>`<tr>
-          <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
-          <td style="font-size:12px">${r.date}</td>
-          <td style="font-size:12px">${r.acct}</td>
-          <td style="font-size:12px">${r.rep}</td>
-          <td style="font-size:11px;color:var(--text2)">${r.sku}</td>
-          <td style="font-size:12px;font-weight:600">${r.product}</td>
-          <td style="font-size:12px;color:var(--text2)">${r.producer}</td>
-          <td style="text-align:right;font-size:12px">${r.cases}</td>
-          <td style="text-align:right;font-size:12px">${r.bottles}</td>
-        </tr>`).join(''):`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No sample orders found</td></tr>`}
+        ${acctGroups.length?acctGroups.map(g=>{
+          const acctSamplePrice=g.lines.reduce((s,l)=>s+l.totalSamplePrice,0);
+          return `<tr style="background:var(--bg2)"><td colspan="10" style="font-weight:700;padding:10px 12px">${g.acct} <span style="font-weight:400;color:var(--text2);font-size:12px">(${g.rep}) -- ${fmt(acctSamplePrice)} notional</span></td></tr>`
+          + g.lines.map(l=>`<tr>
+            <td style="font-size:12px;padding-left:24px">${l.product}</td>
+            <td style="font-size:11px;color:var(--text2)">${l.sku}</td>
+            <td style="font-size:12px;color:var(--text2)">${l.producer}</td>
+            <td style="text-align:right;font-size:12px">${l.qtyCases.toFixed(2)}</td>
+            <td style="text-align:right;font-size:12px">${l.qtyBottles}</td>
+            <td style="text-align:right;font-size:12px">${fmt(l.defaultPrice)}</td>
+            <td style="text-align:right;font-size:12px">${fmt(l.sampleBillBack)}</td>
+            <td style="text-align:right;font-size:12px">${fmt(l.totalSampleBillBack)}</td>
+            <td style="text-align:right;font-weight:600">${fmt(l.totalSamplePrice)}</td>
+            <td style="font-size:11px;color:var(--text2)">${l.notes}</td>
+          </tr>`).join('');
+        }).join(''):`<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No sample orders found for the selected filters</td></tr>`}
         </tbody>
+        ${allLines.length?`<tfoot><tr><td colspan="7" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(grandBillBack)}</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandSamplePrice)}</td><td></td></tr></tfoot>`:''}
       </table>
     </div>
   </div>`;
-  window._lastReportRows=rows;
-  window._lastReportCols=['invoice','date','acct','rep','sku','product','producer','cases','bottles'];
+  window._lastReportRows=allLines;
+  window._lastReportCols=['invoice','date','acct','rep','sku','product','producer','qtyCases','qtyBottles','defaultPrice','fobPrice','laidInCost','sampleBillBack','totalSampleBillBack','totalSamplePrice','totalFobPrice','notes'];
 }
 
 // RI2 - Open/Past Due
