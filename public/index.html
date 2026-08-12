@@ -4662,7 +4662,7 @@ function filterAcctPurchases(){
     <td style="font-weight:600">${fmt(l.caseTotal)}</td>
     <td style="font-size:11px;color:var(--text2)">${fmt(l.price)}</td>
     <td><button class="btn btn-sm" onclick="viewInvoice('${l.orderId}')" title="View invoice"><i class="ti ti-file-invoice"></i></button></td>
-  </tr>`).join(''):`<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text3)">No purchase history${q?' matching &quot;'+q+'&quot;':''}</td></tr>`;
+  </tr>`).join(''):`<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text3)">No purchase history${acctPurchQ?' matching &quot;'+acctPurchQ+'&quot;':''}</td></tr>`;
 }
 
 function startOrderForAccount(acctId){
