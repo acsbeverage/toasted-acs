@@ -337,8 +337,13 @@ app.listen(PORT, async () => {
       await query('SELECT 1 FROM users LIMIT 1');
       console.log('Database OK');
     } catch (err) {
-      console.log('Running migrations...');
-      require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
+      console.log('Database check failed, attempting migrations...', err.message);
+      try {
+        require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
+        console.log('Migrations complete');
+      } catch (migrateErr) {
+        console.error('Migration attempt failed -- server will stay up, but the database may not be reachable yet:', migrateErr.message);
+      }
     }
   }
 });
