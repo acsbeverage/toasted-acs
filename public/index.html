@@ -10084,18 +10084,43 @@ function onClonePriceSearch(targetSku,val){
   }).join('');
   dd.classList.add('open');
 }
-function confirmClonePricing(targetSku,sourceSku){
+async function confirmClonePricing(targetSku,sourceSku){
   const target=PRODUCTS.find(x=>x.sku===targetSku);
   const source=PRODUCTS.find(x=>x.sku===sourceSku);
   if(!target||!source)return;
-  if(!confirm('Copy all pricing from "'+source.name+'" onto "'+target.name+'"? This will replace its current pricing.'))return;
+  if(!confirm('Copy all pricing from "'+source.name+'" onto "'+target.name+'"? This replaces its current pricing tiers and custom pricing lanes.'))return;
   target.prices={...source.prices};
   target.da={...source.da};
-  saveProductToDB(targetSku).then(()=>{
+  try{
+    await saveProductToDB(targetSku);
+
+    // Also clone any Custom Pricing Lanes -- fetch source's lanes and target's existing lanes
+    const [sourceLanesRes,targetLanesRes]=await Promise.all([
+      fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices?sku='+encodeURIComponent(sourceSku),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices?sku='+encodeURIComponent(targetSku),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json()),
+    ]);
+    // Replace target's existing lanes with fresh copies of the source's, same "replace" behavior as standard tiers
+    if(targetLanesRes.ok){
+      for(const lane of targetLanesRes.tiers){
+        await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices/'+lane.id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
+      }
+    }
+    let lanesCloned=0;
+    if(sourceLanesRes.ok){
+      for(const lane of sourceLanesRes.tiers){
+        const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices',{
+          method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+          body:JSON.stringify({sku:targetSku,tierName:lane.tierName,price:lane.price,da:lane.da,accountIds:lane.accountIds,corpGroups:lane.corpGroups,repVisible:lane.repVisible})
+        }).then(r=>r.json());
+        if(res.ok)lanesCloned++;
+      }
+    }
+
     const m=document.getElementById('clone-pricing-modal-bg');if(m)m.remove();
-    toast('Pricing cloned from '+source.name);
+    toast('Pricing cloned from '+source.name+(lanesCloned?' -- including '+lanesCloned+' custom pricing lane'+(lanesCloned!==1?'s':''):''));
+    await loadAllDataFromBackend();
     openProductPricing(targetSku);
-  }).catch(e=>toast('Could not save -- '+e.message));
+  }catch(e){toast('Could not clone pricing -- '+e.message);}
 }
 
 function openProductPricing(sku){
