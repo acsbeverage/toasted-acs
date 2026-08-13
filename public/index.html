@@ -4769,6 +4769,10 @@ function openAccountDetail(acctId){
   }
   html+='</div></div>';
 
+  html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Contacts</span>'+(isAdmin?'<button class="btn btn-sm btn-dark" onclick="openAddContact(\''+a.id+'\')"><i class="ti ti-plus"></i> Add Contact</button>':'')+'</div><div id="acct-contacts-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
+
+  html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Attachments</span>'+(isAdmin?'<div><input type="file" id="acct-attach-file" style="display:none" onchange="handleAttachmentUpload(\''+a.id+'\',this)"/><button class="btn btn-sm btn-dark" onclick="document.getElementById(\'acct-attach-file\').click()"><i class="ti ti-paperclip"></i> Upload File</button></div>':'')+'</div><div id="acct-attachments-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
+
   // -- Purchase history (product-level): what has this account bought, and at what price --
   const purchaseLines=[];
   allOrders.forEach(o=>{
@@ -4799,7 +4803,175 @@ function openAccountDetail(acctId){
 
   document.getElementById('main-content').innerHTML=html;
   filterAcctPurchases();
+  loadAccountContacts(a.id);
+  loadAccountAttachments(a.id);
 }
+// -- ACCOUNT CONTACTS ------------------------------------------------------------
+window._currentContactsData=[];
+async function loadAccountContacts(acctId){
+  const body=document.getElementById('acct-contacts-body');if(!body)return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){body.innerHTML='<div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Could not load contacts</div>';return;}
+    window._currentContactsData=res.contacts;
+    if(!res.contacts.length){body.innerHTML='<div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">No additional contacts yet</div>';return;}
+    const isAdmin=currentUser.role==='admin';
+    body.innerHTML=res.contacts.map(c=>`<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-weight:600;font-size:13px">${c.name}${c.isPrimary?' <span class="tier-pill" style="font-size:10px">Primary</span>':''}${c.title?' <span style="color:var(--text2);font-weight:400">-- '+c.title+'</span>':''}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${[c.email,c.phone].filter(Boolean).join(' &middot; ')||'--'}</div>
+        ${c.notes?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${c.notes}</div>`:''}
+      </div>
+      ${isAdmin?`<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn btn-sm" onclick="openEditContact('${acctId}',${c.id})"><i class="ti ti-edit"></i></button><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteContact('${acctId}',${c.id})"><i class="ti ti-trash"></i></button></div>`:''}
+    </div>`).join('');
+  }catch(e){body.innerHTML='<div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Could not load contacts -- check connection</div>';}
+}
+function _contactModalHtml(title,acctId,saveOnclick,prefill){
+  prefill=prefill||{};
+  return `<div class="modal-bg open" id="contact-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-title">${title}</div>
+      <label class="flabel">Name *</label><input class="finput" id="ct-name" value="${(prefill.name||'').replace(/"/g,'&quot;')}" style="margin-bottom:12px"/>
+      <label class="flabel">Title / Role</label><input class="finput" id="ct-title" value="${(prefill.title||'').replace(/"/g,'&quot;')}" placeholder="e.g. Owner, Buyer, AP Contact" style="margin-bottom:12px"/>
+      <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:12px">
+        <div><label class="flabel">Email</label><input class="finput" id="ct-email" value="${(prefill.email||'').replace(/"/g,'&quot;')}"/></div>
+        <div><label class="flabel">Phone</label><input class="finput" id="ct-phone" value="${(prefill.phone||'').replace(/"/g,'&quot;')}"/></div>
+      </div>
+      <label class="flabel">Notes</label><textarea class="finput" id="ct-notes" style="min-height:50px;margin-bottom:12px">${prefill.notes||''}</textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><input type="checkbox" id="ct-primary" ${prefill.isPrimary?'checked':''} style="width:16px;height:16px"/><label for="ct-primary" style="font-size:13px;cursor:pointer">Set as primary contact</label></div>
+      <div class="modal-footer"><button class="btn" onclick="document.getElementById('contact-modal-bg').remove()">Cancel</button><button class="btn btn-dark" onclick="${saveOnclick}">${prefill.id?'Save Changes':'Add Contact'}</button></div>
+    </div>
+  </div>`;
+}
+function openAddContact(acctId){
+  document.body.insertAdjacentHTML('beforeend',_contactModalHtml('Add Contact',acctId,`saveNewContact('${acctId}')`,{}));
+}
+async function saveNewContact(acctId){
+  const name=document.getElementById('ct-name').value.trim();
+  if(!name){alert('Contact name required');return}
+  const payload={name,title:document.getElementById('ct-title').value,email:document.getElementById('ct-email').value,
+    phone:document.getElementById('ct-phone').value,notes:document.getElementById('ct-notes').value,isPrimary:document.getElementById('ct-primary').checked};
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)
+    }).then(r=>r.json());
+    if(!res.ok){alert(res.error||'Could not add contact');return}
+    document.getElementById('contact-modal-bg').remove();
+    toast('Contact added: '+name);
+    loadAccountContacts(acctId);
+  }catch(e){alert('Could not save -- check connection');}
+}
+function openEditContact(acctId,contactId){
+  const c=window._currentContactsData.find(x=>x.id===contactId);
+  if(!c){toast('Could not find that contact -- try reopening the page');return}
+  document.body.insertAdjacentHTML('beforeend',_contactModalHtml('Edit Contact',acctId,`saveEditedContact('${acctId}',${contactId})`,c));
+}
+async function saveEditedContact(acctId,contactId){
+  const name=document.getElementById('ct-name').value.trim();
+  if(!name){alert('Contact name required');return}
+  const payload={name,title:document.getElementById('ct-title').value,email:document.getElementById('ct-email').value,
+    phone:document.getElementById('ct-phone').value,notes:document.getElementById('ct-notes').value,isPrimary:document.getElementById('ct-primary').checked};
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts/'+contactId,{
+      method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)
+    }).then(r=>r.json());
+    if(!res.ok){alert(res.error||'Could not save contact');return}
+    document.getElementById('contact-modal-bg').remove();
+    toast('Contact updated: '+name);
+    loadAccountContacts(acctId);
+  }catch(e){alert('Could not save -- check connection');}
+}
+async function deleteContact(acctId,contactId){
+  if(!confirm('Delete this contact?'))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts/'+contactId,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not delete contact');return}
+    toast('Contact deleted');
+    loadAccountContacts(acctId);
+  }catch(e){toast('Could not delete -- check connection');}
+}
+
+// -- ACCOUNT ATTACHMENTS ----------------------------------------------------------
+function _formatFileSize(bytes){
+  if(!bytes)return '0 KB';
+  if(bytes<1024*1024)return (bytes/1024).toFixed(0)+' KB';
+  return (bytes/(1024*1024)).toFixed(1)+' MB';
+}
+function _fileIconFor(mimeType){
+  if((mimeType||'').includes('pdf'))return 'ti-file-type-pdf';
+  if((mimeType||'').includes('image'))return 'ti-photo';
+  if((mimeType||'').includes('word')||(mimeType||'').includes('document'))return 'ti-file-type-doc';
+  if((mimeType||'').includes('sheet')||(mimeType||'').includes('excel'))return 'ti-file-type-xls';
+  return 'ti-file';
+}
+async function loadAccountAttachments(acctId){
+  const body=document.getElementById('acct-attachments-body');if(!body)return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/attachments',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){body.innerHTML='<div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Could not load attachments</div>';return;}
+    if(!res.attachments.length){body.innerHTML='<div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">No files attached yet -- contracts, licenses, signed agreements, etc.</div>';return;}
+    const isAdmin=currentUser.role==='admin';
+    body.innerHTML=res.attachments.map(f=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer;flex:1;min-width:0" onclick="downloadAttachment('${acctId}',${f.id},'${f.filename.replace(/'/g,"\\'")}')">
+        <i class="ti ${_fileIconFor(f.mimeType)}" style="font-size:20px;color:var(--gold);flex-shrink:0"></i>
+        <div style="min-width:0">
+          <div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.filename}</div>
+          <div style="font-size:11px;color:var(--text3)">${_formatFileSize(f.fileSize)} &middot; ${new Date(f.uploadedAt).toLocaleDateString()} &middot; ${f.uploadedBy||'--'}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;flex-shrink:0;margin-left:8px">
+        <button class="btn btn-sm" onclick="downloadAttachment('${acctId}',${f.id},'${f.filename.replace(/'/g,"\\'")}')"><i class="ti ti-download"></i></button>
+        ${isAdmin?`<button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteAttachment('${acctId}',${f.id})"><i class="ti ti-trash"></i></button>`:''}
+      </div>
+    </div>`).join('');
+  }catch(e){body.innerHTML='<div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Could not load attachments -- check connection</div>';}
+}
+function handleAttachmentUpload(acctId,input){
+  const file=input.files[0];if(!file)return;
+  const MAX_SIZE=15*1024*1024; // 15MB -- generous for contracts/licenses/photos, keeps the database reasonable
+  if(file.size>MAX_SIZE){alert('File is too large (max 15MB). Try compressing it or splitting into smaller files.');input.value='';return;}
+  toast('Uploading '+file.name+'...');
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    const fileData=e.target.result.split(',')[1]; // strip the data:...;base64, prefix
+    try{
+      const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/attachments',{
+        method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+        body:JSON.stringify({filename:file.name,mimeType:file.type,fileData})
+      }).then(r=>r.json());
+      if(!res.ok){alert(res.error||'Could not upload file');input.value='';return}
+      toast('Uploaded: '+file.name);
+      input.value='';
+      loadAccountAttachments(acctId);
+    }catch(err){alert('Could not upload -- check connection');input.value='';}
+  };
+  reader.onerror=function(){alert('Could not read that file');input.value='';};
+  reader.readAsDataURL(file);
+}
+async function downloadAttachment(acctId,attId,filename){
+  toast('Fetching '+filename+'...');
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/attachments/'+attId+'/download',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not fetch file');return}
+    const byteChars=atob(res.fileData);
+    const byteNumbers=new Array(byteChars.length);
+    for(let i=0;i<byteChars.length;i++)byteNumbers[i]=byteChars.charCodeAt(i);
+    const blob=new Blob([new Uint8Array(byteNumbers)],{type:res.mimeType||'application/octet-stream'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=res.filename;document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){toast('Could not download -- check connection');}
+}
+async function deleteAttachment(acctId,attId){
+  if(!confirm('Delete this file? This cannot be undone.'))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/attachments/'+attId,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not delete file');return}
+    toast('File deleted');
+    loadAccountAttachments(acctId);
+  }catch(e){toast('Could not delete -- check connection');}
+}
+
 function filterAcctPurchases(){
   const acctPurchQ=document.getElementById('acct-purchase-search')?.value||'';
   const lines=(window._acctPurchaseLines||[]).filter(l=>!acctPurchQ.trim()||matchesSearch(l.name+' '+l.sku,acctPurchQ));
