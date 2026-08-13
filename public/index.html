@@ -449,7 +449,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 </div>
 <div class="modal-bg" id="modal-account">
   <div class="modal" style="max-width:760px;max-height:88vh;overflow-y:auto">
-    <div class="modal-title">Add Account</div>
+    <div class="modal-title" id="acct-modal-title">Add Account</div>
 
     <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px">Basic Info</div>
     <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
@@ -498,7 +498,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div><label class="flabel">Region</label><input class="finput" id="a-region" placeholder="e.g. North, South"/></div>
       <div style="grid-column:1/-1"><label class="flabel">Allowed Ship Days</label><select class="finput" id="a-ship-days" multiple style="height:100px"><option value="Monday">Monday</option><option value="Tuesday">Tuesday</option><option value="Wednesday">Wednesday</option><option value="Thursday">Thursday</option><option value="Friday">Friday</option><option value="Saturday">Saturday</option><option value="Sunday">Sunday</option></select></div>
       <div style="grid-column:1/-1"><label class="flabel">Tasting Hours</label><textarea class="finput" id="a-tasting-hours" style="min-height:50px"></textarea></div>
-      <div style="grid-column:1/-1"><label class="flabel">Delivery Notes</label><textarea class="finput" id="a-delivery-notes" style="min-height:50px"></textarea></div>
+      <div style="grid-column:1/-1"><label class="flabel">Delivery Instructions &amp; Window</label><textarea class="finput" id="a-delivery-notes" placeholder="e.g. Deliver 8am-12pm only, ring back door, dock #4..." style="min-height:50px"></textarea><div style="font-size:11px;color:var(--text3);margin-top:3px">Prints on the invoice so drivers see it at delivery time.</div></div>
       <div><label class="flabel">Website</label><input class="finput" id="a-website" placeholder="https://"/></div>
       <div><label class="flabel">Warehouse Code</label><input class="finput" id="a-warehouse-code"/></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:20px"><input type="checkbox" id="a-show-upc" style="width:16px;height:16px"/><label for="a-show-upc" style="font-size:13px;cursor:pointer">Show Product UPC on invoices</label></div>
@@ -539,7 +539,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div style="font-weight:700;font-size:13px;color:#2CA01C;margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">QuickBooks Online</div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><input type="checkbox" id="a-create-in-qb" style="width:16px;height:16px"/><label for="a-create-in-qb" style="font-size:13px;cursor:pointer">Create / Update in QuickBooks after saving?</label></div>
 
-    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-account')">Cancel</button><button class="btn btn-dark" onclick="saveAccount()">Create Account</button></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-account')">Cancel</button><button class="btn btn-dark" id="acct-modal-save-btn" onclick="saveAccount()">Create Account</button></div>
   </div>
 </div>
 <div class="modal-bg" id="modal-change-pw">
@@ -4761,35 +4761,11 @@ function openAccountDetail(acctId){
   if(a.creditLimit)html+='<div><span style="color:var(--text2)">Credit Limit:</span> '+fmt(a.creditLimit)+'</div>';
   if(a.creditBalance)html+='<div><span style="color:var(--text2);color:var(--red)">Credit Balance:</span> <strong style="color:var(--red)">'+fmt(a.creditBalance)+'</strong></div>';
   if(a.shipStreet)html+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><div style="color:var(--text2)">Address:</div><div>'+a.shipStreet+'</div><div>'+[a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div></div>';
+  if(a.deliveryNotes&&a.deliveryNotes.trim())html+='<div style="margin-top:8px;padding:8px 10px;background:#fffbe8;border-radius:var(--radius);font-size:12px"><div style="color:#8A6100;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Delivery Instructions &amp; Window</div><div style="color:#5a4a10;line-height:1.5">'+a.deliveryNotes.replace(/</g,'&lt;').replace(/\n/g,'<br>')+'</div></div>';
   if(isAdmin){
-    const repOptions=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${u.id===a.rep?'selected':''}>${u.fname} ${u.lname||''}</option>`).join('');
-    const paymentOptions=['ACS ACH','Melio','Fintech','Bill.com','ACH','Other'].map(p=>`<option value="${p}" ${a.paymentProvider===p?'selected':''}>${p}</option>`).join('');
     html+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
-    html+='<div style="color:var(--text2);margin-bottom:8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Edit Account</div>';
-    html+='<div style="display:flex;flex-direction:column;gap:8px">';
-    html+='<div><label class="flabel">Assigned Rep</label><select id="acct-rep-select" class="finput" style="width:100%;font-size:13px">'+repOptions+'</select></div>';
-    html+='<div><label class="flabel">Terms</label><select id="acct-terms" class="finput" style="width:100%;font-size:13px"><option value="Net 30" '+(a.terms==='Net 30'?'selected':'')+'>Net 30</option><option value="Net 15" '+(a.terms==='Net 15'?'selected':'')+'>Net 15</option><option value="Net 45" '+(a.terms==='Net 45'?'selected':'')+'>Net 45</option><option value="Net 60" '+(a.terms==='Net 60'?'selected':'')+'>Net 60</option><option value="COD" '+(a.terms==='COD'?'selected':'')+'>COD</option><option value="Prepaid" '+(a.terms==='Prepaid'?'selected':'')+'>Prepaid</option><option value="Default" '+(a.terms==='Default'?'selected':'')+'>Default</option></select></div>';
-    html+='<div><label class="flabel">Payment Method</label><select id="acct-payment-provider" class="finput" style="width:100%;font-size:13px" onchange="document.getElementById(\'acct-payment-other\').style.display=this.value===\'Other\'?\'block\':\'none\'"><option value="">-- Select --</option>'+paymentOptions+'</select>';
-    html+='<input type="text" id="acct-payment-other" class="finput" placeholder="Specify payment method..." style="width:100%;font-size:13px;margin-top:6px;display:'+(a.paymentProvider==='Other'?'block':'none')+'"/></div>';
-    html+='<div><label class="flabel">Online Payments</label><select id="acct-online-payments" class="finput" style="width:100%;font-size:13px"><option value="Yes" '+(a.onlinePayments==='Yes'?'selected':'')+'>Yes</option><option value="No" '+((!a.onlinePayments||a.onlinePayments==='No')?'selected':'')+'>No</option></select></div>';
-    html+='<div><label class="flabel">Redemption</label><select id="acct-redemption" class="finput" style="width:100%;font-size:13px"><option value="Yes" '+(a.redemption==='Yes'?'selected':'')+'>Yes</option><option value="No" '+((!a.redemption||a.redemption==='No')?'selected':'')+'>No</option></select></div>';
-    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
-    html+='<div><label class="flabel">Account Number</label><input class="finput" id="acct-code" value="'+(a.code||'')+'" placeholder="e.g. 100042" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Tax ID #</label><input class="finput" id="acct-tax-id" value="'+(a.taxId||'')+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Resale #</label><input class="finput" id="acct-resale" value="'+(a.resaleNum||'')+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Warehouse Code</label><input class="finput" id="acct-warehouse" value="'+(a.warehouseCode||'')+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">License Expiry</label><input type="date" class="finput" id="acct-lic-expiry" value="'+(a.licExpiry||'')+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Credit Limit</label><input type="number" class="finput" id="acct-credit-limit" value="'+(a.creditLimit||0)+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Credit Balance</label><input type="number" class="finput" id="acct-credit-balance" value="'+(a.creditBalance||0)+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Avg Days to Pay</label><input type="number" class="finput" id="acct-avg-days" value="'+(a.avgDaysToPay||0)+'" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Region</label><input class="finput" id="acct-region" value="'+(a.region||'')+'" placeholder="e.g. North, South" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Account Kind (Primary)</label><input class="finput" id="acct-kind-primary" value="'+(a.kindPrimary||'')+'" placeholder="e.g. On-Premise, Off-Premise" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Account Kind (Secondary)</label><input class="finput" id="acct-kind-secondary" value="'+(a.kindSecondary||'')+'" placeholder="e.g. Restaurant, Retail" style="font-size:13px"/></div>';
-    html+='<div><label class="flabel">Corp Group</label><input class="finput" id="acct-corp-group" value="'+(a.corpGroup||'')+'" placeholder="e.g. Total Wine, Costco" list="corp-group-suggestions" style="font-size:13px"/><datalist id="corp-group-suggestions"><option value="Total Wine"><option value="Whole Foods"><option value="Costco"><option value="BevMo"><option value="Raley\'s"><option value="Albertsons"><option value="New Leaf Community Markets"><option value="Lunardi\'s Markets"></datalist></div>';
-    html+='<div><label class="flabel">Commission %</label><input type="number" class="finput" id="acct-commission" value="'+(a.commissionPct||0)+'" style="font-size:13px"/></div>';
+    html+='<button class="btn btn-dark" style="width:100%" onclick="openEditAccountFull(\''+a.id+'\')"><i class="ti ti-edit"></i> Edit Account</button>';
     html+='</div>';
-    html+='<button class="btn btn-sm btn-dark" style="width:100%;margin-top:4px" onclick="saveAccountDetails(\''+a.id+'\')"><i class="ti ti-device-floppy"></i> Save Changes</button>';
-    html+='</div></div>';
   }
   html+='</div></div>';
 
@@ -5012,7 +4988,11 @@ function toggleBillSameAsShip(){
     document.getElementById('a-bill-county').value=document.getElementById('a-ship-county').value;
   }
 }
+let _editingAccountId=null;
 function openAddAccount(){
+  _editingAccountId=null;
+  document.getElementById('acct-modal-title').textContent='Add Account';
+  document.getElementById('acct-modal-save-btn').textContent='Create Account';
   document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');
   ['a-name','a-code','a-corp-group','a-lic','a-contact','a-phone','a-email',
    'a-ship-street','a-ship-street2','a-ship-city','a-ship-state','a-ship-zip','a-ship-county',
@@ -5039,6 +5019,49 @@ function openAddAccount(){
   document.getElementById('a-master-invoice').checked=false;
   document.getElementById('a-allow-orders').checked=true;
   document.getElementById('a-cod-email').checked=false;
+  document.getElementById('a-create-in-qb').checked=false;
+  toggleBillSameAsShip();
+  document.getElementById('modal-account').classList.add('open');
+}
+function openEditAccountFull(acctId){
+  const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
+  _editingAccountId=acctId;
+  document.getElementById('acct-modal-title').textContent='Edit Account -- '+a.name;
+  document.getElementById('acct-modal-save-btn').textContent='Save Changes';
+  document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${u.id===a.rep?'selected':''}>${u.fname} ${u.lname}</option>`).join('');
+
+  const setVal=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val||'';};
+  setVal('a-name',a.name);setVal('a-code',a.code);setVal('a-corp-group',a.corpGroup);setVal('a-lic',a.lic);
+  setVal('a-contact',a.contact);setVal('a-phone',a.phone);setVal('a-email',a.email);
+  setVal('a-ship-street',a.shipStreet);setVal('a-ship-street2',a.shipStreet2);setVal('a-ship-city',a.shipCity);
+  setVal('a-ship-state',a.shipState);setVal('a-ship-zip',a.shipZip);setVal('a-ship-county',a.shipCounty);
+  setVal('a-bill-street',a.billStreet);setVal('a-bill-street2',a.billStreet2);setVal('a-bill-city',a.billCity);
+  setVal('a-bill-state',a.billState);setVal('a-bill-zip',a.billZip);setVal('a-bill-county',a.billCounty);
+  setVal('a-payment-provider',a.paymentProvider);setVal('a-preferred-payment-method',a.preferredPaymentMethodName);
+  setVal('a-region',a.region);setVal('a-tasting-hours',a.tastingHours);setVal('a-delivery-notes',a.deliveryNotes);
+  setVal('a-website',a.website);setVal('a-warehouse-code',a.warehouseCode);setVal('a-tax-id',a.taxId);
+  setVal('a-abc-detail',a.abcDetail);setVal('a-lic-expiry',a.licExpiry);setVal('a-resale-num',a.resaleNum);
+  setVal('a-alt-license',a.alternateLicense);setVal('a-alt-license-expiry',a.alternateLicenseExpiry);
+  setVal('a-external-id',a.externalIdentifier1);setVal('a-billing-invoice-title',a.billingInvoiceTitle);
+  setVal('a-terms',a.terms||'Net 30');setVal('a-type',a.accountType);
+  document.getElementById('a-past-due').value=a.pastDue?'true':'false';
+  document.getElementById('a-notify-ar').value=a.notifyInvoiceContactsAR!==false?'true':'false';
+  setVal('a-avg-monthly-sales',a.avgMonthlySalesEstimate||0);
+  setVal('a-credit-limit',a.creditLimit||0);setVal('a-commission',a.commissionPct||0);
+
+  const shipDays=(a.allowedShipDays||'').split(',').map(d=>d.trim()).filter(Boolean);
+  [...document.getElementById('a-ship-days').options].forEach(o=>{o.selected=shipDays.includes(o.value);});
+
+  document.getElementById('a-bill-same').checked=false;
+  document.getElementById('a-show-upc').checked=!!a.showProductUpc;
+  document.getElementById('a-override-avg-sales').checked=!!a.overrideAvgMonthlySales;
+  document.getElementById('a-prospective').checked=!!a.isProspective;
+  document.getElementById('a-sample').checked=!!a.isSampleAccount;
+  document.getElementById('a-redemption').checked=a.redemption==='Yes';
+  document.getElementById('a-online-payments').checked=a.onlinePayments==='Yes';
+  document.getElementById('a-master-invoice').checked=!!a.prefersMasterInvoice;
+  document.getElementById('a-allow-orders').checked=a.allowOrders!==false;
+  document.getElementById('a-cod-email').checked=!!a.codEmailNotifications;
   document.getElementById('a-create-in-qb').checked=false;
   toggleBillSameAsShip();
   document.getElementById('modal-account').classList.add('open');
@@ -5128,20 +5151,30 @@ function saveAccount(){
     commissionPct:parseFloat(document.getElementById('a-commission').value)||0,
   };
   const createInQB=document.getElementById('a-create-in-qb').checked;
-  fetch(TOASTED_BACKEND_URL+'/api/accounts',{
-    method:'POST',
+  const isEdit=!!_editingAccountId;
+  const url=isEdit?TOASTED_BACKEND_URL+'/api/accounts/'+_editingAccountId:TOASTED_BACKEND_URL+'/api/accounts';
+  fetch(url,{
+    method:isEdit?'PATCH':'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(payload)
   }).then(r=>r.json()).then(res=>{
-    if(!res.ok){alert(res.error||'Could not create account');return}
-    ACCOUNTS.push({id:res.id,code:res.code,...payload});
-    const ru=USERS.find(u=>u.id===rep);
-    if(ru&&ru.accounts&&!ru.accounts.includes(res.id))ru.accounts.push(res.id);
-    closeModal('modal-account');
-    toast('Account added -- assigned #'+res.code);
-    if(currentUser.role==='admin')showPage('accounts');
-    if(createInQB)qboSyncAccount(res.id);
-  }).catch(()=>alert('Could not create account -- check connection'));
+    if(!res.ok){alert(res.error||'Could not save account');return}
+    if(isEdit){
+      const existing=ACCOUNTS.find(a=>a.id===_editingAccountId);
+      if(existing)Object.assign(existing,payload);
+      closeModal('modal-account');
+      toast('Account updated -- '+name);
+      openAccountDetail(_editingAccountId);
+    } else {
+      ACCOUNTS.push({id:res.id,code:res.code,...payload});
+      const ru=USERS.find(u=>u.id===rep);
+      if(ru&&ru.accounts&&!ru.accounts.includes(res.id))ru.accounts.push(res.id);
+      closeModal('modal-account');
+      toast('Account added -- assigned #'+res.code);
+      if(currentUser.role==='admin')showPage('accounts');
+      if(createInQB)qboSyncAccount(res.id);
+    }
+  }).catch(()=>alert('Could not save account -- check connection'));
 }
 
 // -- PRICING --------------------------------------------------------------------
@@ -5750,6 +5783,19 @@ function _buildInvoicePDF(o,callback){
   if(cityLine){doc.text(cityLine,ML,y);doc.text(cityLine,col2,y);y+=10;}
   if(acct&&acct.lic){doc.setFontSize(7.5);doc.text('ABC Lic: '+acct.lic,ML,y);y+=10;}
   y+=8;
+
+  // Delivery Instructions & Window -- highlighted so drivers don't miss it
+  if(acct&&acct.deliveryNotes&&acct.deliveryNotes.trim()){
+    doc.setFillColor(255,251,232);
+    const noteLines=doc.splitTextToSize(acct.deliveryNotes.trim(),CW-16);
+    const boxH=14+noteLines.length*10;
+    doc.rect(ML,y,CW,boxH,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(138,106,0);
+    doc.text('DELIVERY INSTRUCTIONS & WINDOW',ML+8,y+10);
+    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,60,20);
+    doc.text(noteLines,ML+8,y+21);
+    y+=boxH+8;
+  }
 
   // Table header
   drawTableHeader();
