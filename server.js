@@ -316,11 +316,11 @@ app.get('/api/diagnose-pack-sizes', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-app.get('/api/migrate-contacts-attachments', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-contactsattach') return res.status(403).json({ok:false});
+app.get('/api/migrate-invoice-emails', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-invoiceemails') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- account_contacts and account_attachments tables added'});
+    res.json({ok:true, message:'Migration complete -- scheduled_invoice_emails table added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
   }
@@ -387,4 +387,18 @@ app.listen(PORT, async () => {
       }
     }
   }
+
+  // Scheduled invoice emails ("send on day of delivery") -- checked hourly so a delivery
+  // date rolling over gets caught within the hour, without needing a separate cron service.
+  const ordersRouter = require('./routes/orders');
+  const runScheduledEmailCheck = async () => {
+    try {
+      const sent = await ordersRouter.processScheduledInvoiceEmails();
+      if (sent > 0) console.log(`Sent ${sent} scheduled invoice email(s)`);
+    } catch (err) {
+      console.error('Scheduled invoice email check failed:', err.message);
+    }
+  };
+  runScheduledEmailCheck(); // catch anything due right at startup too
+  setInterval(runScheduledEmailCheck, 60 * 60 * 1000);
 });
