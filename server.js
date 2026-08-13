@@ -257,11 +257,11 @@ app.get('/api/list-blank-crv', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-app.get('/api/migrate-restricted', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-restricted') return res.status(403).json({ok:false});
+app.get('/api/migrate-multilane', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-multilane') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- restricted column added'});
+    res.json({ok:true, message:'Migration complete -- multi-account/corp-group pricing lane columns added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
   }
