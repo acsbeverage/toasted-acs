@@ -610,6 +610,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     </div>
   </div>
 </div>
+<div class="modal-bg" id="modal-send-invoice">
+  <div class="modal" style="max-width:520px;max-height:88vh;overflow-y:auto" id="send-invoice-body"></div>
+</div>
 <div class="modal-bg" id="modal-receive">
   <div class="modal" style="max-width:480px">
     <div class="modal-title"><i class="ti ti-adjustments" style="font-size:16px;vertical-align:-2px;margin-right:6px"></i>Adjust Inventory</div>
@@ -3805,14 +3808,103 @@ function doConfirm(){
     printShippingLabel(o.id);
   }
 
-  // Switch modal to "confirmed" state with PDF button - don't close yet
-  document.getElementById('confirm-modal-title').textContent='Order confirmed v';
-  document.getElementById('confirm-modal-desc').innerHTML=
-    `<span style="color:var(--green);font-weight:600">${o.id} has been confirmed.</span> Download the invoice or close to continue.`;
-  document.getElementById('confirm-modal-footer').innerHTML=`
-    <button class="btn" onclick="closeModal('modal-confirm');updatePageAfterConfirm()">Close</button>
-    ${pdfSplitBtn(o.id,"")}
+  closeModal('modal-confirm');
+  openSendInvoiceModal(o.id);
+}
+async function openSendInvoiceModal(orderId){
+  const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
+  const acct=acctById(o.acct);if(!acct)return;
+  const body=document.getElementById('send-invoice-body');
+  body.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3)">Loading account contacts...</div>';
+  document.getElementById('modal-send-invoice').classList.add('open');
+
+  let contacts=[];
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acct.id+'/contacts',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(res.ok)contacts=res.contacts;
+  }catch(e){/* fall through with just the main account email if this fails */}
+
+  // Build the full recipient list: the account's main email (if set) plus every contact with an email on file
+  const recipients=[];
+  if(acct.email)recipients.push({email:acct.email,label:acct.contact?acct.contact+' (Main)':'Main Account Email',isPrimary:true});
+  contacts.forEach(c=>{if(c.email&&!recipients.find(r=>r.email===c.email))recipients.push({email:c.email,label:c.name+(c.title?' -- '+c.title:''),isPrimary:c.isPrimary});});
+
+  const defaultSubject='Invoice #'+o.id+' from '+COMPANY.name;
+  const defaultBody='Hi,\n\nPlease find attached your invoice for order #'+o.id+', delivering '+o.delivery+'.\n\nThank you for your business!\n\n'+COMPANY.name;
+
+  body.innerHTML=`
+    <div class="modal-title">Send Invoice</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:16px">${o.id} -- ${acct.name}. Choose when and to whom this invoice should be emailed.</p>
+
+    <label class="flabel">When to Send</label>
+    <div style="display:flex;gap:16px;margin-bottom:16px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="send-timing" value="delivery" checked/> Day of Delivery (morning of ${o.delivery})</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="send-timing" value="now"/> Send Now</label>
+    </div>
+
+    <label class="flabel">Recipients ${recipients.length?'':'-- none found'}</label>
+    <div style="margin-bottom:16px">
+      ${recipients.length?recipients.map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
+        <input type="checkbox" class="send-invoice-recipient" value="${r.email.replace(/"/g,'&quot;')}" checked style="width:16px;height:16px"/>
+        ${r.label} (${r.email})${r.isPrimary?' <span class="tier-pill" style="font-size:10px">Primary</span>':''}
+      </label>`).join(''):'<div style="font-size:12px;color:var(--red)">This account has no email on file and no contacts with an email. Add one on the account page first, or skip sending.</div>'}
+    </div>
+
+    <label class="flabel">Subject</label>
+    <input class="finput" id="send-invoice-subject" value="${defaultSubject.replace(/"/g,'&quot;')}" style="margin-bottom:12px"/>
+    <label class="flabel">Message</label>
+    <textarea class="finput" id="send-invoice-body-text" style="min-height:90px;margin-bottom:16px">${defaultBody}</textarea>
+
+    <div class="modal-footer">
+      <button class="btn" onclick="skipSendInvoice()">Skip</button>
+      <button class="btn btn-dark" id="send-invoice-btn" onclick="confirmSendInvoice('${orderId}')" ${recipients.length?'':'disabled'}><i class="ti ti-send"></i> Confirm &amp; Send</button>
+    </div>
   `;
+}
+function skipSendInvoice(){
+  closeModal('modal-send-invoice');
+  updatePageAfterConfirm();
+}
+function confirmSendInvoice(orderId){
+  const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
+  const recipients=[...document.querySelectorAll('.send-invoice-recipient:checked')].map(el=>el.value);
+  if(!recipients.length){alert('Select at least one recipient');return}
+  const subject=document.getElementById('send-invoice-subject').value.trim();
+  const bodyText=document.getElementById('send-invoice-body-text').value;
+  const timing=document.querySelector('input[name="send-timing"]:checked').value;
+
+  const btn=document.getElementById('send-invoice-btn');
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Generating invoice...';
+
+  _buildInvoicePDF(o,async function(doc){
+    const dataUri=doc.output('datauristring');
+    const pdfData=dataUri.split('base64,')[1];
+    const pdfFilename='Invoice-'+o.id+'.pdf';
+    const acct=acctById(o.acct);
+
+    try{
+      if(timing==='now'){
+        const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId+'/send-invoice-email',{
+          method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+          body:JSON.stringify({recipients,subject,body:bodyText,pdfData,pdfFilename})
+        }).then(r=>r.json());
+        if(!res.ok)throw new Error(res.error||'Send failed');
+        toast('Invoice sent to '+recipients.length+' recipient'+(recipients.length!==1?'s':''));
+      } else {
+        const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId+'/schedule-invoice-email',{
+          method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+          body:JSON.stringify({recipients,subject,body:bodyText,pdfData,pdfFilename,scheduledFor:o.delivery,accountId:acct?acct.id:null})
+        }).then(r=>r.json());
+        if(!res.ok)throw new Error(res.error||'Scheduling failed');
+        toast('Invoice scheduled to send the morning of '+o.delivery);
+      }
+      closeModal('modal-send-invoice');
+      updatePageAfterConfirm();
+    }catch(e){
+      alert('Could not send invoice: '+e.message);
+      btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Confirm & Send';
+    }
+  });
 }
 function updatePageAfterConfirm(){
   const active=document.querySelector('.nav-item.active');
