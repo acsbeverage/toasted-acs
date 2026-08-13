@@ -4441,19 +4441,26 @@ function exportAccountsCSV(){
   const filtered=_filterAcctsList();
   if(!filtered.length){toast('No accounts to export');return;}
   const isAdmin=currentUser&&currentUser.role==='admin';
-  const headers=['Account Number','Name','ABC License #','Contact','Phone','Email','City','State','Terms',
-    ...(isAdmin?['Rep']:[]),'Orders','Open AR'];
-  const csvEsc=v=>{
-    const s=(v===null||v===undefined)?'':String(v);
-    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
-  };
+  const headers=['Account Number','Name','Corp Group','Assigned Rep Email','Past Due','Notify Invoice Contacts AR',
+    'Contact','Phone','Email','Payment Terms','Payment Provider','Preferred Payment Method Name',
+    'Ship Street','Ship Street 2','Ship City','Ship State','Ship Zip','Ship County',
+    'Bill Street','Bill Street 2','Bill City','Bill State','Bill Zip','Bill County',
+    'Account Type','Region','Allowed Ship Days','Tasting Hours','Delivery Notes','Website','Warehouse Code','Show Product UPC',
+    'Avg Monthly Sales Estimate','Override Avg Monthly Sales','Prospective','Sample Account',
+    'Redemption Enabled','Tax ID','ABC License #','ABC License Detail','License Expiration','Resale #','Alternate License','Alternate License Expiration','External Identifier 1',
+    'Online Payments Enabled','Prefers Master Invoice','Allow Orders','COD Email Notifications','Billing Invoice Title','Credit Limit','Commission Rate %'];
+  const csvEsc=v=>{const s=(v===null||v===undefined)?'':String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const b=v=>v?'Yes':'No';
   const rows=filtered.map(a=>{
     const rep=USERS.find(u=>u.id===a.rep)||{};
-    const myOrders=ORDERS.filter(o=>o.acct===a.id);
-    const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
-    const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
-    return [a.code||'',a.name||'',a.lic||a.abcNum||'',a.contact||'',a.phone||'',a.email||'',a.shipCity||'',a.shipState||'',a.terms||'Net 30',
-      ...(isAdmin?[(rep.fname?rep.fname+' '+rep.lname:'')]:[]),myOrders.length,openBal.toFixed(2)];
+    return [a.code||'',a.name||'',a.corpGroup||'',rep.email||'',b(a.pastDue),b(a.notifyInvoiceContactsAR!==false),
+      a.contact||'',a.phone||'',a.email||'',a.terms||'Net 30',a.paymentProvider||'',a.preferredPaymentMethodName||'',
+      a.shipStreet||'',a.shipStreet2||'',a.shipCity||'',a.shipState||'',a.shipZip||'',a.shipCounty||'',
+      a.billStreet||'',a.billStreet2||'',a.billCity||'',a.billState||'',a.billZip||'',a.billCounty||'',
+      a.accountType||'',a.region||'',a.allowedShipDays||'',a.tastingHours||'',a.deliveryNotes||'',a.website||'',a.warehouseCode||'',b(a.showProductUpc),
+      a.avgMonthlySalesEstimate||0,b(a.overrideAvgMonthlySales),b(a.isProspective),b(a.isSampleAccount),
+      a.redemption==='Yes'?'Yes':'No',a.taxId||'',a.lic||'',a.abcDetail||'',a.licExpiry||'',a.resaleNum||'',a.alternateLicense||'',a.alternateLicenseExpiry||'',a.externalIdentifier1||'',
+      a.onlinePayments==='Yes'?'Yes':'No',b(a.prefersMasterInvoice),b(a.allowOrders!==false),b(a.codEmailNotifications),a.billingInvoiceTitle||'',a.creditLimit||0,a.commissionPct||0];
   });
   const csv=[headers,...rows].map(r=>r.map(csvEsc).join(',')).join('\n');
   const repLabel=_acctRepFilter?('-'+(USERS.find(u=>u.id===_acctRepFilter)?.fname||'rep')):'';
@@ -4466,12 +4473,87 @@ function exportAccountsCSV(){
   URL.revokeObjectURL(url);
   toast('Exported '+filtered.length+' account'+(filtered.length!==1?'s':''));
 }
+async function handleAccountsImport(input){
+  const file=input.files[0];if(!file)return;
+  if(!confirm('Import accounts from this file? Rows matching an existing Account Number will be UPDATED. Rows with a blank or unrecognized Account Number will be created as NEW accounts.'))return;
+  try{
+    const rows=await _readImportFile(file);
+    const headers=rows[0].map(h=>String(h).trim());
+    const col=name=>headers.indexOf(name);
+    const yes=v=>String(v).trim().toLowerCase()==='yes'||String(v).trim()==='1'||String(v).trim().toLowerCase()==='true';
+    const get=(r,name)=>{const i=col(name);return i===-1?undefined:r[i];};
+
+    let created=0,updated=0,failed=0;
+    const errors=[];
+
+    for(let i=1;i<rows.length;i++){
+      const r=rows[i];if(!r||!r.some(c=>c!=='' && c!==undefined))continue;
+      const name=get(r,'Name');
+      if(!name||!String(name).trim()){errors.push('Row '+(i+1)+': missing Name -- skipped');failed++;continue;}
+      const repEmail=get(r,'Assigned Rep Email');
+      const rep=repEmail?(USERS.find(u=>u.email&&u.email.toLowerCase()===String(repEmail).trim().toLowerCase())||{}).id:undefined;
+
+      const payload={
+        name:String(name).trim(),
+        corpGroup:get(r,'Corp Group')||'', rep,
+        pastDue:yes(get(r,'Past Due')), notifyInvoiceContactsAR:yes(get(r,'Notify Invoice Contacts AR')),
+        contact:get(r,'Contact')||'', phone:get(r,'Phone')||'', email:get(r,'Email')||'',
+        terms:get(r,'Payment Terms')||'Net 30', paymentProvider:get(r,'Payment Provider')||'',
+        preferredPaymentMethodName:get(r,'Preferred Payment Method Name')||'',
+        shipStreet:get(r,'Ship Street')||'', shipStreet2:get(r,'Ship Street 2')||'',
+        shipCity:get(r,'Ship City')||'', shipState:get(r,'Ship State')||'', shipZip:get(r,'Ship Zip')||'', shipCounty:get(r,'Ship County')||'',
+        billStreet:get(r,'Bill Street')||'', billStreet2:get(r,'Bill Street 2')||'',
+        billCity:get(r,'Bill City')||'', billState:get(r,'Bill State')||'', billZip:get(r,'Bill Zip')||'', billCounty:get(r,'Bill County')||'',
+        accountType:get(r,'Account Type')||'', region:get(r,'Region')||'', allowedShipDays:get(r,'Allowed Ship Days')||'',
+        tastingHours:get(r,'Tasting Hours')||'', deliveryNotes:get(r,'Delivery Notes')||'', website:get(r,'Website')||'',
+        warehouseCode:get(r,'Warehouse Code')||'', showProductUpc:yes(get(r,'Show Product UPC')),
+        avgMonthlySalesEstimate:parseFloat(get(r,'Avg Monthly Sales Estimate'))||0,
+        overrideAvgMonthlySales:yes(get(r,'Override Avg Monthly Sales')), isProspective:yes(get(r,'Prospective')), isSampleAccount:yes(get(r,'Sample Account')),
+        redemption:yes(get(r,'Redemption Enabled'))?'Yes':'No', taxId:get(r,'Tax ID')||'', lic:get(r,'ABC License #')||'',
+        abcDetail:get(r,'ABC License Detail')||'', licExpiry:get(r,'License Expiration')||'', resaleNum:get(r,'Resale #')||'',
+        alternateLicense:get(r,'Alternate License')||'', alternateLicenseExpiry:get(r,'Alternate License Expiration')||'', externalIdentifier1:get(r,'External Identifier 1')||'',
+        onlinePayments:yes(get(r,'Online Payments Enabled'))?'Yes':'No', prefersMasterInvoice:yes(get(r,'Prefers Master Invoice')),
+        allowOrders:yes(get(r,'Allow Orders')), codEmailNotifications:yes(get(r,'COD Email Notifications')),
+        billingInvoiceTitle:get(r,'Billing Invoice Title')||'', creditLimit:parseFloat(get(r,'Credit Limit'))||0, commissionPct:parseFloat(get(r,'Commission Rate %'))||0,
+        address:[get(r,'Ship Street'),get(r,'Ship City'),get(r,'Ship State'),get(r,'Ship Zip')].filter(Boolean).join(', '),
+      };
+
+      const acctNumber=String(get(r,'Account Number')||'').trim();
+      const existing=acctNumber?ACCOUNTS.find(a=>a.code===acctNumber):null;
+
+      try{
+        if(existing){
+          const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+existing.id,{
+            method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+            body:JSON.stringify(payload)
+          }).then(r=>r.json());
+          if(!res.ok)throw new Error(res.error||'Update failed');
+          Object.assign(existing,payload);
+          updated++;
+        } else {
+          const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts',{
+            method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+            body:JSON.stringify(acctNumber?{...payload,code:acctNumber}:payload)
+          }).then(r=>r.json());
+          if(!res.ok)throw new Error(res.error||'Create failed');
+          ACCOUNTS.push({id:res.id,code:res.code,...payload});
+          created++;
+        }
+      }catch(e){failed++;errors.push('Row '+(i+1)+' ("'+name+'"): '+e.message);}
+    }
+
+    input.value='';
+    renderAccountsPage();
+    toast('Import complete: '+created+' created, '+updated+' updated'+(failed?', '+failed+' failed':''));
+    if(errors.length)alert('Some rows had issues:\n\n'+errors.slice(0,15).join('\n')+(errors.length>15?'\n...and '+(errors.length-15)+' more':''));
+  }catch(e){alert('Could not read file: '+e.message);input.value='';}
+}
 function renderAccountsPage(){
   const isAdmin=currentUser&&currentUser.role==='admin';
   _acctSearch='';_acctRepFilter='';_acctPage=1;
   const filtered=_filterAcctsList();
 
-  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button></div>`;
+  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button>${isAdmin?`<input type="file" accept=".csv,.xlsx,.xls" id="acct-import-file" onchange="handleAccountsImport(this)" style="display:none"/><button class="btn btn-sm" onclick="document.getElementById('acct-import-file').click()"><i class="ti ti-upload"></i> Import</button>`:''}</div>`;
 
   document.getElementById('main-content').innerHTML=`
   ${isAdmin?`<div class="tabs"><div class="tab active" onclick="switchTab('tab-accts','tab-corpgroups',this)">Accounts</div><div class="tab" onclick="switchTab('tab-corpgroups','tab-accts',this);refreshCorpGroupsTab()">Corp Groups</div></div>`:''}
@@ -5053,7 +5135,12 @@ function renderPricing(){
   <div class="card">
     <div class="card-header">
       <span class="card-title">Pricing tiers -- ${PRODUCTS.length} products</span>
-      <button class="btn btn-sm btn-dark" onclick="document.getElementById('modal-tier').classList.add('open')"><i class="ti ti-plus"></i> Add tier</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="exportPricingCSV()"><i class="ti ti-file-export"></i> Export</button>
+        <input type="file" accept=".csv,.xlsx,.xls" id="pricing-import-file" onchange="handlePricingImport(this)" style="display:none"/>
+        <button class="btn btn-sm" onclick="document.getElementById('pricing-import-file').click()"><i class="ti ti-upload"></i> Import</button>
+        <button class="btn btn-sm btn-dark" onclick="document.getElementById('modal-tier').classList.add('open')"><i class="ti ti-plus"></i> Add tier</button>
+      </div>
     </div>
     <div class="card-body">
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
@@ -5228,6 +5315,72 @@ function updateNetDisplay(sku,tierId,packSize){
   if(el){el.textContent=net>0?'$'+net.toFixed(2):'--';el.style.color=net>0?'var(--green)':'var(--text3)'}
 }
 
+function exportPricingCSV(){
+  const headers=['SKU','Name','Producer','Pack'];
+  TIERS.forEach(t=>headers.push(t.name+' Price/Case',t.name+' DA/Case',t.name+' Comm%'));
+  const csvEsc=v=>{const s=(v===null||v===undefined)?'':String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const rows=PRODUCTS.map(p=>{
+    const row=[p.sku,p.name,p.producer||'',p.btl];
+    TIERS.forEach(t=>{
+      row.push(((itemPrice(p,t.id)||0)*p.btl).toFixed(2));
+      row.push(((p.da?.[t.id]||0)*p.btl).toFixed(2));
+      row.push(p.prices?.['__comm_'+t.id]!==undefined?p.prices['__comm_'+t.id]:'');
+    });
+    return row;
+  });
+  const csv=[headers,...rows].map(r=>r.map(csvEsc).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='pricing-'+today()+'.csv';document.body.appendChild(a);a.click();a.remove();
+  URL.revokeObjectURL(url);
+  toast('Pricing exported -- '+rows.length+' products');
+}
+async function handlePricingImport(input){
+  const file=input.files[0];if(!file)return;
+  try{
+    const rows=await _readImportFile(file);
+    const headers=rows[0].map(h=>String(h).trim());
+    const skuIdx=headers.indexOf('SKU');
+    if(skuIdx===-1){alert('Could not find a "SKU" column -- make sure you\'re using the exported format');input.value='';return;}
+    // Map each tier's 3 columns by header name, so this still works even if tiers were added/removed since export
+    const tierCols=TIERS.map(t=>({
+      id:t.id,
+      priceIdx:headers.indexOf(t.name+' Price/Case'),
+      daIdx:headers.indexOf(t.name+' DA/Case'),
+      commIdx:headers.indexOf(t.name+' Comm%'),
+    })).filter(t=>t.priceIdx!==-1);
+
+    let updated=0,skipped=0;
+    const errors=[];
+    for(let i=1;i<rows.length;i++){
+      const r=rows[i];if(!r||!r[skuIdx])continue;
+      const sku=String(r[skuIdx]).trim();
+      const p=PRODUCTS.find(x=>x.sku===sku);
+      if(!p){skipped++;errors.push('Row '+(i+1)+': SKU "'+sku+'" not found -- skipped');continue;}
+      if(!p.da)p.da={};
+      tierCols.forEach(t=>{
+        const casePrice=parseFloat(r[t.priceIdx]);
+        if(!isNaN(casePrice))p.prices[t.id]=casePrice>0?parseFloat((casePrice/p.btl).toFixed(4)):0;
+        if(t.daIdx!==-1){
+          const caseDa=parseFloat(r[t.daIdx]);
+          if(!isNaN(caseDa))p.da[t.id]=caseDa/p.btl;
+        }
+        if(t.commIdx!==-1){
+          const comm=r[t.commIdx];
+          if(comm===''||comm===undefined||comm===null)delete p.prices['__comm_'+t.id];
+          else if(!isNaN(parseFloat(comm)))p.prices['__comm_'+t.id]=Math.min(Math.max(parseFloat(comm),0),100);
+        }
+      });
+      try{await saveProductToDB(sku);updated++;}
+      catch(e){errors.push('Row '+(i+1)+' (SKU '+sku+'): '+e.message);}
+    }
+    input.value='';
+    await loadAllDataFromBackend();
+    renderPricing();
+    toast('Pricing import complete: '+updated+' updated, '+skipped+' skipped');
+    if(errors.length)alert('Some rows had issues:\n\n'+errors.slice(0,15).join('\n')+(errors.length>15?'\n...and '+(errors.length-15)+' more':''));
+  }catch(e){alert('Could not read file: '+e.message);input.value='';}
+}
 function confirmDelTier(id){
   if(TIERS.length<=1){alert('Must have at least one tier.');return}
   if(confirm(`Remove "${tierName(id)}" tier?`)){
