@@ -340,4 +340,79 @@ async function sendOrderNotification(orderId, placedByLabel, placedByEmail) {
   }
 }
 
+// -- INVOICE EMAILING -------------------------------------------------------
+// The PDF is generated in the browser (reusing the exact same invoice layout used for
+// viewing/downloading) and passed here as base64 -- avoids duplicating that whole layout
+// server-side, and means a scheduled send just re-uses the PDF captured at confirm time.
+async function _sendInvoiceEmail({ recipients, subject, body, pdfData, pdfFilename }) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  await sgMail.send({
+    to: recipients,
+    from: { email: FROM_EMAIL, name: FROM_NAME },
+    subject,
+    text: body,
+    html: `<div style="font-family:system-ui;max-width:600px;margin:0 auto;white-space:pre-wrap">${body.replace(/</g,'&lt;')}</div>`,
+    attachments: [{
+      content: pdfData, // base64, no data: prefix
+      filename: pdfFilename,
+      type: 'application/pdf',
+      disposition: 'attachment',
+    }],
+  });
+}
+
+router.post('/:id/send-invoice-email', requireAdmin, async (req, res) => {
+  try {
+    const { recipients, subject, body, pdfData, pdfFilename } = req.body;
+    if (!recipients || !recipients.length) return res.status(400).json({ ok: false, error: 'No recipients selected' });
+    if (!pdfData) return res.status(400).json({ ok: false, error: 'No invoice PDF provided' });
+    await _sendInvoiceEmail({ recipients, subject, body, pdfData, pdfFilename: pdfFilename || (req.params.id + '.pdf') });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Send invoice email error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/:id/schedule-invoice-email', requireAdmin, async (req, res) => {
+  try {
+    const { recipients, subject, body, pdfData, pdfFilename, scheduledFor, accountId } = req.body;
+    if (!recipients || !recipients.length) return res.status(400).json({ ok: false, error: 'No recipients selected' });
+    if (!pdfData) return res.status(400).json({ ok: false, error: 'No invoice PDF provided' });
+    if (!scheduledFor) return res.status(400).json({ ok: false, error: 'No delivery date to schedule for' });
+    await query(
+      `INSERT INTO scheduled_invoice_emails (order_id,account_id,recipients,subject,body,pdf_data,pdf_filename,scheduled_for)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [req.params.id, accountId || null, recipients, subject, body, pdfData, pdfFilename || (req.params.id + '.pdf'), scheduledFor]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Schedule invoice email error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Called on a timer from server.js -- sends any scheduled invoice emails whose delivery
+// date has arrived. Exported so server.js can drive it without duplicating this logic.
+async function processScheduledInvoiceEmails() {
+  const due = await getAll(
+    `SELECT * FROM scheduled_invoice_emails WHERE sent=FALSE AND scheduled_for <= CURRENT_DATE`
+  );
+  for (const row of due) {
+    try {
+      await _sendInvoiceEmail({
+        recipients: row.recipients, subject: row.subject, body: row.body,
+        pdfData: row.pdf_data, pdfFilename: row.pdf_filename,
+      });
+      await query('UPDATE scheduled_invoice_emails SET sent=TRUE, sent_at=NOW() WHERE id=$1', [row.id]);
+      console.log(`Scheduled invoice email sent for order ${row.order_id}`);
+    } catch (err) {
+      console.error(`Scheduled invoice email failed for order ${row.order_id}:`, err.message);
+      await query('UPDATE scheduled_invoice_emails SET error=$1 WHERE id=$2', [err.message, row.id]);
+    }
+  }
+  return due.length;
+}
+router.processScheduledInvoiceEmails = processScheduledInvoiceEmails;
+
 module.exports = router;
