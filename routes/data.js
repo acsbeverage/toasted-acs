@@ -207,7 +207,9 @@ router.get('/products', requireAuth, async (req, res) => {
         price: parseFloat(t.price) || 0,
         da: parseFloat(t.da_amount) || 0,
         repVisible: t.rep_visible,
-        accountId: t.account_id || null,
+        accountId: t.account_id || null, // kept for backward compatibility
+        accountIds: t.account_ids || [],
+        corpGroups: t.corp_groups || [],
       });
     });
 
@@ -263,46 +265,58 @@ router.get('/product-tier-prices', requireAdmin, async (req, res) => {
     const sku = req.query.sku;
     if (!sku) return res.status(400).json({ ok: false, error: 'SKU required' });
     const rows = await getAll(
-      `SELECT ptp.*, a.name as account_name FROM product_tier_prices ptp
-       LEFT JOIN accounts a ON ptp.account_id = a.id
-       WHERE ptp.sku=$1 ORDER BY ptp.account_id NULLS FIRST, ptp.tier_name`,
+      `SELECT * FROM product_tier_prices WHERE sku=$1 ORDER BY tier_name`,
       [sku]
     );
+    // Resolve account names for display in one batch, rather than a query per row
+    const allAcctIds = [...new Set(rows.flatMap(r => r.account_ids || []))];
+    let acctNameById = {};
+    if (allAcctIds.length) {
+      const acctRows = await getAll(`SELECT id, name FROM accounts WHERE id = ANY($1)`, [allAcctIds]);
+      acctRows.forEach(a => { acctNameById[a.id] = a.name; });
+    }
     res.json({ ok: true, tiers: rows.map(t => ({
       id: t.id, sku: t.sku, tierName: t.tier_name,
       price: parseFloat(t.price) || 0, da: parseFloat(t.da_amount) || 0,
-      repVisible: t.rep_visible, accountId: t.account_id, accountName: t.account_name || '',
+      repVisible: t.rep_visible,
+      accountIds: t.account_ids || [],
+      accountNames: (t.account_ids || []).map(id => acctNameById[id] || id),
+      corpGroups: t.corp_groups || [],
     })) });
   } catch (err) {
-    res.status(500).json({ ok: false, error: 'Server error' });
+    console.error('List pricing lanes error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
 router.post('/product-tier-prices', requireAdmin, async (req, res) => {
   try {
-    const { sku, tierName, price, da, accountId, repVisible } = req.body;
+    const { sku, tierName, price, da, accountIds, corpGroups, repVisible } = req.body;
     if (!sku || !tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Product and pricing lane name are required' });
-    const acctId = accountId || null;
-
-    // Check for an existing lane with this exact name for this exact scope (same account, or both universal)
-    const existing = acctId
-      ? await getOne('SELECT id FROM product_tier_prices WHERE sku=$1 AND tier_name=$2 AND account_id=$3', [sku, tierName, acctId])
-      : await getOne('SELECT id FROM product_tier_prices WHERE sku=$1 AND tier_name=$2 AND account_id IS NULL', [sku, tierName]);
-
-    if (existing) {
-      await query('UPDATE product_tier_prices SET price=$1, da_amount=$2, rep_visible=$3, updated_at=NOW() WHERE id=$4',
-        [price || 0, da || 0, !!repVisible, existing.id]);
-      return res.json({ ok: true, id: existing.id, updated: true });
-    }
     const row = await getOne(
-      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, rep_visible, account_id)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [sku, tierName, price || 0, da || 0, !!repVisible, acctId]
+      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, rep_visible, account_ids, corp_groups)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [sku, tierName, price || 0, da || 0, !!repVisible, accountIds || [], corpGroups || []]
     );
-    res.json({ ok: true, id: row.id, updated: false });
+    res.json({ ok: true, id: row.id });
   } catch (err) {
     console.error('Create pricing lane error:', err.message);
-    res.status(500).json({ ok: false, error: 'Server error' });
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/product-tier-prices/:id', requireAdmin, async (req, res) => {
+  try {
+    const { tierName, price, da, accountIds, corpGroups, repVisible } = req.body;
+    if (!tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Pricing lane name is required' });
+    await query(
+      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, rep_visible=$4, account_ids=$5, corp_groups=$6, updated_at=NOW() WHERE id=$7`,
+      [tierName, price || 0, da || 0, !!repVisible, accountIds || [], corpGroups || [], req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Update pricing lane error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
