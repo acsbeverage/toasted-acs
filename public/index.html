@@ -4437,10 +4437,43 @@ function filterAccountsTable(){
       <button class="btn btn-sm" ${_acctPage>=totalPages?'disabled':''} onclick="acctGoToPage(${_acctPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
   }
 }
-function exportAccountsCSV(){
-  const filtered=_filterAcctsList();
-  if(!filtered.length){toast('No accounts to export');return;}
+function openExportAccountsModal(){
   const isAdmin=currentUser&&currentUser.role==='admin';
+  const reps=USERS.filter(u=>u.role==='rep'||u.role==='admin');
+  const regions=[...new Set(ACCOUNTS.map(a=>a.region).filter(Boolean))].sort();
+  const types=[...new Set(ACCOUNTS.map(a=>a.accountType).filter(Boolean))].sort();
+  const corpGroups=[...new Set(ACCOUNTS.map(a=>a.corpGroup).filter(Boolean))].sort();
+  const terms=[...new Set(ACCOUNTS.map(a=>a.terms).filter(Boolean))].sort();
+  const html=`<div class="modal-bg open" id="export-acct-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-title">Export Accounts</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:14px">Leave a filter set to "All" to include every value for that field. With nothing selected, every account is exported.</p>
+      <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
+        ${isAdmin?`<div><label class="flabel">Rep</label><select class="finput" id="exp-f-rep"><option value="">All reps</option>${reps.map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select></div>`:''}
+        <div><label class="flabel">Type</label><select class="finput" id="exp-f-type"><option value="">All types</option>${types.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')}</select></div>
+        <div><label class="flabel">Region</label><select class="finput" id="exp-f-region"><option value="">All regions</option>${regions.map(r=>`<option value="${r.replace(/"/g,'&quot;')}">${r}</option>`).join('')}</select></div>
+        <div><label class="flabel">Corp Group</label><select class="finput" id="exp-f-corpgroup"><option value="">All corp groups</option>${corpGroups.map(g=>`<option value="${g.replace(/"/g,'&quot;')}">${g}</option>`).join('')}</select></div>
+        <div><label class="flabel">Payment Terms</label><select class="finput" id="exp-f-terms"><option value="">All terms</option>${terms.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')}</select></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="document.getElementById('export-acct-modal-bg').remove()">Cancel</button><button class="btn btn-dark" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function exportAccountsCSV(){
+  const isAdmin=currentUser&&currentUser.role==='admin';
+  const f={
+    rep:isAdmin?(document.getElementById('exp-f-rep')?.value||''):'',
+    type:document.getElementById('exp-f-type')?.value||'',
+    region:document.getElementById('exp-f-region')?.value||'',
+    corpGroup:document.getElementById('exp-f-corpgroup')?.value||'',
+    terms:document.getElementById('exp-f-terms')?.value||'',
+  };
+  const filtered=myAccounts().filter(a=>
+    (!f.rep||a.rep===f.rep)&&(!f.type||a.accountType===f.type)&&(!f.region||a.region===f.region)&&
+    (!f.corpGroup||a.corpGroup===f.corpGroup)&&(!f.terms||a.terms===f.terms)
+  ).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(!filtered.length){toast('No accounts match those filters');return;}
   const headers=['Account Number','Name','Corp Group','Assigned Rep Email','Past Due','Notify Invoice Contacts AR',
     'Contact','Phone','Email','Payment Terms','Payment Provider','Preferred Payment Method Name',
     'Ship Street','Ship Street 2','Ship City','Ship State','Ship Zip','Ship County',
@@ -4463,14 +4496,15 @@ function exportAccountsCSV(){
       a.onlinePayments==='Yes'?'Yes':'No',b(a.prefersMasterInvoice),b(a.allowOrders!==false),b(a.codEmailNotifications),a.billingInvoiceTitle||'',a.creditLimit||0,a.commissionPct||0];
   });
   const csv=[headers,...rows].map(r=>r.map(csvEsc).join(',')).join('\n');
-  const repLabel=_acctRepFilter?('-'+(USERS.find(u=>u.id===_acctRepFilter)?.fname||'rep')):'';
-  const filename='accounts'+repLabel+'-'+today()+'.csv';
+  const labelParts=[f.rep&&(USERS.find(u=>u.id===f.rep)||{}).fname,f.type,f.region,f.corpGroup].filter(Boolean);
+  const filename='accounts'+(labelParts.length?'-'+labelParts.join('-').replace(/\s+/g,''):'')+'-'+today()+'.csv';
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
   const link=document.createElement('a');
   link.href=url;link.download=filename;
   document.body.appendChild(link);link.click();document.body.removeChild(link);
   URL.revokeObjectURL(url);
+  const modal=document.getElementById('export-acct-modal-bg');if(modal)modal.remove();
   toast('Exported '+filtered.length+' account'+(filtered.length!==1?'s':''));
 }
 async function handleAccountsImport(input){
@@ -4553,7 +4587,7 @@ function renderAccountsPage(){
   _acctSearch='';_acctRepFilter='';_acctPage=1;
   const filtered=_filterAcctsList();
 
-  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button>${isAdmin?`<input type="file" accept=".csv,.xlsx,.xls" id="acct-import-file" onchange="handleAccountsImport(this)" style="display:none"/><button class="btn btn-sm" onclick="document.getElementById('acct-import-file').click()"><i class="ti ti-upload"></i> Import</button>`:''}</div>`;
+  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="openExportAccountsModal()"><i class="ti ti-file-export"></i> Export</button>${isAdmin?`<input type="file" accept=".csv,.xlsx,.xls" id="acct-import-file" onchange="handleAccountsImport(this)" style="display:none"/><button class="btn btn-sm" onclick="document.getElementById('acct-import-file').click()"><i class="ti ti-upload"></i> Import</button>`:''}</div>`;
 
   document.getElementById('main-content').innerHTML=`
   ${isAdmin?`<div class="tabs"><div class="tab active" onclick="switchTab('tab-accts','tab-corpgroups',this)">Accounts</div><div class="tab" onclick="switchTab('tab-corpgroups','tab-accts',this);refreshCorpGroupsTab()">Corp Groups</div></div>`:''}
