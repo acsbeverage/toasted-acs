@@ -140,6 +140,9 @@ async function migrate() {
   await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE`);
   await query(`ALTER TABLE product_tier_prices DROP CONSTRAINT IF EXISTS product_tier_prices_sku_tier_name_key`);
   await query(`CREATE INDEX IF NOT EXISTS idx_ptp_account ON product_tier_prices(account_id)`);
+  await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS account_ids TEXT[] DEFAULT '{}'`);
+  await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS corp_groups TEXT[] DEFAULT '{}'`);
+  await query(`UPDATE product_tier_prices SET account_ids = ARRAY[account_id] WHERE account_id IS NOT NULL AND (account_ids IS NULL OR account_ids = '{}')`);
 
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_admin BOOLEAN DEFAULT FALSE`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS region TEXT`);
