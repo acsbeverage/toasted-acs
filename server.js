@@ -316,11 +316,11 @@ app.get('/api/diagnose-pack-sizes', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-app.get('/api/migrate-fullaccount', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
+app.get('/api/migrate-contacts-attachments', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-contactsattach') return res.status(403).json({ok:false});
   try {
     require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    res.json({ok:true, message:'Migration complete -- full account field set added'});
+    res.json({ok:true, message:'Migration complete -- account_contacts and account_attachments tables added'});
   } catch (err) {
     res.status(500).json({ok:false, error: err.message});
   }
