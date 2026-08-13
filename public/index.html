@@ -6904,7 +6904,6 @@ function _showExportResult(doc, filename, label){
   setTimeout(()=>{
     try{
       const b64=doc.output('datauristring');
-      _renderInvoiceHTML('__noop__');
       // Use the existing PDF modal
       const existing=document.getElementById('inv-overlay');
       if(existing)existing.remove();
@@ -10415,8 +10414,8 @@ function _renderInvoiceHTML(orderId, b64){
     <div class="topbar">
       <span>Invoice ${orderId}</span>
       <button class="btn-print" onclick="window.print()">&#128438; Print / Save PDF</button>
-      <button onclick="downloadInvoice('${orderId}')" style="background:#1a5c3a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-left:8px">&#8595; Download PDF</button>
-      <button class="btn-close" onclick="document.getElementById('inv-overlay').remove()">&#10005; Close</button>
+      <button onclick="if(window.opener&&window.opener.downloadInvoice)window.opener.downloadInvoice('${orderId}');else window.print()" style="background:#1a5c3a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-left:8px">&#8595; Download PDF</button>
+      <button class="btn-close" onclick="window.close()">&#10005; Close</button>
     </div>
     <div class="invoice">
       <div class="inv-header">
@@ -10513,41 +10512,17 @@ function _renderInvoiceHTML(orderId, b64){
     </body></html>`;
 
   // Render inline - no new window needed
-  const existing = document.getElementById('inv-overlay');
-  if(existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.id = 'inv-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;overflow-y:auto;-webkit-overflow-scrolling:touch';
-
-  // Reliable close button living in the PARENT document (not the iframe).
-  // The invoice HTML's own close button lives inside the iframe's own document,
-  // so its inline onclick can't reach this overlay directly -- it only works
-  // via a best-effort patch below. This button always works regardless.
-  const reliableClose = document.createElement('button');
-  reliableClose.textContent = '✕ Close';
-  reliableClose.style.cssText = 'position:fixed;top:10px;left:10px;z-index:10001;background:#222;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.3)';
-  reliableClose.onclick = function(){ overlay.remove(); };
-  overlay.appendChild(reliableClose);
-
-  // Write the HTML into a srcdoc iframe - renders fully, respects print, no popup needed
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'width:100%;height:100%;border:none;display:block';
-  iframe.srcdoc = html;
-  overlay.appendChild(iframe);
-
-  // Also hook close/print buttons via message or just relay via iframe onload
-  iframe.onload = function(){
-    try {
-      // Pass close function into iframe
-      iframe.contentWindow._closeInvoice = function(){ overlay.remove(); };
-      // Patch the close button
-      const closeBtn = iframe.contentDocument.querySelector('.btn-close');
-      if(closeBtn) closeBtn.onclick = function(){ overlay.remove(); };
-    } catch(e){}
-  };
-
-  document.body.appendChild(overlay);
+  // Open in a genuine new tab rather than a nested iframe. A nested iframe blocks normal
+  // mobile pinch-zoom on its content (the parent page's zoom doesn't reach inside it), and
+  // its own buttons can't call functions defined in the parent page's script at all -- which
+  // is exactly why "Download PDF" from inside the preview did nothing. A real tab is a proper
+  // top-level page (full native zoom/scroll like any webpage) and can reach back to this page
+  // via window.opener for the download button.
+  const win = window.open('', '_blank');
+  if(!win){ toast('Please allow popups for this site to view invoices'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }
 
 // -- INVOICE VIEW/DOWNLOAD HELPERS ---------------------------------------------
