@@ -106,6 +106,23 @@ async function migrate() {
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS past_due BOOLEAN DEFAULT FALSE`);
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS notify_invoice_contacts_ar BOOLEAN DEFAULT TRUE`);
 
+  await query(`CREATE TABLE IF NOT EXISTS account_contacts (
+    id SERIAL PRIMARY KEY,
+    account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT, title TEXT, email TEXT, phone TEXT, notes TEXT,
+    is_primary BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_account_contacts_acct ON account_contacts(account_id)`);
+
+  await query(`CREATE TABLE IF NOT EXISTS account_attachments (
+    id SERIAL PRIMARY KEY,
+    account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+    filename TEXT, mime_type TEXT, file_data TEXT, file_size INTEGER,
+    uploaded_by TEXT, uploaded_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_account_attachments_acct ON account_attachments(account_id)`);
+
   await query(`CREATE TABLE IF NOT EXISTS qbo_connection (
     id INTEGER PRIMARY KEY DEFAULT 1,
     access_token TEXT,
