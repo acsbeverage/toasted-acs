@@ -996,21 +996,27 @@ function deleteTastingFromDB(tastingId){
 }
 
 function saveProductToDB(sku){
-  if(!TOASTED_BACKEND_URL||!window._authToken) return;
-  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
-  fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
+  if(!TOASTED_BACKEND_URL||!window._authToken)return Promise.reject(new Error('Not connected'));
+  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return Promise.reject(new Error('Product not found'));
+  return fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||'',restricted:!!p.restricted})
-  }).catch(e=>console.error('Save product error:',e.message));
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok)throw new Error(d.error||'Save failed');
+    return d;
+  });
 }
 function saveNewProductToDB(p){
-  if(!TOASTED_BACKEND_URL||!window._authToken) return;
-  fetch(TOASTED_BACKEND_URL+'/api/products',{
+  if(!TOASTED_BACKEND_URL||!window._authToken)return Promise.reject(new Error('Not connected'));
+  return fetch(TOASTED_BACKEND_URL+'/api/products',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify({sku:p.sku,name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image||''})
-  }).catch(e=>console.error('Create product error:',e.message));
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok)throw new Error(d.error||'Create failed');
+    return d;
+  });
 }
 
 function saveNewOrderToDB(order){
@@ -5115,15 +5121,16 @@ function setTierCommission(sku,tierId,val){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const key='__comm_'+tierId;
   const v=val.trim();
-  if(v===''||v===null){
+  const isReset=(v===''||v===null);
+  if(isReset){
     delete p.prices[key]; // revert to rep default
-    toast('Commission reset to rep default for '+tierId);
   } else {
-    const pct=Math.min(Math.max(parseFloat(v)||0,0),100);
+    var pct=Math.min(Math.max(parseFloat(v)||0,0),100);
     p.prices[key]=pct;
-    toast('Commission set to '+pct+'% for '+tierId+' on '+p.name);
   }
-  saveProductToDB(sku);
+  saveProductToDB(sku).then(()=>{
+    toast(isReset?'Commission reset to rep default for '+tierId:'Commission set to '+pct+'% for '+tierId+' on '+p.name);
+  }).catch(e=>toast('Could not save -- '+e.message));
 }
 
 // Returns the effective commission % for a given order line item
@@ -10029,9 +10036,10 @@ function newPricingReset(sku){
   if(!confirm('Clear all pricing tiers for "'+p.name+'" and start fresh? This cannot be undone.'))return;
   p.prices={frontline:0,mix12:0,acs3:0,brand3:0,brand5:0};
   p.da={frontline:0,mix12:0,acs3:0,brand3:0,brand5:0};
-  saveProductToDB(sku);
-  toast('Pricing cleared for '+p.name);
-  openProductPricing(sku);
+  saveProductToDB(sku).then(()=>{
+    toast('Pricing cleared for '+p.name);
+    openProductPricing(sku);
+  }).catch(e=>toast('Could not save -- '+e.message));
 }
 function openClonePricingSearch(sku){
   const target=PRODUCTS.find(x=>x.sku===sku);if(!target)return;
@@ -10067,10 +10075,11 @@ function confirmClonePricing(targetSku,sourceSku){
   if(!confirm('Copy all pricing from "'+source.name+'" onto "'+target.name+'"? This will replace its current pricing.'))return;
   target.prices={...source.prices};
   target.da={...source.da};
-  saveProductToDB(targetSku);
-  const m=document.getElementById('clone-pricing-modal-bg');if(m)m.remove();
-  toast('Pricing cloned from '+source.name);
-  openProductPricing(targetSku);
+  saveProductToDB(targetSku).then(()=>{
+    const m=document.getElementById('clone-pricing-modal-bg');if(m)m.remove();
+    toast('Pricing cloned from '+source.name);
+    openProductPricing(targetSku);
+  }).catch(e=>toast('Could not save -- '+e.message));
 }
 
 function openProductPricing(sku){
@@ -10335,27 +10344,30 @@ function setPricingPageCasePrice(sku,tierId,val,btl){
     const btlEl=inp.parentElement.nextElementSibling;
     if(btlEl)btlEl.textContent=casePrice>0?'$'+(casePrice/btl).toFixed(2)+'/btl':'';
   }
-  saveProductToDB(sku);
-  toast('Price updated & saved');
-  if(inp)flashSaved(inp);
+  saveProductToDB(sku).then(()=>{
+    toast('Price updated & saved');
+    if(inp)flashSaved(inp);
+  }).catch(e=>toast('Could not save price -- '+e.message));
 }
 
 function setPricingPageComm(sku,tierId,val,inputEl){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const key='__comm_'+tierId;
   const v=val.trim();
-  if(v===''){ 
+  const isReset=(v==='');
+  var pct;
+  if(isReset){
     delete p.prices[key];
     if(inputEl){inputEl.style.borderColor='#ddd';inputEl.style.color='#888';inputEl.style.fontWeight='400';inputEl.style.background='#fff';}
-    toast('Commission reset to rep default');
   } else {
-    const pct=Math.min(Math.max(parseFloat(v)||0,0),100);
+    pct=Math.min(Math.max(parseFloat(v)||0,0),100);
     p.prices[key]=pct;
     if(inputEl){inputEl.style.borderColor='#1a5c3a';inputEl.style.color='#1a5c3a';inputEl.style.fontWeight='700';inputEl.style.background='#f0fff6';}
-    toast('Commission override set to '+pct+'%');
   }
-  saveProductToDB(sku);
-  if(inputEl)flashSaved(inputEl);
+  saveProductToDB(sku).then(()=>{
+    toast(isReset?'Commission reset to rep default':'Commission override set to '+pct+'%');
+    if(inputEl)flashSaved(inputEl);
+  }).catch(e=>toast('Could not save -- '+e.message));
 }
 
 function setPricingPageDA(sku,tierId,val){
@@ -10364,9 +10376,11 @@ function setPricingPageDA(sku,tierId,val){
   const da=parseFloat(val)||0;
   p.da[tierId]=da;
   updatePPNet(sku,tierId,p.btl);
-  saveProductToDB(sku);
-  toast('DA support updated & saved');
-  flashSaved(event.target);
+  const target=event.target;
+  saveProductToDB(sku).then(()=>{
+    toast('DA support updated & saved');
+    flashSaved(target);
+  }).catch(e=>toast('Could not save DA -- '+e.message));
 }
 
 function updatePPNet(sku,tierId,btl){
@@ -10713,11 +10727,16 @@ function saveProduct(){
       _details:details
     };
     PRODUCTS.push(newProduct);
-    saveNewProductToDB(newProduct);
-    toast('Product added -- '+name);
+    saveNewProductToDB(newProduct).then(()=>{
+      toast('Product added -- '+name);
+    }).catch(e=>{
+      PRODUCTS=PRODUCTS.filter(x=>x.sku!==newProduct.sku); // roll back the optimistic add
+      toast('Could not create product -- '+e.message);
+    });
   } else {
     const p=PRODUCTS.find(x=>x.sku===_editingProductSku);
     if(!p)return;
+    const prevState={name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image,restricted:p.restricted,_details:p._details};
     p.name=name;
     p.producer=document.getElementById('pf-producer').value.trim();
     p.cat=document.getElementById('pf-cat').value;
@@ -10725,8 +10744,12 @@ function saveProduct(){
     p.image=window._pfImageData||'';
     p.restricted=document.getElementById('pf-restricted').checked;
     p._details=details;
-    saveProductToDB(p.sku);
-    toast('Product saved -- '+name);
+    saveProductToDB(p.sku).then(()=>{
+      toast('Product saved -- '+name);
+    }).catch(e=>{
+      Object.assign(p,prevState); // roll back the optimistic edit
+      toast('Could not save product -- '+e.message);
+    });
   }
 
   closeProdModal();
