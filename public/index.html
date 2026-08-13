@@ -10709,7 +10709,7 @@ function renderProductForm(p,isNew){
 
       <label class="flabel">Category</label>
       <select id="pf-cat" class="finput" style="margin-bottom:12px">
-        ${['Spirits','Wine','Beer','NA','Other'].map(c=>`<option value="${c}" ${(p.cat||'Spirits')===c?'selected':''}>${c}</option>`).join('')}
+        ${['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'].map(c=>`<option value="${c}" ${(p.cat||'Spirits')===c?'selected':''}>${c}</option>`).join('')}
       </select>
 
       <label class="flabel">Vintage</label>
