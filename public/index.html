@@ -758,11 +758,20 @@ const itemPrice=(p,tier)=>{
 // tiers this product has (already filtered server-side by what the current user is allowed to see).
 function buildTierOptions(p,item,withPricePreview,acctId){
   const esc=s=>String(s).replace(/"/g,'&quot;');
-  const fixedOpts=TIERS.map(t=>{
+
+  // Only show tiers that actually have a price set for this product -- except always keep
+  // the currently-selected tier visible even if $0, so an already-chosen value never vanishes.
+  const priceableTiers=TIERS.filter(t=>itemPrice(p,t.id)>0||item.tier===t.id);
+  const extraList=(p.extraTiers||[]).filter(t=>(!t.accountId||t.accountId===acctId)&&(t.price>0||item.tier===t.name));
+
+  // If this product has no pricing configured anywhere at all, fall back to showing every
+  // standard tier rather than leaving the dropdown completely empty.
+  const fixedList=(priceableTiers.length||extraList.length)?priceableTiers:TIERS;
+
+  const fixedOpts=fixedList.map(t=>{
     const label=withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name;
     return `<option value="${t.id}" ${item.tier===t.id?'selected':''}>${label}</option>`;
   }).join('');
-  const extraList=(p.extraTiers||[]).filter(t=>!t.accountId||t.accountId===acctId);
   if(!extraList.length)return fixedOpts;
   const extraOpts=extraList.map(t=>{
     const scopeTag=t.accountId?' \u2605':''; // star marks an account-specific lane
