@@ -4446,6 +4446,8 @@ function renderAccountsPage(){
   document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="exportAccountsCSV()"><i class="ti ti-file-export"></i> Export</button></div>`;
 
   document.getElementById('main-content').innerHTML=`
+  ${isAdmin?`<div class="tabs"><div class="tab active" onclick="switchTab('tab-accts','tab-corpgroups',this)">Accounts</div><div class="tab" onclick="switchTab('tab-corpgroups','tab-accts',this);refreshCorpGroupsTab()">Corp Groups</div></div>`:''}
+  <div id="tab-accts">
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
     <div style="flex:1;min-width:200px">
       <div class="flabel" style="margin-bottom:4px">Search</div>
@@ -4469,7 +4471,10 @@ function renderAccountsPage(){
     <tbody id="acct-table-body"></tbody>
   </table></div>
   <div id="acct-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)"></div>
-  </div>`;
+  </div>
+  </div>
+  ${isAdmin?`<div id="tab-corpgroups" class="hidden"></div>`:''}
+  `;
   filterAccountsTable();
 }
 
@@ -11125,6 +11130,152 @@ function qboBatchSubmit(){
 }
 
 // -- FETCH QUICKBOOKS PAGE ------------------------------------------------------
+// -- CORP GROUPS PAGE ------------------------------------------------------------
+let _cgSelectedAccounts=[]; // [{id,name}] currently checked in the picker
+let _cgActiveGroup=''; // which group's members are currently loaded into the picker, if any
+
+function _corpGroupsTabHtml(){
+  _cgSelectedAccounts=[];_cgActiveGroup='';
+  const counts={};
+  ACCOUNTS.forEach(a=>{if(a.corpGroup){counts[a.corpGroup]=(counts[a.corpGroup]||0)+1;}});
+  const groups=Object.keys(counts).sort();
+  const unassignedCount=ACCOUNTS.filter(a=>!a.corpGroup).length;
+
+  return `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><span class="card-title">${groups.length} corp group${groups.length!==1?'s':''} in use</span></div>
+    ${groups.length?`<table class="tbl"><thead><tr><th>Corp Group</th><th style="text-align:right">Accounts</th><th></th></tr></thead>
+    <tbody>${groups.map(g=>`<tr>
+      <td style="font-weight:600"><i class="ti ti-building-store" style="color:var(--gold);margin-right:6px"></i>${g}</td>
+      <td style="text-align:right">${counts[g]}</td>
+      <td style="text-align:right"><button class="btn btn-sm" onclick="loadCorpGroupMembers('${g.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i> Manage members</button></td>
+    </tr>`).join('')}
+    </tbody></table>`:`<div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">No corp groups assigned yet -- use the tool below to create one.</div>`}
+    ${unassignedCount?`<div style="padding:10px 18px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)">${unassignedCount} account${unassignedCount!==1?'s have':' has'} no corp group set</div>`:''}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title" id="cg-tool-title">Bulk Assign Corp Group</span></div>
+    <div class="card-body">
+      <label class="flabel">Corp Group Name</label>
+      <input class="finput" id="cg-name" list="cg-suggestions" placeholder="e.g. Total Wine, Costco, BevMo -- or type a new name" style="margin-bottom:14px"/>
+      <datalist id="cg-suggestions">${groups.map(g=>`<option value="${g.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+
+      <label class="flabel">Search accounts to add</label>
+      <div class="search-wrap" style="margin-bottom:8px"><i class="ti ti-search si"></i><input class="search-input" id="cg-acct-search" placeholder="Type a name to search..." oninput="filterCorpGroupPicker(this.value)"/></div>
+      <div id="cg-select-all-bar" style="display:none;padding:8px 12px;background:#fffbe8;border-radius:var(--radius);margin-bottom:8px;font-size:12px"></div>
+      <div id="cg-acct-results" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px"></div>
+
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span id="cg-selected-count" style="font-size:13px;color:var(--text2);font-weight:600">0 accounts selected</span>
+        <button class="btn btn-dark btn-sm" onclick="assignCorpGroupToSelected()"><i class="ti ti-check"></i> Assign Corp Group</button>
+        <button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearCorpGroupFromSelected()"><i class="ti ti-x"></i> Clear Corp Group from Selected</button>
+      </div>
+    </div>
+  </div>`;
+}
+function refreshCorpGroupsTab(){
+  const el=document.getElementById('tab-corpgroups');
+  if(el)el.innerHTML=_corpGroupsTabHtml();
+}
+
+function loadCorpGroupMembers(group){
+  _cgActiveGroup=group;
+  document.getElementById('cg-name').value=group;
+  document.getElementById('cg-tool-title').textContent='Managing: '+group;
+  _cgSelectedAccounts=ACCOUNTS.filter(a=>a.corpGroup===group).map(a=>({id:a.id,name:a.name}));
+  document.getElementById('cg-acct-search').value='';
+  filterCorpGroupPicker('');
+  updateCgSelectedCount();
+  window.scrollTo({top:document.getElementById('cg-tool-title').offsetTop,behavior:'smooth'});
+}
+
+function filterCorpGroupPicker(q){
+  const results=document.getElementById('cg-acct-results');
+  const selectAllBar=document.getElementById('cg-select-all-bar');
+  if(!q.trim()){
+    // Show currently-selected accounts (if managing an existing group) plus a prompt to search for more
+    if(_cgSelectedAccounts.length){
+      results.innerHTML=_cgSelectedAccounts.map(a=>cgAcctRowHtml(a.id,a.name,true)).join('');
+    } else {
+      results.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Type a name above to search for accounts to add</div>';
+    }
+    selectAllBar.style.display='none';
+    return;
+  }
+  const selectedIds=_cgSelectedAccounts.map(a=>a.id);
+  const matches=ACCOUNTS.filter(a=>matchesSearch(a.name,q)).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,200);
+  if(!matches.length){
+    results.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No accounts match "'+q+'"</div>';
+    selectAllBar.style.display='none';
+    return;
+  }
+  const unselectedMatches=matches.filter(a=>!selectedIds.includes(a.id));
+  if(unselectedMatches.length>1){
+    selectAllBar.style.display='block';
+    selectAllBar.innerHTML=`${matches.length} account${matches.length!==1?'s':''} match -- <a href="#" onclick="selectAllCorpGroupMatches();return false" style="font-weight:600">select all ${unselectedMatches.length} unselected</a>`;
+  } else {
+    selectAllBar.style.display='none';
+  }
+  window._cgLastMatches=matches;
+  results.innerHTML=matches.map(a=>cgAcctRowHtml(a.id,a.name,selectedIds.includes(a.id))).join('');
+}
+function selectAllCorpGroupMatches(){
+  (window._cgLastMatches||[]).forEach(a=>{
+    if(!_cgSelectedAccounts.find(x=>x.id===a.id))_cgSelectedAccounts.push({id:a.id,name:a.name});
+  });
+  filterCorpGroupPicker(document.getElementById('cg-acct-search').value);
+  updateCgSelectedCount();
+}
+function cgAcctRowHtml(id,name,checked){
+  return `<label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+    <input type="checkbox" ${checked?'checked':''} onchange="toggleCorpGroupAccount('${id.replace(/'/g,"\\'")}','${name.replace(/'/g,"\\'")}',this.checked)" style="width:16px;height:16px"/>
+    <span style="font-size:13px">${name}</span>
+  </label>`;
+}
+function toggleCorpGroupAccount(id,name,checked){
+  if(checked){
+    if(!_cgSelectedAccounts.find(a=>a.id===id))_cgSelectedAccounts.push({id,name});
+  } else {
+    _cgSelectedAccounts=_cgSelectedAccounts.filter(a=>a.id!==id);
+  }
+  updateCgSelectedCount();
+}
+function updateCgSelectedCount(){
+  const el=document.getElementById('cg-selected-count');
+  if(el)el.textContent=_cgSelectedAccounts.length+' account'+(_cgSelectedAccounts.length!==1?'s':'')+' selected';
+}
+async function assignCorpGroupToSelected(){
+  const name=document.getElementById('cg-name').value.trim();
+  if(!name){alert('Enter a corp group name first');return}
+  if(!_cgSelectedAccounts.length){alert('Select at least one account first');return}
+  if(!confirm(`Assign "${name}" to ${_cgSelectedAccounts.length} account(s)?`))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/bulk-corp-group',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({accountIds:_cgSelectedAccounts.map(a=>a.id),corpGroup:name})
+    }).then(r=>r.json());
+    if(!res.ok){alert(res.error||'Could not assign corp group');return}
+    _cgSelectedAccounts.forEach(sel=>{const a=ACCOUNTS.find(x=>x.id===sel.id);if(a)a.corpGroup=name;});
+    toast('Assigned "'+name+'" to '+res.updated+' account(s)');
+    refreshCorpGroupsTab();
+  }catch(e){alert('Could not save -- check connection');}
+}
+async function clearCorpGroupFromSelected(){
+  if(!_cgSelectedAccounts.length){alert('Select at least one account first');return}
+  if(!confirm(`Remove the corp group from ${_cgSelectedAccounts.length} account(s)?`))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/bulk-corp-group',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({accountIds:_cgSelectedAccounts.map(a=>a.id),corpGroup:''})
+    }).then(r=>r.json());
+    if(!res.ok){alert(res.error||'Could not clear corp group');return}
+    _cgSelectedAccounts.forEach(sel=>{const a=ACCOUNTS.find(x=>x.id===sel.id);if(a)a.corpGroup='';});
+    toast('Cleared corp group from '+res.updated+' account(s)');
+    refreshCorpGroupsTab();
+  }catch(e){alert('Could not save -- check connection');}
+}
+
 function renderFetchQuickBooks(){
   if(currentUser.role!=='admin'){document.getElementById('main-content').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:60px;color:var(--text3)">Admin access only.</div></div>';return;}
   document.getElementById('main-content').innerHTML=renderQBOSettings();
