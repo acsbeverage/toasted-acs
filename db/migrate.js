@@ -123,6 +123,18 @@ async function migrate() {
   )`);
   await query(`CREATE INDEX IF NOT EXISTS idx_account_attachments_acct ON account_attachments(account_id)`);
 
+  await query(`CREATE TABLE IF NOT EXISTS scheduled_invoice_emails (
+    id SERIAL PRIMARY KEY,
+    order_id TEXT, account_id TEXT,
+    recipients TEXT[], subject TEXT, body TEXT,
+    pdf_data TEXT, pdf_filename TEXT,
+    scheduled_for DATE,
+    sent BOOLEAN DEFAULT FALSE, sent_at TIMESTAMPTZ,
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_scheduled_invoice_emails_pending ON scheduled_invoice_emails(scheduled_for) WHERE sent=FALSE`);
+
   await query(`CREATE TABLE IF NOT EXISTS qbo_connection (
     id INTEGER PRIMARY KEY DEFAULT 1,
     access_token TEXT,
