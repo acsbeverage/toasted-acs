@@ -1992,6 +1992,9 @@ function showPage(page, pushState=true){
     history.pushState({page}, '', '#'+page);
   }
   _currentPage=page;
+  // Leaving Reports for somewhere else -- reset so coming back shows the picker list,
+  // not an automatic (and potentially expensive) re-run of whatever report was last open.
+  if(page!=='reports')activeReportId=null;
   _dispatchPageRender(page);
   // Refresh data in the background on genuine nav clicks (not back/forward, not programmatic restores)
   if(pushState) triggerBackgroundRefresh(page);
