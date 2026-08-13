@@ -10358,7 +10358,19 @@ function _renderInvoiceHTML(orderId, b64){
   const html = `
     <!DOCTYPE html><html><head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="viewport" id="inv-viewport" content="width=device-width, initial-scale=1, minimum-scale=0.25, maximum-scale=5, user-scalable=yes">
+    <script>
+      // Auto-fit the invoice to the screen width on open, instead of starting zoomed-in
+      // too far to see the whole thing (the invoice layout is a fixed 860px wide).
+      (function(){
+        var CONTENT_WIDTH = 900; // 860px content + a little breathing room
+        var scale = Math.min(1, window.innerWidth / CONTENT_WIDTH);
+        if (scale < 1) {
+          document.getElementById('inv-viewport').setAttribute('content',
+            'width=device-width, initial-scale=' + scale.toFixed(3) + ', minimum-scale=0.25, maximum-scale=5, user-scalable=yes');
+        }
+      })();
+    </script>
     <title>Invoice ${orderId}</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
