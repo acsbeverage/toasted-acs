@@ -128,6 +128,18 @@ router.post('/accounts', requireAdmin, async (req, res) => {
   }
 });
 
+router.post('/accounts/bulk-corp-group', requireAdmin, async (req, res) => {
+  try {
+    const { accountIds, corpGroup } = req.body;
+    if (!Array.isArray(accountIds) || !accountIds.length) return res.status(400).json({ ok: false, error: 'No accounts selected' });
+    const result = await query('UPDATE accounts SET corp_group=$1 WHERE id = ANY($2)', [corpGroup || '', accountIds]);
+    res.json({ ok: true, updated: result.rowCount });
+  } catch (err) {
+    console.error('Bulk corp group error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.patch('/accounts/:id', requireAdmin, async (req, res) => {
   try {
     const b = req.body;
