@@ -380,7 +380,7 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('Update product error:', err.message);
-    res.status(500).json({ ok: false, error: 'Server error' });
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
