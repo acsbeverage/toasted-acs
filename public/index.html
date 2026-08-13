@@ -728,6 +728,34 @@ const tierName=id=>{const t=TIERS.find(x=>x.id===id);return t?t.name:id};
 const myAccounts=()=>currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id);
 const itemTotalBottles=item=>{const p=PRODUCTS.find(y=>y.sku===item.sku);return(item.cases||0)*((p&&p.btl)||12)+(item.bottles||0);};
 // Parses a bottle size string ("750ml", "1.75L", "375 ml", "1L") into liters. Defaults to 750ml when unset/unparseable.
+function autoDetectPackFromName(){
+  const nameEl=document.getElementById('pf-name');
+  const name=nameEl?nameEl.value:'';
+  const m=name.match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(ml|l)?\b/i);
+  if(!m){toast('Could not find a pattern like "6/750ml" in the name');return;}
+
+  const foundBtl=parseInt(m[1]);
+  const sizeNum=parseFloat(m[2]);
+  let unit=(m[3]||'').toLowerCase();
+  if(!unit)unit=sizeNum>=10?'ml':'l'; // no unit given -- assume ml for large numbers (750), liters for small (1.75)
+  const sizeStr=unit==='l'?(sizeNum%1===0?sizeNum+'L':sizeNum+'L'):(Math.round(sizeNum)+'ml');
+
+  const btlSelect=document.getElementById('pf-btl');
+  const sizeSelect=document.getElementById('pf-bottlesize');
+  if(!btlSelect||!sizeSelect)return;
+
+  const btlOptions=[...btlSelect.options].map(o=>parseInt(o.value));
+  const closestBtl=btlOptions.includes(foundBtl)?foundBtl:btlOptions.reduce((a,b)=>Math.abs(b-foundBtl)<Math.abs(a-foundBtl)?b:a);
+  btlSelect.value=closestBtl;
+
+  const sizeOptions=[...sizeSelect.options].map(o=>o.value);
+  if(sizeOptions.includes(sizeStr)){
+    sizeSelect.value=sizeStr;
+    toast('Detected: '+closestBtl+'/'+sizeStr+(closestBtl!==foundBtl?' (pack rounded to nearest available option)':''));
+  } else {
+    toast('Detected '+foundBtl+'/'+sizeStr+' -- pack set to '+closestBtl+', but "'+sizeStr+'" isn\'t in the size list, please pick the closest manually');
+  }
+}
 function bottleSizeToLiters(sizeStr){
   const s=(sizeStr||'').toString().toLowerCase().trim();
   if(!s)return 0.75;
@@ -10702,7 +10730,10 @@ function renderProductForm(p,isNew){
       <div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text3);letter-spacing:0.6px;margin:16px 0 10px">General</div>
 
       <label class="flabel">Product Name *</label>
-      <input id="pf-name" type="text" class="finput" value="${p.name||''}" placeholder="e.g. 1953 Tequila Anejo 4/750ml" style="margin-bottom:12px"/>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input id="pf-name" type="text" class="finput" value="${p.name||''}" placeholder="e.g. 1953 Tequila Anejo 4/750ml" style="flex:1"/>
+        <button type="button" class="btn btn-sm" onclick="autoDetectPackFromName()" title="Reads a pattern like '6/750ml' from the name and fills in Pack + Bottle Size below"><i class="ti ti-wand"></i> Auto-detect Pack</button>
+      </div>
 
       <label class="flabel">Producer</label>
       <input id="pf-producer" type="text" class="finput" value="${p.producer||''}" placeholder="Producer name" style="margin-bottom:12px"/>
@@ -10747,7 +10778,7 @@ function renderProductForm(p,isNew){
 
       <label class="flabel">Bottle Size</label>
       <select id="pf-bottlesize" class="finput" style="margin-bottom:12px">
-        ${['50ml','100ml','200ml','375ml','500ml','750ml','1L','1.5L','3L'].map(s=>`<option value="${s}" ${(d.bottleSize||'750ml')===s?'selected':''}>${s}</option>`).join('')}
+        ${['50ml','100ml','200ml','375ml','500ml','700ml','750ml','1L','1.5L','1.75L','3L'].map(s=>`<option value="${s}" ${(d.bottleSize||'750ml')===s?'selected':''}>${s}</option>`).join('')}
       </select>
 
       <label class="flabel">Unit Set (bottles/case)</label>
