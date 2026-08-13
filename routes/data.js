@@ -668,4 +668,26 @@ router.delete('/customer-users/:id', requireAdmin, async (req, res) => {
   }
 });
 
+router.get('/admin/backup', requireAdmin, async (req, res) => {
+  try {
+    // Discover every table dynamically -- guarantees nothing gets missed as the schema grows,
+    // rather than relying on a hardcoded list that could go stale.
+    const tableRows = await getAll(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name`
+    );
+    const backup = { generatedAt: new Date().toISOString(), tables: {} };
+    for (const t of tableRows) {
+      const rows = await getAll(`SELECT * FROM "${t.table_name}"`);
+      backup.tables[t.table_name] = rows;
+    }
+    const filename = `toasted-backup-${new Date().toISOString().slice(0,10)}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (err) {
+    console.error('Backup error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;
