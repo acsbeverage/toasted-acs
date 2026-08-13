@@ -10230,6 +10230,7 @@ async function loadPricingLanes(sku){
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices?sku='+encodeURIComponent(sku),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
     if(!res.ok){container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Could not load pricing lanes</div>';return;}
+    window._currentLanesData=res.tiers; // cached so the edit modal can look up a lane by ID without a re-fetch
     if(!res.tiers.length){container.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No custom pricing lanes for this product yet.</div>';return;}
     const p=PRODUCTS.find(x=>x.sku===sku);const btl=p?.btl||1;
     container.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
@@ -10247,12 +10248,67 @@ async function loadPricingLanes(sku){
         <td style="padding:8px 12px;text-align:right">$${(t.da*btl).toFixed(2)}</td>
         <td style="padding:8px 12px">${t.accountId?('<span style="color:var(--gold);font-weight:600">\u2605 '+t.accountName+'</span>'):'<span style="color:var(--text3)">All accounts</span>'}</td>
         <td style="padding:8px 12px;font-size:12px">${t.repVisible?'Reps &amp; Admin':'Admin/Pricing-admin only'}</td>
-        <td style="padding:8px 12px;text-align:right"><button class="btn-delete-item" onclick="deletePricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button></td>
+        <td style="padding:8px 12px;text-align:right;white-space:nowrap">
+          <button class="btn btn-sm" onclick="openEditPricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i></button>
+          <button class="btn-delete-item" onclick="deletePricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+        </td>
       </tr>`).join('')}</tbody>
     </table></div>`;
   }catch(e){container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Could not load pricing lanes -- check connection</div>';}
 }
 
+function openEditPricingLane(id,sku){
+  const lane=(window._currentLanesData||[]).find(t=>t.id===id);
+  if(!lane){toast('Could not find that pricing lane -- try reopening the page');return}
+  const p=PRODUCTS.find(x=>x.sku===sku);
+  const btl=p?.btl||1;
+  const html=`<div class="modal-bg open" id="lane-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-title">Edit Pricing Lane</div>
+      <label class="flabel">Lane Name *</label><input class="finput" id="lane-name" value="${lane.tierName.replace(/"/g,'&quot;')}" style="margin-bottom:12px"/>
+      <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:12px">
+        <div><label class="flabel">Case Price ($)</label><input class="finput" type="number" step="0.01" id="lane-price" value="${(lane.price*btl).toFixed(2)}"/></div>
+        <div><label class="flabel">DA per Case ($)</label><input class="finput" type="number" step="0.01" id="lane-da" value="${(lane.da*btl).toFixed(2)}"/></div>
+      </div>
+      <label class="flabel">Restrict to account (optional)</label>
+      <div class="search-wrap" style="margin-bottom:4px"><i class="ti ti-search si"></i><input class="search-input" id="lane-acct-search" value="${lane.accountName?lane.accountName.replace(/"/g,'&quot;'):''}" placeholder="Leave blank for all accounts..." autocomplete="off" oninput="onLaneAcctSearch(this.value)"/><div class="dropdown-box" id="lane-acct-dd"></div></div>
+      <input type="hidden" id="lane-acct-id" value="${lane.accountId||''}"/>
+      <div id="lane-acct-selected" style="font-size:12px;color:var(--text2);margin-bottom:12px">${lane.accountId?'Restricted to: <strong>'+lane.accountName+'</strong> <a href="#" onclick="clearLaneAcct();return false" style="color:var(--red);margin-left:6px">remove</a>':''}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><input type="checkbox" id="lane-rep-visible" ${lane.repVisible?'checked':''} style="width:16px;height:16px"/><label for="lane-rep-visible" style="font-size:13px;cursor:pointer">Visible to reps <span style="color:var(--text3)">(unchecked = admin/pricing-admin only)</span></label></div>
+      <div class="modal-footer"><button class="btn" onclick="document.getElementById('lane-modal-bg').remove()">Cancel</button><button class="btn btn-dark" onclick="saveEditedPricingLane(${lane.id},'${sku.replace(/'/g,"\\'")}','${lane.tierName.replace(/'/g,"\\'")}','${lane.accountId||''}')">Save Changes</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+async function saveEditedPricingLane(originalId,sku,originalName,originalAccountId){
+  const name=document.getElementById('lane-name').value.trim();
+  if(!name){alert('Lane name required');return}
+  const p=PRODUCTS.find(x=>x.sku===sku);
+  const btl=p?.btl||1;
+  const casePrice=parseFloat(document.getElementById('lane-price').value)||0;
+  const caseDa=parseFloat(document.getElementById('lane-da').value)||0;
+  const accountId=document.getElementById('lane-acct-id').value||null;
+  const repVisible=document.getElementById('lane-rep-visible').checked;
+  try{
+    // Save the new values first -- if the name/account are unchanged this correctly updates
+    // the existing row (same sku+tierName+accountId match on the backend). Only if the name
+    // or account scope actually changed do we clean up the old row afterward, so a failure
+    // here never results in losing the lane entirely.
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({sku,tierName:name,price:casePrice/btl,da:caseDa/btl,accountId,repVisible})
+    }).then(r=>r.json());
+    if(!res.ok){alert(res.error||'Could not save pricing lane');return}
+    const scopeChanged=(name!==originalName)||((accountId||'')!==(originalAccountId||''));
+    if(scopeChanged){
+      await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices/'+originalId,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
+    }
+    document.getElementById('lane-modal-bg').remove();
+    toast('Pricing lane updated: '+name);
+    await loadAllDataFromBackend();
+    loadPricingLanes(sku);
+  }catch(e){alert('Could not save -- check connection');}
+}
 function openAddPricingLane(sku){
   const html=`<div class="modal-bg open" id="lane-modal-bg" style="display:flex">
     <div class="modal" style="max-width:480px">
