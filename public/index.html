@@ -576,6 +576,24 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     </div>
   </div>
 </div>
+<div class="modal-bg" id="modal-reset-pw">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title"><i class="ti ti-lock" style="vertical-align:-2px;margin-right:8px;color:#B8872C"></i>Set a New Password</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Enter a new password for your account.</div>
+    <div class="form-grid" style="gap:14px">
+      <div><label class="flabel">New password</label><input class="finput" type="password" id="rpw-new" placeholder="At least 6 characters"/></div>
+      <div><label class="flabel">Confirm new password</label><input class="finput" type="password" id="rpw-confirm" placeholder="Re-enter password"/></div>
+    </div>
+    <div class="err" id="rpw-err" style="margin-top:10px;display:none"></div>
+    <div id="rpw-success" style="display:none;margin-top:10px;padding:10px 12px;background:#F0FFF4;border:1px solid #A3E6B8;border-radius:8px;font-size:13px;color:#1A6B34">
+      <i class="ti ti-circle-check" style="vertical-align:-2px;margin-right:6px"></i>Password updated! You can now sign in with your new password.
+    </div>
+    <div class="modal-footer" id="rpw-footer">
+      <button class="btn" onclick="closeModal('modal-reset-pw')">Cancel</button>
+      <button class="btn btn-dark" onclick="doResetPassword()"><i class="ti ti-check"></i> Update password</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-bg" id="modal-tier">
   <div class="modal" style="max-width:420px">
@@ -1856,6 +1874,8 @@ function openForgotPassword(){
   document.getElementById('fpw-email').value='';
   document.getElementById('fpw-err').style.display='none';
   document.getElementById('fpw-success').style.display='none';
+  const btn=document.querySelector('#modal-forgot-pw .btn-dark');
+  btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Send reset link';
   openModal('modal-forgot-pw');
 }
 
@@ -1866,89 +1886,71 @@ function doForgotPassword(){
   errEl.style.display='none';
   successEl.style.display='none';
 
-  // Find user across staff and customer users
-  const user = USERS.find(u=>u.email&&u.email.toLowerCase()===email)
-             || CUSTOMER_USERS.find(u=>u.email&&u.email.toLowerCase()===email);
+  if(!email){errEl.textContent='Enter your email address.';errEl.style.display='block';return;}
+  if(!TOASTED_BACKEND_URL){errEl.textContent='Not connected -- try again in a moment.';errEl.style.display='block';return;}
 
-  if(!user){
-    errEl.textContent='No account found with that email address.';
-    errEl.style.display='block'; return;
-  }
+  const btn=document.querySelector('#modal-forgot-pw .btn-dark');
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Sending...';
 
-  // Generate a simple reset token (in production this would be a secure random token)
-  const token = Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
-  const expires = Date.now() + 60*60*1000; // 1 hour
-  user._resetToken = token;
-  user._resetExpires = expires;
-
-  // Send reset email via backend or mailto fallback
-  const resetUrl = window.location.origin+window.location.pathname+'?reset='+token;
-  const subject = encodeURIComponent('Toasted — Password Reset Request');
-  const body = encodeURIComponent(
-`Hi ${user.fname||''},
-
-You requested a password reset for your Toasted account.
-
-Click the link below to reset your password (valid for 1 hour):
-
-${resetUrl}
-
-If you did not request this, you can safely ignore this email.
-
----
-Toasted | ACS Beverage Co. LLC
-accounting@acsbeverage.com`
-  );
-
-  const backendUrl = (TOASTED_BACKEND_URL||'').trim();
-  if(backendUrl){
-    fetch(backendUrl+'/api/notify/reset', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        to: email,
-        fname: user.fname||'',
-        resetUrl,
-      })
-    }).catch(()=>{});
-  } else {
-    // mailto fallback
-    const a=document.createElement('a');
-    a.href='mailto:'+email+'?subject='+subject+'&body='+body;
-    a.target='_blank';a.style.display='none';
-    document.body.appendChild(a);a.click();
-    setTimeout(()=>document.body.removeChild(a),500);
-  }
-
-  successEl.style.display='block';
-  document.querySelector('#modal-forgot-pw .btn-dark').disabled=true;
+  fetch(TOASTED_BACKEND_URL+'/api/auth/forgot-password',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email})
+  }).then(r=>r.json()).then(res=>{
+    // The backend intentionally always returns ok:true here, whether or not that email
+    // exists in the system -- this is a deliberate security choice (never reveal which
+    // emails are registered), so the frontend shows the same message either way too.
+    if(!res.ok)throw new Error(res.error||'Could not send reset email');
+    successEl.style.display='block';
+  }).catch(e=>{
+    errEl.textContent=e.message;errEl.style.display='block';
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Send reset link';
+  });
 }
 
-// Handle password reset token from URL on page load
+// Handle password reset token from URL on page load -- the token itself is only
+// validated server-side (in doResetPassword below), since it's never stored client-side.
+let _pendingResetToken=null;
 (function checkResetToken(){
   const params=new URLSearchParams(window.location.search);
   const token=params.get('reset');
   if(!token)return;
-  // Find user with this token
-  const user=[...USERS,...CUSTOMER_USERS].find(u=>u._resetToken===token&&u._resetExpires>Date.now());
-  if(!user){
-    setTimeout(()=>alert('This password reset link has expired or is invalid. Please request a new one.'),500);
-    return;
-  }
-  // Show reset password prompt
+  _pendingResetToken=token;
   setTimeout(()=>{
-    const newPw=prompt('Enter your new password (at least 6 characters):');
-    if(!newPw||newPw.length<6){alert('Password must be at least 6 characters.');return;}
-    const confirm=prompt('Confirm your new password:');
-    if(newPw!==confirm){alert('Passwords do not match. Please try again.');return;}
-    user.pw=newPw;
-    delete user._resetToken;
-    delete user._resetExpires;
-    // Clean URL
-    window.history.replaceState({},'',window.location.pathname);
-    alert('Password updated successfully! You can now sign in with your new password.');
-  },800);
+    document.getElementById('rpw-new').value='';
+    document.getElementById('rpw-confirm').value='';
+    document.getElementById('rpw-err').style.display='none';
+    document.getElementById('rpw-success').style.display='none';
+    document.getElementById('rpw-footer').style.display='flex';
+    openModal('modal-reset-pw');
+  },300);
 })()
+function doResetPassword(){
+  const newPw=document.getElementById('rpw-new').value;
+  const confirmPw=document.getElementById('rpw-confirm').value;
+  const errEl=document.getElementById('rpw-err');
+  errEl.style.display='none';
+
+  if(!newPw||newPw.length<6){errEl.textContent='Password must be at least 6 characters.';errEl.style.display='block';return;}
+  if(newPw!==confirmPw){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
+  if(!TOASTED_BACKEND_URL){errEl.textContent='Not connected -- try again in a moment.';errEl.style.display='block';return;}
+
+  const btn=document.querySelector('#modal-reset-pw .btn-dark');
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Updating...';
+
+  fetch(TOASTED_BACKEND_URL+'/api/auth/reset-password',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:_pendingResetToken,newPassword:newPw})
+  }).then(r=>r.json()).then(res=>{
+    if(!res.ok)throw new Error(res.error||'Could not reset password');
+    document.getElementById('rpw-success').style.display='block';
+    document.getElementById('rpw-footer').style.display='none';
+    window.history.replaceState({},'',window.location.pathname);
+    _pendingResetToken=null;
+  }).catch(e=>{
+    errEl.textContent=e.message;errEl.style.display='block';
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Update password';
+  });
+}
 
 // -- NAV -----------------------------------------------------------------------
 let _currentPage='dashboard';
