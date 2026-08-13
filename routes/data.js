@@ -690,4 +690,98 @@ router.get('/admin/backup', requireAdmin, async (req, res) => {
   }
 });
 
+// -- ACCOUNT CONTACTS -------------------------------------------------------
+router.get('/accounts/:id/contacts', requireAuth, async (req, res) => {
+  try {
+    const rows = await getAll('SELECT * FROM account_contacts WHERE account_id=$1 ORDER BY is_primary DESC, created_at', [req.params.id]);
+    res.json({ ok: true, contacts: rows.map(c => ({
+      id: c.id, name: c.name || '', title: c.title || '', email: c.email || '', phone: c.phone || '',
+      notes: c.notes || '', isPrimary: c.is_primary,
+    })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.post('/accounts/:id/contacts', requireAdmin, async (req, res) => {
+  try {
+    const { name, title, email, phone, notes, isPrimary } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ ok: false, error: 'Contact name required' });
+    if (isPrimary) await query('UPDATE account_contacts SET is_primary=FALSE WHERE account_id=$1', [req.params.id]);
+    const row = await getOne(
+      `INSERT INTO account_contacts (account_id,name,title,email,phone,notes,is_primary) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [req.params.id, name, title || '', email || '', phone || '', notes || '', !!isPrimary]
+    );
+    res.json({ ok: true, id: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.patch('/accounts/:id/contacts/:contactId', requireAdmin, async (req, res) => {
+  try {
+    const { name, title, email, phone, notes, isPrimary } = req.body;
+    if (isPrimary) await query('UPDATE account_contacts SET is_primary=FALSE WHERE account_id=$1', [req.params.id]);
+    await query(
+      `UPDATE account_contacts SET name=$1,title=$2,email=$3,phone=$4,notes=$5,is_primary=$6 WHERE id=$7 AND account_id=$8`,
+      [name, title || '', email || '', phone || '', notes || '', !!isPrimary, req.params.contactId, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.delete('/accounts/:id/contacts/:contactId', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM account_contacts WHERE id=$1 AND account_id=$2', [req.params.contactId, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// -- ACCOUNT ATTACHMENTS -----------------------------------------------------
+router.get('/accounts/:id/attachments', requireAuth, async (req, res) => {
+  try {
+    // Metadata only -- never send file_data in the list, keeps this fast even with several large files
+    const rows = await getAll('SELECT id, filename, mime_type, file_size, uploaded_by, uploaded_at FROM account_attachments WHERE account_id=$1 ORDER BY uploaded_at DESC', [req.params.id]);
+    res.json({ ok: true, attachments: rows.map(a => ({
+      id: a.id, filename: a.filename, mimeType: a.mime_type, fileSize: a.file_size,
+      uploadedBy: a.uploaded_by, uploadedAt: a.uploaded_at,
+    })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.post('/accounts/:id/attachments', requireAdmin, async (req, res) => {
+  try {
+    const { filename, mimeType, fileData } = req.body;
+    if (!filename || !fileData) return res.status(400).json({ ok: false, error: 'File data required' });
+    const fileSize = Math.round((fileData.length * 3) / 4); // approx decoded size from base64 length
+    const row = await getOne(
+      `INSERT INTO account_attachments (account_id,filename,mime_type,file_data,file_size,uploaded_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [req.params.id, filename, mimeType || '', fileData, fileSize, req.user.email || req.user.id]
+    );
+    res.json({ ok: true, id: row.id, fileSize });
+  } catch (err) {
+    console.error('Upload attachment error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.get('/accounts/:id/attachments/:attId/download', requireAuth, async (req, res) => {
+  try {
+    const row = await getOne('SELECT * FROM account_attachments WHERE id=$1 AND account_id=$2', [req.params.attId, req.params.id]);
+    if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, filename: row.filename, mimeType: row.mime_type, fileData: row.file_data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.delete('/accounts/:id/attachments/:attId', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM account_attachments WHERE id=$1 AND account_id=$2', [req.params.attId, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;
