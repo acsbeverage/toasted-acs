@@ -7431,6 +7431,11 @@ function renderRA2(el, orders, producerFilter){
     if(c.num!==undefined)return typeof v==='number'?v.toFixed(c.num):v;
     return v;
   };
+  const PAGE_SIZE=200;
+  window._ra2Page=1;
+  window._ra2Rows=rows;
+  window._ra2Cols=cols;
+  window._ra2FmtCell=fmtCell;
   el.innerHTML+=`
   <div class="card">
     <div class="card-header">
@@ -7440,14 +7445,33 @@ function renderRA2(el, orders, producerFilter){
     <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
       <table class="tbl">
         <thead><tr>${cols.map(c=>`<th${c.money||c.num!==undefined||c.pct?' style="text-align:right"':''}>${c.l}</th>`).join('')}</tr></thead>
-        <tbody>
-        ${rows.length?rows.map(r=>`<tr>${cols.map(c=>`<td style="font-size:12px;${c.money||c.num!==undefined||c.pct?'text-align:right':''}${c.k==='invoice'?';color:var(--gold);font-weight:600':''}${c.k==='total'?';font-weight:600':''}">${fmtCell(r,c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>`}
-        </tbody>
+        <tbody id="ra2-tbody"></tbody>
       </table>
     </div>
+    <div id="ra2-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border-top:1px solid var(--border)"></div>
   </div>`;
+  renderRA2Page();
   window._lastReportRows = rows;
   window._lastReportCols = cols.map(c=>c.k);
+}
+function renderRA2Page(){
+  const rows=window._ra2Rows||[];const cols=window._ra2Cols||[];const fmtCell=window._ra2FmtCell;
+  const PAGE_SIZE=200;
+  const totalPages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE));
+  if(window._ra2Page>totalPages)window._ra2Page=totalPages;
+  const start=(window._ra2Page-1)*PAGE_SIZE;
+  const pageRows=rows.slice(start,start+PAGE_SIZE);
+  const tbody=document.getElementById('ra2-tbody');
+  if(tbody){
+    tbody.innerHTML=pageRows.length?pageRows.map(r=>`<tr>${cols.map(c=>`<td style="font-size:12px;${c.money||c.num!==undefined||c.pct?'text-align:right':''}${c.k==='invoice'?';color:var(--gold);font-weight:600':''}${c.k==='total'?';font-weight:600':''}">${fmtCell(r,c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>`;
+  }
+  const pag=document.getElementById('ra2-pagination');
+  if(pag){
+    pag.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${window._ra2Page<=1?'disabled':''} onclick="window._ra2Page--;renderRA2Page()"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${window._ra2Page} of ${totalPages} (${rows.length} total line items)</span>
+      <button class="btn btn-sm" ${window._ra2Page>=totalPages?'disabled':''} onclick="window._ra2Page++;renderRA2Page()">Next <i class="ti ti-chevron-right"></i></button>`;
+  }
 }
 
 // RA5 - Depletion by Producer
