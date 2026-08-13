@@ -282,6 +282,40 @@ app.get('/api/restrict-liber-12pack', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/diagnose-pack-sizes', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-packsizes') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    const rows = await getAll(`SELECT sku, name, producer, btl, bottle_size FROM products ORDER BY producer, name`);
+    const mismatches = [];
+    let noPatternFound = 0;
+
+    for (const r of rows) {
+      const m = (r.name || '').match(/(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(ml|l)?\b/i);
+      if (!m) { noPatternFound++; continue; }
+      const foundBtl = parseInt(m[1]);
+      const sizeNum = parseFloat(m[2]);
+      let unit = (m[3] || '').toLowerCase();
+      if (!unit) unit = sizeNum >= 10 ? 'ml' : 'l';
+      const foundSize = unit === 'l' ? (sizeNum + 'L') : (Math.round(sizeNum) + 'ml');
+
+      const currentBtl = r.btl;
+      const currentSize = r.bottle_size || '';
+      const btlMismatch = currentBtl !== foundBtl;
+      const sizeMismatch = currentSize !== foundSize;
+      if (btlMismatch || sizeMismatch) {
+        mismatches.push({
+          sku: r.sku, name: r.name, producer: r.producer,
+          currentBtl, foundBtl, currentSize: currentSize || '(not set)', foundSize,
+        });
+      }
+    }
+    res.json({ ok: true, totalProducts: rows.length, noPatternFound, mismatchCount: mismatches.length, mismatches });
+  } catch (err) {
+    console.error('Diagnose pack sizes error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-fullaccount', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fullaccount') return res.status(403).json({ok:false});
   try {
