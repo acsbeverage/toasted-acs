@@ -5260,10 +5260,45 @@ function renderSettings(){
     <button class="btn btn-dark" onclick="saveSettings()"><i class="ti ti-check"></i> Save settings</button>
     <button class="btn" onclick="previewInvoice()"><i class="ti ti-eye"></i> Preview PDF</button>
   </div></div></div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><span class="card-title"><i class="ti ti-database-export" style="vertical-align:-2px;margin-right:6px"></i>Data Backup</span></div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Downloads a complete copy of everything in Toasted -- accounts, orders, products, pricing, users -- as a single file you can keep safe on your own computer. Worth doing regularly, especially if your database is on Render's free tier where automatic backups aren't included.</p>
+      <button class="btn btn-dark" id="backup-btn" onclick="downloadFullBackup()"><i class="ti ti-download"></i> Download Full Backup</button>
+      <div id="backup-status" style="margin-top:10px;font-size:12px;color:var(--text2)"></div>
+    </div>
+  </div>
   `;
 }
 function saveSettings(){COMPANY.name=document.getElementById('co-name').value;COMPANY.address=document.getElementById('co-addr').value;COMPANY.phone=document.getElementById('co-phone').value;COMPANY.email=document.getElementById('co-email').value;COMPANY.website=document.getElementById('co-website').value;COMPANY.license=document.getElementById('co-lic').value;toast('Settings saved')}
 function previewInvoice(){const c=ORDERS.find(o=>o.status==='confirmed');if(c)downloadInvoice(c.id);else toast('No confirmed orders to preview')}
+async function downloadFullBackup(){
+  const btn=document.getElementById('backup-btn');
+  const status=document.getElementById('backup-status');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Generating backup...';}
+  if(status)status.textContent='This can take a moment for a large database -- please wait.';
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/admin/backup',{headers:{'Authorization':'Bearer '+window._authToken}});
+    if(!res.ok)throw new Error('Server returned an error');
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='toasted-backup-'+today()+'.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    if(status)status.innerHTML='<span style="color:var(--green)"><i class="ti ti-circle-check"></i> Backup downloaded. Store this file somewhere safe (Google Drive, Dropbox, etc.) outside of Render.</span>';
+    toast('Backup downloaded');
+  }catch(e){
+    if(status)status.innerHTML='<span style="color:var(--red)">Backup failed: '+e.message+'</span>';
+    toast('Backup failed -- '+e.message);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-download"></i> Download Full Backup';}
+  }
+}
 
 // -- IMPORT --------------------------------------------------------------------
 function renderImport(){
