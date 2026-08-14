@@ -49,6 +49,8 @@ async function migrate() {
   await query(`CREATE TABLE IF NOT EXISTS order_code_sequence (id INTEGER PRIMARY KEY DEFAULT 1, next_seq INTEGER DEFAULT 1)`);
   await query(`INSERT INTO order_code_sequence (id, next_seq) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
 
+  await query(`CREATE TABLE IF NOT EXISTS freed_order_numbers (number INTEGER PRIMARY KEY)`);
+
   await query(`CREATE TABLE IF NOT EXISTS products (
     sku TEXT PRIMARY KEY, name TEXT NOT NULL,
     producer TEXT, cat TEXT, btl INTEGER DEFAULT 12,
