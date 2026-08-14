@@ -229,44 +229,20 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/backfill-quantity-fix2', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-qtyfix2') return res.status(403).json({ok:false});
-  const execute = req.query.execute === 'true';
+app.get('/api/inspect-order', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-inspect') return res.status(403).json({ok:false});
   try {
-    const { query, getAll } = require('./db');
-    // Recover the originally-imported raw quantity (cases*btl+bottles from the last backfill
-    // is mathematically identical to what was first imported), then reinterpret it correctly
-    // as a case count rather than a bottle count -- and convert the per-case rate to per-bottle
-    // (DIVIDE by pack size, not multiply) so the total stays exactly correct.
-    if (!execute) {
-      const preview = await getAll(
-        `SELECT oi.id, oi.sku, oi.cases as current_cases, oi.bottles as current_bottles, oi.rate as current_rate_per_case, p.btl,
-                (oi.cases * p.btl + oi.bottles) as recovered_case_qty,
-                ROUND((oi.rate / p.btl)::numeric, 4) as new_rate_per_bottle,
-                ROUND(((oi.cases * p.btl + oi.bottles) * oi.rate)::numeric, 2) as true_historical_total
-         FROM order_items oi JOIN products p ON oi.sku = p.sku
-         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.rate IS NOT NULL
-         ORDER BY (oi.cases * p.btl + oi.bottles) DESC
-         LIMIT 15`
-      );
-      const countRow = await getAll(
-        `SELECT COUNT(*) as cnt FROM order_items oi JOIN products p ON oi.sku = p.sku
-         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.rate IS NOT NULL`
-      );
-      return res.json({ ok: true, dryRun: true, rowsToFix: parseInt(countRow[0].cnt), sample: preview,
-        note: 'true_historical_total = recovered_case_qty x current_rate_per_case -- this should match what the real historical invoice total was. Re-run with &execute=true to apply.' });
-    }
-    const result = await query(
-      `UPDATE order_items oi
-       SET cases = (oi.cases * p.btl + oi.bottles),
-           bottles = 0,
-           rate = ROUND((oi.rate / p.btl)::numeric, 4)
-       FROM products p
-       WHERE oi.sku = p.sku AND oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.rate IS NOT NULL`
+    const { getAll } = require('./db');
+    const orderId = req.query.orderId || 'ACS-43389';
+    const items = await getAll(
+      `SELECT oi.*, p.btl as product_btl, p.name as product_name
+       FROM order_items oi LEFT JOIN products p ON oi.sku = p.sku
+       WHERE oi.order_id = $1 ORDER BY oi.sort_order`,
+      [orderId]
     );
-    res.json({ ok: true, executed: true, rowsFixed: result.rowCount });
+    res.json({ ok: true, orderId, items });
   } catch (err) {
-    console.error('Backfill quantity fix 2 error:', err.message);
+    console.error('Inspect order error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
