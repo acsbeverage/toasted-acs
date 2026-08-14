@@ -29,12 +29,15 @@ router.get('/', requireAuth, async (req, res) => {
         LEFT JOIN accounts a ON o.acct_id = a.id
         WHERE o.acct_id=$1 ORDER BY o.created_at DESC`, [cust.acct_id]);
     } else {
+      // Reps see every order for accounts assigned to them -- not just orders they personally
+      // placed. Previously this filtered on the order's own rep_id, meaning a rep couldn't see
+      // an order an admin (or a prior rep) placed for an account now assigned to them.
       rows = await getAll(`
         SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
-        WHERE o.rep_id=$1 ORDER BY o.created_at DESC`, [req.user.id]);
+        WHERE a.rep=$1 ORDER BY o.created_at DESC`, [req.user.id]);
     }
     const orderIds = rows.map(r => r.id);
     let items = [];
