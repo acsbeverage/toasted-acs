@@ -114,10 +114,11 @@ async function migrate() {
   await query(`CREATE TABLE IF NOT EXISTS account_contacts (
     id SERIAL PRIMARY KEY,
     account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
-    name TEXT, title TEXT, email TEXT, phone TEXT, notes TEXT,
+    name TEXT, title TEXT, email TEXT, phone TEXT, notes TEXT, role TEXT,
     is_primary BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
+  await query(`ALTER TABLE account_contacts ADD COLUMN IF NOT EXISTS role TEXT`);
   await query(`CREATE INDEX IF NOT EXISTS idx_account_contacts_acct ON account_contacts(account_id)`);
 
   await query(`CREATE TABLE IF NOT EXISTS account_attachments (
