@@ -55,6 +55,30 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/diagnose-rep-visibility', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-diagreps') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    const reps = await getAll("SELECT id, fname, lname, email FROM users WHERE role='rep' ORDER BY fname");
+    const results = [];
+    for (const rep of reps) {
+      const acctCount = await getAll('SELECT COUNT(*) as cnt FROM accounts WHERE rep=$1', [rep.id]);
+      const ordersViaAccount = await getAll(
+        `SELECT COUNT(*) as cnt FROM orders o JOIN accounts a ON o.acct_id=a.id WHERE a.rep=$1`, [rep.id]
+      );
+      const ordersViaRepId = await getAll('SELECT COUNT(*) as cnt FROM orders WHERE rep_id=$1', [rep.id]);
+      results.push({
+        rep: rep.fname + ' ' + rep.lname, id: rep.id,
+        accountsAssigned: parseInt(acctCount[0].cnt),
+        ordersVisibleNow: parseInt(ordersViaAccount[0].cnt),
+        ordersTheyPersonallyPlaced: parseInt(ordersViaRepId[0].cnt),
+      });
+    }
+    res.json({ ok: true, results });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/seed-now', async (req, res) => {
   if (req.query.secret !== 'toasted2026') {
     return res.status(403).json({ ok: false, error: 'Forbidden' });
