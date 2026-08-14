@@ -696,7 +696,7 @@ router.get('/accounts/:id/contacts', requireAuth, async (req, res) => {
     const rows = await getAll('SELECT * FROM account_contacts WHERE account_id=$1 ORDER BY is_primary DESC, created_at', [req.params.id]);
     res.json({ ok: true, contacts: rows.map(c => ({
       id: c.id, name: c.name || '', title: c.title || '', email: c.email || '', phone: c.phone || '',
-      notes: c.notes || '', isPrimary: c.is_primary,
+      notes: c.notes || '', role: c.role || '', isPrimary: c.is_primary,
     })) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -704,25 +704,45 @@ router.get('/accounts/:id/contacts', requireAuth, async (req, res) => {
 });
 router.post('/accounts/:id/contacts', requireAdmin, async (req, res) => {
   try {
-    const { name, title, email, phone, notes, isPrimary } = req.body;
+    const { name, title, email, phone, notes, role, isPrimary } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ ok: false, error: 'Contact name required' });
     if (isPrimary) await query('UPDATE account_contacts SET is_primary=FALSE WHERE account_id=$1', [req.params.id]);
     const row = await getOne(
-      `INSERT INTO account_contacts (account_id,name,title,email,phone,notes,is_primary) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [req.params.id, name, title || '', email || '', phone || '', notes || '', !!isPrimary]
+      `INSERT INTO account_contacts (account_id,name,title,email,phone,notes,role,is_primary) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [req.params.id, name, title || '', email || '', phone || '', notes || '', role || '', !!isPrimary]
     );
     res.json({ ok: true, id: row.id });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+// Replaces every contact on this account in one call -- used by the account setup form,
+// where contacts are drafted locally in a list and saved all at once rather than one at a
+// time. Simpler and safer than diffing adds/edits/deletes from the frontend.
+router.put('/accounts/:id/contacts', requireAdmin, async (req, res) => {
+  try {
+    const { contacts } = req.body;
+    if (!Array.isArray(contacts)) return res.status(400).json({ ok: false, error: 'contacts must be an array' });
+    await query('DELETE FROM account_contacts WHERE account_id=$1', [req.params.id]);
+    for (const c of contacts) {
+      if (!c.name || !c.name.trim()) continue; // skip blank rows
+      await query(
+        `INSERT INTO account_contacts (account_id,name,title,email,phone,notes,role,is_primary) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [req.params.id, c.name, c.title || '', c.email || '', c.phone || '', c.notes || '', c.role || '', !!c.isPrimary]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 router.patch('/accounts/:id/contacts/:contactId', requireAdmin, async (req, res) => {
   try {
-    const { name, title, email, phone, notes, isPrimary } = req.body;
+    const { name, title, email, phone, notes, role, isPrimary } = req.body;
     if (isPrimary) await query('UPDATE account_contacts SET is_primary=FALSE WHERE account_id=$1', [req.params.id]);
     await query(
-      `UPDATE account_contacts SET name=$1,title=$2,email=$3,phone=$4,notes=$5,is_primary=$6 WHERE id=$7 AND account_id=$8`,
-      [name, title || '', email || '', phone || '', notes || '', !!isPrimary, req.params.contactId, req.params.id]
+      `UPDATE account_contacts SET name=$1,title=$2,email=$3,phone=$4,notes=$5,role=$6,is_primary=$7 WHERE id=$8 AND account_id=$9`,
+      [name, title || '', email || '', phone || '', notes || '', role || '', !!isPrimary, req.params.contactId, req.params.id]
     );
     res.json({ ok: true });
   } catch (err) {
