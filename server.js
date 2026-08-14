@@ -229,22 +229,6 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/check-sample-rows', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-checksample') return res.status(403).json({ok:false});
-  try {
-    const { getAll } = require('./db');
-    const rows = await getAll(
-      `SELECT oi.id, oi.order_id, oi.sku, oi.rate, oi.fee_amt, oi.is_fee, o.is_sample, pg_typeof(oi.rate) as rate_type
-       FROM order_items oi JOIN orders o ON oi.order_id = o.id
-       WHERE oi.id = ANY($1)`,
-      [[69633, 69630, 57985, 61964]]
-    );
-    res.json({ ok: true, rows });
-  } catch (err) {
-    console.error('Check sample rows error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
 app.get('/api/migrate-accounts', async (req, res) => {
   if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
   const {query} = require('./db');
