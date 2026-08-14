@@ -149,6 +149,16 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     if (!acct) return res.status(400).json({ ok: false, error: 'Missing required fields' });
+
+    // For admin/rep-submitted orders (not customer, handled above), the order is always
+    // credited to whoever the account is actually assigned to -- never whoever happens to
+    // be logged in placing it. An admin placing an order for a rep's account must show that
+    // rep, not Admin, regardless of what the client computed or sent.
+    if (req.user.role !== 'customer') {
+      const acctForOrder = await getOne('SELECT rep FROM accounts WHERE id=$1', [acct]);
+      rep = (acctForOrder && acctForOrder.rep) || req.user.id;
+    }
+
     // Order IDs are always assigned server-side as a true sequential ACS-NNNNN number --
     // never trust a client-provided id, and never generate one client-side. A number freed
     // by a deleted order is reused first, so deletions never leave a permanent gap in the
@@ -193,7 +203,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
             date, delivery, po, notes, items, labelsPrinted, partialPaidAmount,
-            waiveDelivery, waiveBrokenCase, waiveCRV } = req.body;
+            waiveDelivery, waiveBrokenCase, waiveCRV, isSample, orderType } = req.body;
     const updates = [], values = [];
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
@@ -212,6 +222,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (waiveDelivery !== undefined)   { updates.push(`waive_delivery=$${idx++}`);    values.push(waiveDelivery); }
     if (waiveBrokenCase !== undefined) { updates.push(`waive_broken_case=$${idx++}`); values.push(waiveBrokenCase); }
     if (waiveCRV !== undefined)        { updates.push(`waive_crv=$${idx++}`);         values.push(waiveCRV); }
+    if (isSample !== undefined)        { updates.push(`is_sample=$${idx++}`);         values.push(isSample); }
+    if (orderType !== undefined)       { updates.push(`order_type=$${idx++}`);        values.push(orderType); }
     if (updates.length > 0) {
       values.push(req.params.id);
       await query(`UPDATE orders SET ${updates.join(',')} WHERE id=$${idx}`, values);
