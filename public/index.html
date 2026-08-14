@@ -4052,18 +4052,16 @@ function renderEditItems(){
 
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th><th></th></tr></thead><tbody>`+
   window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemUnitPrice(item,p);const maxLoose=p.btl;
-    const isAdminUser=currentUser&&currentUser.role==='admin';
-    const nameCell=isAdminUser?`<td style="font-weight:500;color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')" title="View pricing for ${p.name.replace(/"/g,'&quot;')}">${p.name}</td>`:`<td style="font-weight:500">${p.name}</td>`;
+    const nameCell=`<td style="font-weight:500;color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')" title="View pricing for ${p.name.replace(/"/g,'&quot;')}">${p.name}</td>`;
     return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     const p=prodBySku(item.sku);if(!p)return'';
     const price=itemUnitPrice(item,p);const maxLoose=p.btl;
     const grossTotal=price*itemTotalBottles(item);
-    const isAdminUser2=currentUser&&currentUser.role==='admin';
     return`<div class="li-card">
       <button class="li-trash" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button>
-      <div class="li-name"${isAdminUser2?` style="color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')"`:''}>${p.name}</div>
+      <div class="li-name" style="color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')">${p.name}</div>
       <div class="li-meta">${p.sku} · ${p.producer} · ${stockChip(p)}</div>
 
       <label class="li-label">Price</label>
@@ -10890,6 +10888,7 @@ async function confirmClonePricing(targetSku,sourceSku){
 
 function openProductPricing(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  const isAdminUser=currentUser&&currentUser.role==='admin';
   history.replaceState({page:'products',productDetail:sku},'','#products/'+encodeURIComponent(sku));
   ensureProductDetails(p);
   ensureDA();
@@ -10913,10 +10912,10 @@ function openProductPricing(sku){
         <td style="padding:10px 12px">
           <div style="display:flex;align-items:center;gap:4px">
             <span style="color:#888;font-size:12px">$</span>
-            <input type="number" step="0.01" min="0" value="${casePrice>0?casePrice.toFixed(2):''}"
+            ${isAdminUser?`<input type="number" step="0.01" min="0" value="${casePrice>0?casePrice.toFixed(2):''}"
               placeholder="0.00" style="width:90px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-weight:600"
               onchange="setPricingPageCasePrice('${sku}','${t.id}',this.value,${p.btl})"
-              title="Case price"/>
+              title="Case price"/>`:`<span style="font-weight:600;font-size:14px">${casePrice>0?casePrice.toFixed(2):'--'}</span>`}
           </div>
           <div style="font-size:11px;color:#888;margin-top:2px">${casePrice>0?'$'+(casePrice/p.btl).toFixed(2)+'/btl':''}</div>
         </td>
@@ -10927,7 +10926,7 @@ function openProductPricing(sku){
         <td style="padding:10px 12px">
           <span style="background:#e8f0ff;color:#2a4a9a;padding:2px 8px;border-radius:10px;font-size:12px">Public</span>
         </td>
-        <td style="padding:10px 12px;text-align:center">
+        ${isAdminUser?`<td style="padding:10px 12px;text-align:center">
           <div style="display:flex;align-items:center;gap:4px;justify-content:center">
             <input type="number" step="0.1" min="0" max="100"
               value="${hasOverride?commOverride:''}"
@@ -10948,7 +10947,7 @@ function openProductPricing(sku){
               onchange="setPricingPageDA('${sku}','${t.id}',this.value)"
               title="Dollar allowance per case (admin only)"/>
           </div>
-        </td>
+        </td>`:''}
         <td style="padding:10px 12px;text-align:right;font-weight:700;color:${net>0?'#1a6a3a':'#aaa'}">
           ${net>0?'$'+net.toFixed(2):'--'}
           <div id="pp-net-${sku.replace(/[^a-z0-9]/gi,'_')}-${t.id}" style="font-size:10px;color:#aaa"></div>
@@ -10970,7 +10969,7 @@ function openProductPricing(sku){
       <div class="card-body" style="padding:16px 20px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
           <div style="font-size:18px;font-weight:700;margin-bottom:6px">Pricing for ${p.name} -- ${p.sku}</div>
-          <button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteProduct('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Delete Product</button>
+          ${isAdminUser?`<button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteProduct('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Delete Product</button>`:''}
         </div>
         <div style="display:flex;gap:24px;font-size:13px;color:var(--text2);flex-wrap:wrap">
           <span><b>Category:</b> ${p.cat||'--'}</span>
@@ -10978,10 +10977,10 @@ function openProductPricing(sku){
           <span><b>Producer:</b> ${p.producer||'--'}</span>
           <span><b>Stock:</b> ${p.stock||0} cases</span>
         </div>
-        <div style="margin-top:10px;display:flex;gap:20px;font-size:13px;flex-wrap:wrap">
+        ${isAdminUser?`<div style="margin-top:10px;display:flex;gap:20px;font-size:13px;flex-wrap:wrap">
           <div><span style="color:#888">FOB Price:</span> <span style="font-weight:600">$${(d.fobPrice||0).toFixed(2)}</span></div>
           <div><span style="color:#888">Laid-In Cost:</span> <span style="font-weight:600">$${(d.laidInCost||0).toFixed(2)}</span></div>
-        </div>
+        </div>`:''}
       </div>
     </div>
 
@@ -10989,9 +10988,9 @@ function openProductPricing(sku){
       <div class="card-header" style="flex-wrap:wrap;gap:10px">
         <span class="card-title">Pricing tiers</span>
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          <span style="font-size:12px;color:var(--text2)">Admin only -- commission overrides and DA support are not visible to reps</span>
+          ${!isAdminUser?`<span style="font-size:12px;color:var(--text2)">Commission overrides and DA support are not shown to reps</span>`:`
           <button class="btn btn-sm" onclick="newPricingReset('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-file-plus"></i> New Pricing</button>
-          <button class="btn btn-sm btn-dark" onclick="openClonePricingSearch('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-copy"></i> Clone Pricing</button>
+          <button class="btn btn-sm btn-dark" onclick="openClonePricingSearch('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-copy"></i> Clone Pricing</button>`}
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -11004,25 +11003,25 @@ function openProductPricing(sku){
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Premise</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Status</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Visibility</th>
-              <th style="padding:10px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#1a5c3a">Sales Rep Commission</th>
-              <th style="padding:10px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B6BA0">DA Support $</th>
+              ${isAdminUser?`<th style="padding:10px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#1a5c3a">Sales Rep Commission</th>
+              <th style="padding:10px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B6BA0">DA Support $</th>`:''}
               <th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--green)">Net/case</th>
             </tr>
           </thead>
           <tbody id="pp-tier-body-${sku.replace(/[^a-z0-9]/gi,'_')}">${tierRows()}</tbody>
         </table>
       </div>
-      <div style="padding:12px 16px;background:#fffbe8;border-top:1px solid #f0e8c8;font-size:12px;color:#8a6a00">
+      ${isAdminUser?`<div style="padding:12px 16px;background:#fffbe8;border-top:1px solid #f0e8c8;font-size:12px;color:#8a6a00">
         <i class="ti ti-info-circle" style="vertical-align:-2px;margin-right:4px"></i>
         <b>Commission:</b> Enter a % to override this rep's default rate for this specific tier. Leave blank to use the rep's standard commission.
         &nbsp;&nbsp;<b>DA Support:</b> Dollar allowance per case from the supplier -- reduces your net cost. Not shown on invoices or to reps.
-      </div>
+      </div>`:''}
     </div>
 
     <div class="card" style="margin-top:14px">
       <div class="card-header">
         <span class="card-title">Custom Pricing Lanes</span>
-        <button class="btn btn-sm btn-dark" onclick="openAddPricingLane('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i> New Pricing Lane</button>
+        ${currentUser&&currentUser.role==='admin'?`<button class="btn btn-sm btn-dark" onclick="openAddPricingLane('${sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i> New Pricing Lane</button>`:''}
       </div>
       <div id="pp-lanes-body-${sku.replace(/[^a-z0-9]/gi,'_')}" style="padding:24px;text-align:center;color:var(--text3);font-size:13px">Loading...</div>
     </div>
@@ -11031,6 +11030,7 @@ function openProductPricing(sku){
 }
 
 async function loadPricingLanes(sku){
+  const isAdminUser=currentUser&&currentUser.role==='admin';
   const safeSku=sku.replace(/[^a-z0-9]/gi,'_');
   const container=document.getElementById('pp-lanes-body-'+safeSku);
   if(!container)return;
@@ -11038,30 +11038,33 @@ async function loadPricingLanes(sku){
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices?sku='+encodeURIComponent(sku),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
     if(!res.ok){container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Could not load pricing lanes</div>';return;}
     window._currentLanesData=res.tiers; // cached so the edit modal can look up a lane by ID without a re-fetch
-    if(!res.tiers.length){container.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No custom pricing lanes for this product yet.</div>';return;}
+    // Reps only ever see lanes explicitly marked visible to them, matching the same
+    // repVisible flag already used elsewhere for this exact purpose.
+    const visibleLanes=isAdminUser?res.tiers:res.tiers.filter(t=>t.repVisible);
+    if(!visibleLanes.length){container.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No custom pricing lanes for this product yet.</div>';return;}
     const p=PRODUCTS.find(x=>x.sku===sku);const btl=p?.btl||1;
     container.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid #222;background:#fafafa">
         <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Lane Name</th>
         <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#D4967D">Price/cs</th>
-        <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B6BA0">DA/cs</th>
+        ${isAdminUser?`<th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B6BA0">DA/cs</th>`:''}
         <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Restricted To</th>
-        <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Visible To</th>
-        <th></th>
+        ${isAdminUser?`<th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Visible To</th>
+        <th></th>`:''}
       </tr></thead>
-      <tbody>${res.tiers.map(t=>{
+      <tbody>${visibleLanes.map(t=>{
         const scopeLabels=[...(t.corpGroups||[]).map(g=>'<i class="ti ti-building-store" style="font-size:11px;vertical-align:-1px"></i> '+g),...(t.accountNames||[])];
         const scopeHtml=scopeLabels.length?('<span style="color:var(--gold);font-weight:600">\u2605</span> '+scopeLabels.join(', ')):'<span style="color:var(--text3)">All accounts</span>';
         return`<tr style="border-bottom:1px solid #f0f0f0">
         <td style="padding:8px 12px;font-weight:600">${t.tierName}</td>
         <td style="padding:8px 12px;text-align:right">$${(t.price*btl).toFixed(2)}</td>
-        <td style="padding:8px 12px;text-align:right">$${(t.da*btl).toFixed(2)}</td>
+        ${isAdminUser?`<td style="padding:8px 12px;text-align:right">$${(t.da*btl).toFixed(2)}</td>`:''}
         <td style="padding:8px 12px;font-size:12px;max-width:260px">${scopeHtml}</td>
-        <td style="padding:8px 12px;font-size:12px">${t.repVisible?'Reps &amp; Admin':'Admin/Pricing-admin only'}</td>
+        ${isAdminUser?`<td style="padding:8px 12px;font-size:12px">${t.repVisible?'Reps &amp; Admin':'Admin/Pricing-admin only'}</td>
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           <button class="btn btn-sm" onclick="openEditPricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i></button>
           <button class="btn-delete-item" onclick="deletePricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
-        </td>
+        </td>`:''}
       </tr>`;}).join('')}</tbody>
     </table></div>`;
   }catch(e){container.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Could not load pricing lanes -- check connection</div>';}
