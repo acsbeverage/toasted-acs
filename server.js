@@ -239,7 +239,8 @@ app.get('/api/backfill-quantity-split', async (req, res) => {
         `SELECT oi.id, oi.sku, oi.bottles as current_bottles, p.btl,
                 FLOOR(oi.bottles::numeric / p.btl) as new_cases, oi.bottles % p.btl as new_bottles
          FROM order_items oi JOIN products p ON oi.sku = p.sku
-         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles > 0
+         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles >= p.btl
+         ORDER BY oi.bottles DESC
          LIMIT 20`
       );
       const countRow = await getAll(
