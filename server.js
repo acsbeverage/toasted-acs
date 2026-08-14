@@ -233,11 +233,20 @@ app.get('/api/backfill-crv-totals', async (req, res) => {
   if(req.query.secret !== 'toasted2026-backfillcrvtotals') return res.status(403).json({ok:false});
   try {
     const { query } = require('./db');
-    const result = await query(
+    // Step 1: if bottles/rate were never populated (still 0/null from the original import),
+    // pull them across from fee_count/fee_amt where the raw per-unit data actually lives.
+    // Safe to run even if this already happened once -- only touches rows still at 0/null.
+    const step1 = await query(
+      `UPDATE order_items SET bottles = fee_count, rate = fee_amt
+       WHERE sku = '__CRV__' AND is_fee = TRUE AND (bottles = 0 OR bottles IS NULL) AND fee_count IS NOT NULL AND fee_count > 0`
+    );
+    // Step 2: now that rate (per-unit) and bottles (count) are correctly populated,
+    // recompute fee_amt as the true total -- this is the actual value the invoice displays.
+    const step2 = await query(
       `UPDATE order_items SET fee_amt = ROUND((rate * bottles)::numeric, 2)
        WHERE sku = '__CRV__' AND is_fee = TRUE AND rate IS NOT NULL AND bottles > 0`
     );
-    res.json({ ok: true, rowsUpdated: result.rowCount });
+    res.json({ ok: true, step1RowsFixed: step1.rowCount, step2RowsFixed: step2.rowCount });
   } catch (err) {
     console.error('Backfill CRV totals error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
