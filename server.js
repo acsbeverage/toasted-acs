@@ -7,7 +7,19 @@ const fs      = require('fs');
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => {
+    // This is a single-page app with no separate hashed/versioned asset files, so the
+    // browser has no other signal that a new deploy has happened. Without this, some
+    // browsers (mobile especially) can keep serving a stale cached index.html for a long
+    // time after a new version ships -- even surviving a sign-out/sign-in, since that only
+    // clears the auth session, not the browser's HTTP cache. no-cache still allows caching,
+    // but forces a fast revalidation check (ETag) on every load rather than blindly reusing
+    // a stale copy, so this doesn't meaningfully add load -- unchanged files still return a
+    // quick 304, not a full re-download.
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 app.use('/api/auth',   require('./routes/auth'));
 app.use('/api/orders', require('./routes/orders'));
