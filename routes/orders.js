@@ -150,9 +150,18 @@ router.post('/', requireAuth, async (req, res) => {
 
     if (!acct) return res.status(400).json({ ok: false, error: 'Missing required fields' });
     // Order IDs are always assigned server-side as a true sequential ACS-NNNNN number --
-    // never trust a client-provided id, and never generate one client-side.
-    const seqRow = await getOne('UPDATE order_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
-    id = 'ACS-' + seqRow.claimed;
+    // never trust a client-provided id, and never generate one client-side. A number freed
+    // by a deleted order is reused first, so deletions never leave a permanent gap in the
+    // sequence; only once the reclaim pool is empty does the main counter advance.
+    const freed = await getOne(
+      `DELETE FROM freed_order_numbers WHERE number = (SELECT MIN(number) FROM freed_order_numbers) RETURNING number`
+    );
+    if (freed) {
+      id = 'ACS-' + freed.number;
+    } else {
+      const seqRow = await getOne('UPDATE order_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
+      id = 'ACS-' + seqRow.claimed;
+    }
     await query(`
       INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,
         is_sample,waive_delivery,waive_broken_case,waive_crv)
@@ -231,6 +240,14 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     await query('DELETE FROM order_items WHERE order_id=$1', [req.params.id]);
     await query('DELETE FROM orders WHERE id=$1', [req.params.id]);
+    // Reclaim this order's number so the next order created reuses it, rather than
+    // leaving a permanent gap in the sequence. Only true ACS-NNNNN sequential IDs
+    // are reclaimed -- anything else (old date-based test IDs, imported historical
+    // IDs) is left alone.
+    const match = req.params.id.match(/^ACS-(\d+)$/);
+    if (match) {
+      await query('INSERT INTO freed_order_numbers (number) VALUES ($1) ON CONFLICT DO NOTHING', [parseInt(match[1])]);
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete order error:', err.message);
