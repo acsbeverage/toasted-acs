@@ -209,7 +209,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   .sidebar.mobile-open{transform:translateX(0)}
   .content{padding:12px 14px}
   .topbar{padding:0 12px}
-  .form-grid-2,.form-grid-3,.form-grid-4,.dash-grid-5,.dash-grid-3,.dash-grid-2,.dash-grid-2-1,.dash-action-tabs{grid-template-columns:1fr!important}
+  .form-grid-2,.form-grid-3,.form-grid-4,.dash-grid-5,.dash-grid-3,.dash-grid-2,.dash-grid-2-1,.dash-action-tabs,.draft-contact-row{grid-template-columns:1fr!important}
   /* New Order: hide desktop table, show mobile cards */
   #line-items-table-view{display:none!important}
   #line-items-cards-view{display:block!important}
@@ -497,6 +497,12 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div><label class="flabel">Payment Provider</label><input class="finput" id="a-payment-provider" placeholder="e.g. Stripe, none"/></div>
       <div><label class="flabel">Preferred Payment Method Name</label><input class="finput" id="a-preferred-payment-method"/></div>
     </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:14px;margin-bottom:8px">
+      <div style="font-weight:700;font-size:13px;color:var(--gold)">Additional Contacts</div>
+      <button type="button" class="btn btn-sm" onclick="addDraftContact()"><i class="ti ti-plus"></i> Add Contact</button>
+    </div>
+    <div id="a-draft-contacts" style="margin-bottom:16px"></div>
 
     <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">General</div>
     <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">
@@ -5115,7 +5121,7 @@ async function loadAccountContacts(acctId){
     const isAdmin=currentUser.role==='admin';
     body.innerHTML=res.contacts.map(c=>`<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
       <div>
-        <div style="font-weight:600;font-size:13px">${c.name}${c.isPrimary?' <span class="tier-pill" style="font-size:10px">Primary</span>':''}${c.title?' <span style="color:var(--text2);font-weight:400">-- '+c.title+'</span>':''}</div>
+        <div style="font-weight:600;font-size:13px">${c.name}${c.isPrimary?' <span class="tier-pill" style="font-size:10px">Primary</span>':''}${c.role?' <span class="tier-pill" style="font-size:10px;background:#E8F0FF;color:#2A4A9A">'+c.role+'</span>':''}${c.title?' <span style="color:var(--text2);font-weight:400">-- '+c.title+'</span>':''}</div>
         <div style="font-size:12px;color:var(--text2);margin-top:2px">${[c.email,c.phone].filter(Boolean).join(' &middot; ')||'--'}</div>
         ${c.notes?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${c.notes}</div>`:''}
       </div>
@@ -5130,6 +5136,11 @@ function _contactModalHtml(title,acctId,saveOnclick,prefill){
       <div class="modal-title">${title}</div>
       <label class="flabel">Name *</label><input class="finput" id="ct-name" value="${(prefill.name||'').replace(/"/g,'&quot;')}" style="margin-bottom:12px"/>
       <label class="flabel">Title / Role</label><input class="finput" id="ct-title" value="${(prefill.title||'').replace(/"/g,'&quot;')}" placeholder="e.g. Owner, Buyer, AP Contact" style="margin-bottom:12px"/>
+      <label class="flabel">Contact type</label>
+      <select class="finput" id="ct-role" style="margin-bottom:12px">
+        <option value="">-- None --</option>
+        ${CONTACT_ROLES.map(r=>`<option value="${r}" ${prefill.role===r?'selected':''}>${r}</option>`).join('')}
+      </select>
       <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:12px">
         <div><label class="flabel">Email</label><input class="finput" id="ct-email" value="${(prefill.email||'').replace(/"/g,'&quot;')}"/></div>
         <div><label class="flabel">Phone</label><input class="finput" id="ct-phone" value="${(prefill.phone||'').replace(/"/g,'&quot;')}"/></div>
@@ -5147,7 +5158,8 @@ async function saveNewContact(acctId){
   const name=document.getElementById('ct-name').value.trim();
   if(!name){alert('Contact name required');return}
   const payload={name,title:document.getElementById('ct-title').value,email:document.getElementById('ct-email').value,
-    phone:document.getElementById('ct-phone').value,notes:document.getElementById('ct-notes').value,isPrimary:document.getElementById('ct-primary').checked};
+    phone:document.getElementById('ct-phone').value,notes:document.getElementById('ct-notes').value,
+    role:document.getElementById('ct-role').value,isPrimary:document.getElementById('ct-primary').checked};
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts',{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)
@@ -5167,7 +5179,8 @@ async function saveEditedContact(acctId,contactId){
   const name=document.getElementById('ct-name').value.trim();
   if(!name){alert('Contact name required');return}
   const payload={name,title:document.getElementById('ct-title').value,email:document.getElementById('ct-email').value,
-    phone:document.getElementById('ct-phone').value,notes:document.getElementById('ct-notes').value,isPrimary:document.getElementById('ct-primary').checked};
+    phone:document.getElementById('ct-phone').value,notes:document.getElementById('ct-notes').value,
+    role:document.getElementById('ct-role').value,isPrimary:document.getElementById('ct-primary').checked};
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts/'+contactId,{
       method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)
@@ -5572,6 +5585,8 @@ function openAddAccount(){
   document.getElementById('a-cod-email').checked=false;
   document.getElementById('a-create-in-qb').checked=false;
   toggleBillSameAsShip();
+  window._draftContacts=[];
+  renderDraftContactsUI();
   document.getElementById('modal-account').classList.add('open');
 }
 function openEditAccountFull(acctId){
@@ -5615,6 +5630,15 @@ function openEditAccountFull(acctId){
   document.getElementById('a-cod-email').checked=!!a.codEmailNotifications;
   document.getElementById('a-create-in-qb').checked=false;
   toggleBillSameAsShip();
+  window._draftContacts=[];
+  renderDraftContactsUI();
+  fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts',{headers:{'Authorization':'Bearer '+window._authToken}})
+    .then(r=>r.json()).then(res=>{
+      if(res.ok&&res.contacts){
+        window._draftContacts=res.contacts.map(c=>({name:c.name,role:c.role,email:c.email,phone:c.phone}));
+        renderDraftContactsUI();
+      }
+    }).catch(()=>{});
   document.getElementById('modal-account').classList.add('open');
 }
 async function deleteUser(id){
@@ -5639,6 +5663,49 @@ async function deleteUser(id){
   USERS=USERS.filter(x=>x.id!==id);
   toast(`${u.fname} ${u.lname} deleted`);
   renderUsers();
+}
+// -- ACCOUNT SETUP: DRAFT CONTACTS -------------------------------------------------
+// A local, in-memory list of additional contacts being built up while creating or editing
+// an account. For a new account these get posted after the account itself is created; for
+// an existing account they replace whatever's on file via one bulk-save call.
+window._draftContacts=[];
+const CONTACT_ROLES=['Buyer','AP','Receives Invoices','Other'];
+function renderDraftContactsUI(){
+  const wrap=document.getElementById('a-draft-contacts');if(!wrap)return;
+  if(!window._draftContacts.length){wrap.innerHTML='<div style="font-size:12px;color:var(--text3);padding:8px 0">No additional contacts yet -- click "Add Contact" above.</div>';return;}
+  wrap.innerHTML=window._draftContacts.map((c,idx)=>`
+    <div style="display:grid;grid-template-columns:1.3fr 1fr 1.3fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px" class="draft-contact-row">
+      <input class="finput" placeholder="Name" value="${(c.name||'').replace(/"/g,'&quot;')}" onchange="updateDraftContact(${idx},'name',this.value)"/>
+      <select class="finput" onchange="updateDraftContact(${idx},'role',this.value)">
+        <option value="">Role...</option>
+        ${CONTACT_ROLES.map(r=>`<option value="${r}" ${c.role===r?'selected':''}>${r}</option>`).join('')}
+      </select>
+      <input class="finput" placeholder="Email" value="${(c.email||'').replace(/"/g,'&quot;')}" onchange="updateDraftContact(${idx},'email',this.value)"/>
+      <input class="finput" placeholder="Phone" value="${(c.phone||'').replace(/"/g,'&quot;')}" onchange="updateDraftContact(${idx},'phone',this.value)"/>
+      <button type="button" class="btn-delete-item" onclick="removeDraftContact(${idx})" title="Remove"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+function addDraftContact(){
+  window._draftContacts.push({name:'',role:'',email:'',phone:''});
+  renderDraftContactsUI();
+}
+function updateDraftContact(idx,field,val){
+  if(!window._draftContacts[idx])return;
+  window._draftContacts[idx][field]=val;
+}
+function removeDraftContact(idx){
+  window._draftContacts.splice(idx,1);
+  renderDraftContactsUI();
+}
+// Persist the draft contacts list for a given account -- called after a new account is
+// created, or when saving edits to an existing one. Silently skipped if there are none.
+async function saveDraftContactsFor(acctId){
+  try{
+    await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+acctId+'/contacts',{
+      method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({contacts:window._draftContacts})
+    });
+  }catch(e){console.error('Could not save additional contacts:',e.message);}
 }
 function saveAccount(){
   const name=document.getElementById('a-name').value.trim();
@@ -5713,6 +5780,7 @@ function saveAccount(){
     if(isEdit){
       const existing=ACCOUNTS.find(a=>a.id===_editingAccountId);
       if(existing)Object.assign(existing,payload);
+      saveDraftContactsFor(_editingAccountId);
       closeModal('modal-account');
       toast('Account updated -- '+name);
       openAccountDetail(_editingAccountId);
@@ -5720,6 +5788,7 @@ function saveAccount(){
       ACCOUNTS.push({id:res.id,code:res.code,...payload});
       const ru=USERS.find(u=>u.id===rep);
       if(ru&&ru.accounts&&!ru.accounts.includes(res.id))ru.accounts.push(res.id);
+      saveDraftContactsFor(res.id);
       closeModal('modal-account');
       toast('Account added -- assigned #'+res.code);
       if(currentUser.role==='admin')showPage('accounts');
