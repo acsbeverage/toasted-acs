@@ -2,6 +2,12 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { query, getOne, getAll } = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const sgMail = require('@sendgrid/mail');
+
+const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
+const FROM_NAME  = process.env.FROM_NAME  || 'Toasted -- ACS Beverage Co.';
+const NEW_ACCOUNT_NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessica@acsbeverage.com')
+  .split(',').map(e => e.trim()).filter(Boolean);
 
 router.get('/accounts', requireAuth, async (req, res) => {
   try {
@@ -122,11 +128,49 @@ router.post('/accounts', requireAdmin, async (req, res) => {
        !!pastDue, notifyInvoiceContactsAR!==false]
     );
     res.json({ ok: true, id: acctId, code: acctCode });
+    sendNewAccountNotification(acctId, name, acctCode, rep, req.user).catch(err => console.error('New account notification error:', err.message));
   } catch (err) {
     console.error('Create account error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
+
+async function sendNewAccountNotification(acctId, acctName, acctCode, repId, createdByUser) {
+  if (!process.env.SENDGRID_API_KEY) {
+    console.log('New account notification (no SendGrid):', acctName);
+    return;
+  }
+  const to = [...NEW_ACCOUNT_NOTIFY_EMAILS];
+  let repLine = 'Unassigned';
+  if (repId) {
+    const rep = await getOne('SELECT fname, lname, email FROM users WHERE id=$1', [repId]);
+    if (rep) {
+      repLine = rep.fname + ' ' + (rep.lname || '');
+      if (rep.email && !to.map(e => e.toLowerCase()).includes(rep.email.toLowerCase())) {
+        to.push(rep.email);
+      }
+    }
+  }
+  const createdByLabel = createdByUser ? (createdByUser.fname + ' ' + (createdByUser.lname || '')) : 'Someone';
+
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:520px">
+      <h2 style="color:#B8792C;margin-bottom:4px">New Account Created</h2>
+      <p style="color:#555;margin-top:0">Created by ${createdByLabel}</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:12px">
+        <tr><td style="padding:6px 0;color:#888">Account Name</td><td style="padding:6px 0;font-weight:600">${acctName}</td></tr>
+        <tr><td style="padding:6px 0;color:#888">Account #</td><td style="padding:6px 0">${acctCode}</td></tr>
+        <tr><td style="padding:6px 0;color:#888">Assigned Rep</td><td style="padding:6px 0">${repLine}</td></tr>
+      </table>
+      <p style="margin-top:20px"><a href="https://toasted.acsbeverageco.com/#accounts/${acctId}" style="background:#B8792C;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">View Account in Toasted</a></p>
+    </div>`;
+  await sgMail.send({
+    to, from: { email: FROM_EMAIL, name: FROM_NAME },
+    subject: 'New Account Created: ' + acctName,
+    html,
+  });
+}
 
 router.post('/accounts/bulk-corp-group', requireAdmin, async (req, res) => {
   try {
