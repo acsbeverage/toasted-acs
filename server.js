@@ -229,36 +229,44 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/backfill-quantity-split', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-qtysplit') return res.status(403).json({ok:false});
+app.get('/api/backfill-quantity-fix2', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-qtyfix2') return res.status(403).json({ok:false});
   const execute = req.query.execute === 'true';
   try {
     const { query, getAll } = require('./db');
+    // Recover the originally-imported raw quantity (cases*btl+bottles from the last backfill
+    // is mathematically identical to what was first imported), then reinterpret it correctly
+    // as a case count rather than a bottle count -- and convert the per-case rate to per-bottle
+    // (DIVIDE by pack size, not multiply) so the total stays exactly correct.
     if (!execute) {
       const preview = await getAll(
-        `SELECT oi.id, oi.sku, oi.bottles as current_bottles, p.btl,
-                FLOOR(oi.bottles::numeric / p.btl) as new_cases, oi.bottles % p.btl as new_bottles
+        `SELECT oi.id, oi.sku, oi.cases as current_cases, oi.bottles as current_bottles, oi.rate as current_rate_per_case, p.btl,
+                (oi.cases * p.btl + oi.bottles) as recovered_case_qty,
+                ROUND((oi.rate / p.btl)::numeric, 4) as new_rate_per_bottle,
+                ROUND(((oi.cases * p.btl + oi.bottles) * oi.rate)::numeric, 2) as true_historical_total
          FROM order_items oi JOIN products p ON oi.sku = p.sku
-         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles >= p.btl
-         ORDER BY oi.bottles DESC
-         LIMIT 20`
+         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.rate IS NOT NULL
+         ORDER BY (oi.cases * p.btl + oi.bottles) DESC
+         LIMIT 15`
       );
       const countRow = await getAll(
         `SELECT COUNT(*) as cnt FROM order_items oi JOIN products p ON oi.sku = p.sku
-         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles > 0`
+         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.rate IS NOT NULL`
       );
       return res.json({ ok: true, dryRun: true, rowsToFix: parseInt(countRow[0].cnt), sample: preview,
-        note: 'Nothing changed. Re-run with &execute=true to apply.' });
+        note: 'true_historical_total = recovered_case_qty x current_rate_per_case -- this should match what the real historical invoice total was. Re-run with &execute=true to apply.' });
     }
     const result = await query(
       `UPDATE order_items oi
-       SET cases = FLOOR(oi.bottles::numeric / p.btl), bottles = oi.bottles % p.btl
+       SET cases = (oi.cases * p.btl + oi.bottles),
+           bottles = 0,
+           rate = ROUND((oi.rate / p.btl)::numeric, 4)
        FROM products p
-       WHERE oi.sku = p.sku AND oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles > 0`
+       WHERE oi.sku = p.sku AND oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.rate IS NOT NULL`
     );
     res.json({ ok: true, executed: true, rowsFixed: result.rowCount });
   } catch (err) {
-    console.error('Backfill quantity split error:', err.message);
+    console.error('Backfill quantity fix 2 error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
