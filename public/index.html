@@ -909,51 +909,56 @@ function isSampleAcct(acctId){
 }
 
 // Auto-sync fees on currentOrder whenever items change
-function syncFees(){
-  const isAdmin=currentUser&&currentUser.role==='admin';
-  // Remove auto-calculated fees (but preserve manually-added broken case fees)
-  currentOrder.items=currentOrder.items.filter(x=>x.sku!==CRV_SKU&&!(x.sku===BROKEN_CASE_SKU&&!x._manual));
+// Recomputes CRV, broken-case, and delivery fees for a given set of items. Shared by New
+// Order and Edit Order so both stay in sync with the same logic -- Edit Order previously
+// never recalculated fees at all, meaning a removed fee could never be added back.
+function syncFeesFor(items,opts){
+  opts=opts||{};
+  items=items.filter(x=>x.sku!==CRV_SKU&&!(x.sku===BROKEN_CASE_SKU&&!x._manual));
 
   // Broken case fee: $1.50 per line item with loose bottles that don't add up to a full case (auto)
-  if(!currentOrder.waiveBrokenCase){
-    const brokenLines=currentOrder.items.filter(x=>{
+  if(!opts.waiveBrokenCase){
+    const brokenLines=items.filter(x=>{
       if(x.sku===DELIVERY_FEE_SKU||x._fee||!(x.bottles>0))return false;
       const p=PRODUCTS.find(y=>y.sku===x.sku);
       const btl=(p&&p.btl)||12;
       return x.bottles%btl!==0; // loose bottles exactly filling one or more cases isn't "broken"
     });
     if(brokenLines.length>0){
-      currentOrder.items.push({sku:BROKEN_CASE_SKU,feeAmt:BROKEN_CASE_FEE_AMT,count:brokenLines.length,_fee:true,_locked:true});
+      items.push({sku:BROKEN_CASE_SKU,feeAmt:BROKEN_CASE_FEE_AMT,count:brokenLines.length,_fee:true,_locked:true});
     }
   }
 
   // CRV: group product lines by CRV rate, sum bottles × rate per group
   // Sample orders (and orders for dedicated sample-tracking accounts) NEVER include CRV
-  if(!currentOrder.waiveCRV&&currentOrder.orderType!=='sample'&&!isSampleAcct(currentOrder.acct)){
-    const prodLines=currentOrder.items.filter(x=>!x._fee);
-    // Build map: rate -> {bottles, label}
+  if(!opts.waiveCRV&&opts.orderType!=='sample'&&!isSampleAcct(opts.acct)){
+    const prodLines=items.filter(x=>!x._fee);
     const crvMap={};
     prodLines.forEach(item=>{
       const p=PRODUCTS.find(y=>y.sku===item.sku);if(!p)return;
       ensureProductDetails(p);
       const entry=p._details.redemptionEntry||'';
       const rate=CRV_RATES[entry];
-      if(!rate)return; // 0 or undefined = no CRV
+      if(!rate)return;
       const btl=itemTotalBottles(item);
       if(!crvMap[rate])crvMap[rate]={bottles:0,label:entry,rate};
       crvMap[rate].bottles+=btl;
     });
     Object.values(crvMap).forEach(g=>{
       const feeAmt=parseFloat((g.rate*g.bottles).toFixed(2));
-      if(feeAmt>0)currentOrder.items.push({sku:CRV_SKU,feeAmt,rate:g.rate,bottles:g.bottles,label:g.label,_fee:true,_locked:true});
+      if(feeAmt>0)items.push({sku:CRV_SKU,feeAmt,rate:g.rate,bottles:g.bottles,label:g.label,_fee:true,_locked:true});
     });
   }
 
   // Delivery fee: add if not already present and not waived
-  const hasDelivery=currentOrder.items.find(x=>x.sku===DELIVERY_FEE_SKU);
-  if(!hasDelivery&&!currentOrder.waiveDelivery){
-    currentOrder.items.push({sku:DELIVERY_FEE_SKU,feeAmt:DELIVERY_FEE_AMT,_fee:true,_locked:true});
+  const hasDelivery=items.find(x=>x.sku===DELIVERY_FEE_SKU);
+  if(!hasDelivery&&!opts.waiveDelivery){
+    items.push({sku:DELIVERY_FEE_SKU,feeAmt:DELIVERY_FEE_AMT,_fee:true,_locked:true});
   }
+  return items;
+}
+function syncFees(){
+  currentOrder.items=syncFeesFor(currentOrder.items,{waiveBrokenCase:currentOrder.waiveBrokenCase,waiveCRV:currentOrder.waiveCRV,waiveDelivery:currentOrder.waiveDelivery,acct:currentOrder.acct,orderType:currentOrder.orderType});
 }
 // Strips accents/diacritics and lowercases, so searching "Yeyo" matches "Yeyó" etc.
 function normText(s){
@@ -2489,6 +2494,9 @@ function removeLineItem(idx){currentOrder.items.splice(idx,1);syncFees();renderL
 // Returns true if a clamp was applied, so the caller can let the rep/customer know why.
 function clampItemToStock(item,p,changedField){
   if(!p)return false;
+  // Admin and Sheldon (pricing_admin) can knowingly order beyond available stock --
+  // only reps are actually restricted by it.
+  if(currentUser&&(currentUser.role==='admin'||currentUser.pricing_admin))return false;
   const availableBottles=(p.stock||0)*(p.btl||1);
   const totalBottles=(item.cases||0)*(p.btl||1)+(item.bottles||0);
   if(totalBottles<=availableBottles)return false;
@@ -4008,6 +4016,7 @@ function openConfirm(orderId){
 }
 
 // -- EDIT ORDER -----------------------------------------------------------------
+let _editingWaiveFlags={};
 function openEditOrder(orderId){
   editingOrderId=orderId;const o=ORDERS.find(x=>x.id===orderId);if(!o||o.status==='confirmed')return;
   document.getElementById('edit-order-id').textContent='-- '+orderId;
@@ -4017,6 +4026,8 @@ function openEditOrder(orderId){
   document.getElementById('edit-notes').value=(o.notes&&o.notes.trim())?o.notes:((acctForNotes&&acctForNotes.deliveryNotes)?acctForNotes.deliveryNotes:'');
   window._editItems=o.items.map(x=>({...x}));
   if(isSampleAcct(o.acct))window._editItems.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
+  _editingWaiveFlags={waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,waiveDelivery:o.waiveDelivery,acct:o.acct,orderType:o.orderType};
+  window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
   renderEditItems();document.getElementById('modal-edit-order').classList.add('open');
 }
 function onEditSearch(val){
@@ -4028,8 +4039,8 @@ function onEditSearch(val){
   dd.classList.add('open');
 }
 function closeEditDD(){const dd=document.getElementById('edit-prod-dd');if(dd)dd.classList.remove('open');const s=document.getElementById('edit-prod-search');if(s)s.value=''}
-function addEditItem(sku){const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;const ex=window._editItems.find(x=>x.sku===sku);const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;const freeItem=isSampleAcct(editingAcctId)?{discountPct:100}:{};if(ex){ex.cases+=1;clampItemToStock(ex,p,'cases');}else window._editItems.unshift({sku,cases:0,bottles:0,tier:'frontline',...freeItem});if((p.stock||0)===0)toast(p.name+' is currently out of stock');closeEditDD();renderEditItems()}
-function removeEditItem(idx){window._editItems.splice(idx,1);renderEditItems()}
+function addEditItem(sku){const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;const ex=window._editItems.find(x=>x.sku===sku);const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;const freeItem=isSampleAcct(editingAcctId)?{discountPct:100}:{};if(ex){ex.cases+=1;clampItemToStock(ex,p,'cases');}else window._editItems.unshift({sku,cases:0,bottles:0,tier:'frontline',...freeItem});if((p.stock||0)===0)toast(p.name+' is currently out of stock');window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);closeEditDD();renderEditItems()}
+function removeEditItem(idx){window._editItems.splice(idx,1);window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);renderEditItems()}
 function updateEditField(idx,field,val){
   window._editItems[idx][field]=Math.max(0,parseInt(val)||0);
   const item=window._editItems[idx];
@@ -4037,10 +4048,11 @@ function updateEditField(idx,field,val){
   if(clampItemToStock(item,p,field)){
     const avail=(p.stock||0)*(p.btl||1);
     toast(avail>0?('Only '+avail+' bottle'+(avail!==1?'s':'')+' of '+p.name+' in stock -- quantity adjusted'):(p.name+' is out of stock'));
-    renderEditItems(); // full re-render so the input boxes reflect the corrected values, not the stale typed ones
-    return;
   }
-  renderEditTotal();const c=document.getElementById(`elt-${idx}`);if(c)c.textContent=fmt(itemLineTotal(item));const b=document.getElementById(`etb-${idx}`);if(b)b.textContent=itemTotalBottles(item)+' btl';
+  // Quantity changes can affect broken-case and CRV fee eligibility, so always re-sync
+  // and fully re-render rather than a lighter targeted update.
+  window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
+  renderEditItems();
 }
 function updateEditTier(idx,tier){window._editItems[idx].tier=tier;renderEditItems()}
 function updateEditDiscount(idx,val){
@@ -4052,17 +4064,104 @@ function updateEditDiscount(idx,val){
 function updateEditNotes(idx,val){
   window._editItems[idx].notes=val.trim();
 }
+function waiveEditDelivery(){
+  _editingWaiveFlags.waiveDelivery=true;
+  window._editItems=window._editItems.filter(x=>x.sku!==DELIVERY_FEE_SKU);
+  toast('Delivery fee removed');renderEditItems();
+}
+function restoreEditDelivery(){
+  _editingWaiveFlags.waiveDelivery=false;
+  window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
+  renderEditItems();
+}
+function waiveEditBrokenCase(){
+  _editingWaiveFlags.waiveBrokenCase=true;
+  window._editItems=window._editItems.filter(x=>x.sku!==BROKEN_CASE_SKU);
+  toast('Broken case fee removed');renderEditItems();
+}
+function waiveEditCRV(){
+  _editingWaiveFlags.waiveCRV=true;
+  window._editItems=window._editItems.filter(x=>x.sku!==CRV_SKU);
+  toast('CRV removed');renderEditItems();
+}
+function restoreEditCRV(){
+  _editingWaiveFlags.waiveCRV=false;
+  window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
+  renderEditItems();
+}
 function renderEditItems(){
   const wrap=document.getElementById('edit-line-items');
   if(!window._editItems.length){wrap.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No products -- search above to add</div>';document.getElementById('edit-total').textContent='';return}
   const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;
 
+  const isAdminUser=currentUser&&currentUser.role==='admin';
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th><th></th></tr></thead><tbody>`+
-  window._editItems.map((item,idx)=>{const p=prodBySku(item.sku);if(!p)return'';const price=itemUnitPrice(item,p);const maxLoose=p.btl;
+  window._editItems.map((item,idx)=>{
+    if(item.sku===DELIVERY_FEE_SKU){
+      return`<tr style="background:#F5F3FF">
+        <td colspan="9" style="font-size:12px;color:#5B4FA0;font-weight:500">
+          <i class="ti ti-truck-delivery" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
+          Delivery fee
+          ${isAdminUser?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveEditDelivery()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:'<span style="font-size:11px;color:var(--text3);margin-left:6px">(standard)</span>'}
+        </td>
+        <td style="font-weight:600;color:#5B4FA0;white-space:nowrap">${fmt(item.feeAmt||DELIVERY_FEE_AMT)}</td>
+        <td></td>
+      </tr>`;
+    }
+    if(item.sku===BROKEN_CASE_SKU){
+      const isManual=item._manual;
+      const removeAction=isManual?`removeEditItem(${idx})`:`waiveEditBrokenCase()`;
+      return`<tr style="background:#FFF8E8">
+        <td colspan="9" style="font-size:12px;color:var(--amber);font-weight:500">
+          <i class="ti ti-puzzle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
+          Broken case fee${isManual?' (manual)':' -- '+item.count+' line item'+(item.count!==1?'s':'')+' with loose bottles'} × $${(item.feeAmt||BROKEN_CASE_FEE_AMT).toFixed(2)}
+          <span style="font-size:11px;color:var(--text3);margin-left:8px"><button onclick="${removeAction}" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>
+        </td>
+        <td style="font-weight:600;color:var(--amber);white-space:nowrap">${fmt(itemLineTotal(item))}</td>
+        <td></td>
+      </tr>`;
+    }
+    if(item.sku===CRV_SKU){
+      return`<tr style="background:#E8F8F5">
+        <td colspan="9" style="font-size:12px;color:#0D7A5F;font-weight:500">
+          <i class="ti ti-recycle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
+          CRV -- ${item.bottles} bottle${item.bottles!==1?'s':''} × $${(item.rate||0).toFixed(2)} (${item.label||'CA CRV'})
+          ${isAdminUser?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveEditCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:''}
+        </td>
+        <td style="font-weight:600;color:#0D7A5F;white-space:nowrap">${fmt(item.feeAmt)}</td>
+        <td></td>
+      </tr>`;
+    }
+    const p=prodBySku(item.sku);if(!p)return'';const price=itemUnitPrice(item,p);const maxLoose=p.btl;
     const nameCell=`<td style="font-weight:500;color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')" title="View pricing for ${p.name.replace(/"/g,'&quot;')}">${p.name}</td>`;
     return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
+    if(item.sku===DELIVERY_FEE_SKU){
+      return`<div class="li-card-fee" style="background:#F5F3FF;color:#5B4FA0">
+        <i class="ti ti-truck-delivery" style="vertical-align:-2px;margin-right:6px"></i>Delivery fee
+        <span style="float:right">${fmt(item.feeAmt||DELIVERY_FEE_AMT)}</span>
+        ${isAdminUser?`<div style="margin-top:6px"><button onclick="waiveEditDelivery()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;text-decoration:underline">Remove fee</button></div>`:''}
+      </div>`;
+    }
+    if(item.sku===BROKEN_CASE_SKU){
+      const isManual=item._manual;
+      const removeAction=isManual?`removeEditItem(${idx})`:`waiveEditBrokenCase()`;
+      return`<div class="li-card-fee" style="background:#FFF8E8;color:var(--amber)">
+        <i class="ti ti-puzzle" style="vertical-align:-2px;margin-right:6px"></i>Broken case fee${isManual?' (manual)':''}
+        <span style="float:right">${fmt(itemLineTotal(item))}</span>
+        <div style="font-size:12px;font-weight:400;margin-top:4px">${isManual?'Manually added':item.count+' line item'+(item.count!==1?'s':'')+' with loose bottles'}</div>
+        <div style="margin-top:6px"><button onclick="${removeAction}" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;text-decoration:underline">Remove fee</button></div>
+      </div>`;
+    }
+    if(item.sku===CRV_SKU){
+      return`<div class="li-card-fee" style="background:#E8F8F5;color:#0D7A5F">
+        <i class="ti ti-recycle" style="vertical-align:-2px;margin-right:6px"></i>CRV
+        <span style="float:right">${fmt(item.feeAmt)}</span>
+        <div style="font-size:12px;font-weight:400;margin-top:4px">${item.bottles} bottle${item.bottles!==1?'s':''} × $${(item.rate||0).toFixed(2)} (${item.label||'CA CRV'})</div>
+        ${isAdminUser?`<div style="margin-top:6px"><button onclick="waiveEditCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;text-decoration:underline">Remove fee</button></div>`:''}
+      </div>`;
+    }
     const p=prodBySku(item.sku);if(!p)return'';
     const price=itemUnitPrice(item,p);const maxLoose=p.btl;
     const grossTotal=price*itemTotalBottles(item);
@@ -4134,7 +4233,8 @@ function saveEditOrder(){
   o.date=document.getElementById('edit-date').value;o.delivery=document.getElementById('edit-delivery').value;
   o.po=document.getElementById('edit-po').value;o.notes=document.getElementById('edit-notes').value;
   o.items=window._editItems.map(x=>({...x}));
-  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items});
+  o.waiveDelivery=!!_editingWaiveFlags.waiveDelivery;o.waiveBrokenCase=!!_editingWaiveFlags.waiveBrokenCase;o.waiveCRV=!!_editingWaiveFlags.waiveCRV;
+  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV});
   closeModal('modal-edit-order');toast('Order updated');
   const active=document.querySelector('.nav-item.active');if(active){const p=active.id.replace('nav-','');showPage(p)}
 }
