@@ -238,20 +238,6 @@ app.get('/api/run-migration', async (req, res) => {
     res.status(500).json({ok:false, error: err.message});
   }
 });
-app.get('/api/set-order-sequence', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-setordseq') return res.status(403).json({ok:false});
-  const nextSeq = parseInt(req.query.next);
-  if(!nextSeq || nextSeq < 1) return res.status(400).json({ok:false, error:'Provide ?next=NNNNN -- the next order number to assign'});
-  try {
-    const { query } = require('./db');
-    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
-    await query('UPDATE order_code_sequence SET next_seq=$1 WHERE id=1', [nextSeq]);
-    res.json({ ok: true, nextOrderWillBe: 'ACS-' + nextSeq });
-  } catch (err) {
-    console.error('Set order sequence error:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
 app.get('/api/migrate-accounts', async (req, res) => {
   if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
   const {query} = require('./db');
