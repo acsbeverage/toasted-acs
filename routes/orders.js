@@ -148,7 +148,11 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    if (!id || !acct) return res.status(400).json({ ok: false, error: 'Missing required fields' });
+    if (!acct) return res.status(400).json({ ok: false, error: 'Missing required fields' });
+    // Order IDs are always assigned server-side as a true sequential ACS-NNNNN number --
+    // never trust a client-provided id, and never generate one client-side.
+    const seqRow = await getOne('UPDATE order_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
+    id = 'ACS-' + seqRow.claimed;
     await query(`
       INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,
         is_sample,waive_delivery,waive_broken_case,waive_crv)
