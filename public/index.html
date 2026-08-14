@@ -8,11 +8,11 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#F7F6F3;--bg2:#FFFFFF;--bg3:#F0EEE9;
-  --border:#E2DED6;--border2:#CCC8BF;
-  --text:#1C1A17;--text2:#6B6560;--text3:#9E9890;
-  --gold:#B8872C;--gold-light:#F5EDD9;--gold-mid:#E8C97A;
-  --navy:#1A1E2E;--navy2:#252A3F;
+  --bg:#E5E3DC;--bg2:#FFFFFF;--bg3:#DBD8CF;
+  --border:#D0CCC0;--border2:#B5AFA0;
+  --text:#303636;--text2:#495A58;--text3:#7C8987;
+  --gold:#D4967D;--gold-light:#F5E4DC;--gold-mid:#E3BBA8;
+  --navy:#303636;--navy2:#495A58;
   --green:#2D6A4F;--green-bg:#EAF4EE;--green-border:#A8D5B5;
   --red:#B03A2E;--red-bg:#FCEAE8;--red-border:#F0A89F;
   --amber:#8A5C1A;--amber-bg:#FDF3E3;--amber-border:#E8C97A;
@@ -50,7 +50,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .s-sub{color:rgba(255,255,255,0.3);font-size:11px;margin-top:2px}
 .nav-sec{padding:16px 18px 5px;color:rgba(255,255,255,0.2);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;font-weight:500}
 .nav-item{display:flex;align-items:center;gap:9px;padding:9px 18px;color:rgba(255,255,255,0.45);font-size:13px;cursor:pointer;border-left:2px solid transparent;transition:all 0.1s;position:relative;white-space:nowrap}
-.nav-item-neworder{margin:6px 12px;border-radius:8px;background:linear-gradient(135deg,#B8872C,#d4a843);color:#fff !important;font-weight:700;font-size:13px;padding:10px 14px;border-left:none !important;box-shadow:0 2px 8px rgba(184,135,44,0.35);justify-content:center;letter-spacing:0.3px}
+.nav-item-neworder{margin:6px 12px;border-radius:8px;background:linear-gradient(135deg,#D4967D,#d4a843);color:#fff !important;font-weight:700;font-size:13px;padding:10px 14px;border-left:none !important;box-shadow:0 2px 8px rgba(184,135,44,0.35);justify-content:center;letter-spacing:0.3px}
 .nav-item-neworder:hover{background:linear-gradient(135deg,#c9962e,#e0b84a);box-shadow:0 4px 14px rgba(184,135,44,0.5);transform:translateY(-1px)}
 .nav-item-neworder.active{background:linear-gradient(135deg,#c9962e,#e0b84a);color:#fff !important;border-left:none !important}
 .nav-item:hover{color:rgba(255,255,255,0.85);background:rgba(255,255,255,0.05)}
@@ -250,9 +250,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   #hist-cards-view{display:none!important}
 }
 .portal-nav-btn{background:none;border:none;border-bottom:3px solid transparent;padding:14px 20px;font-size:14px;font-weight:500;color:#666;cursor:pointer;white-space:nowrap;transition:all 0.15s}
-.portal-nav-btn.active{color:#B8872C;border-bottom-color:#B8872C;font-weight:700}
-.portal-nav-btn:hover{color:#B8872C}
-.portal-nav-btn-primary{background:#B8872C!important;color:#fff!important;border:none!important;border-radius:8px;padding:9px 18px!important;margin:9px 0 9px 8px;font-weight:700!important}
+.portal-nav-btn.active{color:#D4967D;border-bottom-color:#D4967D;font-weight:700}
+.portal-nav-btn:hover{color:#D4967D}
+.portal-nav-btn-primary{background:#D4967D!important;color:#fff!important;border:none!important;border-radius:8px;padding:9px 18px!important;margin:9px 0 9px 8px;font-weight:700!important}
 .portal-nav-btn-primary.active{background:#222!important;color:#fff!important}
 .portal-nav-btn-primary:hover{background:#a37723!important;color:#fff!important}
 .portal-card{background:#fff;border-radius:12px;border:1px solid #e5e5e5;padding:20px;margin-bottom:16px}
@@ -288,7 +288,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <!-- Tab switcher -->
     <div style="display:flex;border-bottom:2px solid #eee;margin-bottom:20px;margin-top:4px">
       <button id="tab-signin-btn" onclick="switchAuthTab('signin')"
-        style="flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#B8872C;border-bottom:2px solid #B8872C;margin-bottom:-2px">
+        style="flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#D4967D;border-bottom:2px solid #D4967D;margin-bottom:-2px">
         Sign In
       </button>
       <button id="tab-signup-btn" onclick="switchAuthTab('signup')"
@@ -304,16 +304,16 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div class="err" id="login-err">Invalid email or password.</div>
       <button class="btn-login" onclick="doLogin()">Sign in</button>
       <div style="text-align:center;margin-top:12px;font-size:12px;color:#999">
-        <a href="#" onclick="openForgotPassword();return false" style="color:#B8872C;font-weight:600">Forgot your password?</a>
+        <a href="#" onclick="openForgotPassword();return false" style="color:#D4967D;font-weight:600">Forgot your password?</a>
       </div>
       <div style="text-align:center;margin-top:14px;font-size:12px;color:#999">
-        New customer? <a href="#" onclick="switchAuthTab('signup');return false" style="color:#B8872C;font-weight:600">Create an account</a>
+        New customer? <a href="#" onclick="switchAuthTab('signup');return false" style="color:#D4967D;font-weight:600">Create an account</a>
       </div>
     </div>
 
     <!-- CREATE ACCOUNT panel -->
     <div id="panel-signup" style="display:none">
-      <div style="font-size:12px;color:#666;margin-bottom:16px;padding:10px 12px;background:#f9f6f0;border-radius:8px;border-left:3px solid #B8872C;line-height:1.6">
+      <div style="font-size:12px;color:#666;margin-bottom:16px;padding:10px 12px;background:#f9f6f0;border-radius:8px;border-left:3px solid #D4967D;line-height:1.6">
         To create your account you'll need your <strong>ACS Customer Number</strong> — this is the unique ID on your invoices or provided by your sales rep.
       </div>
       <div class="field"><label>First name</label><input type="text" id="su-fname" placeholder="Jane"/></div>
@@ -331,7 +331,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div class="err" id="signup-err">Please check your details and try again.</div>
       <button class="btn-login" onclick="doPortalSignup()">Create account</button>
       <div style="text-align:center;margin-top:14px;font-size:12px;color:#999">
-        Already have an account? <a href="#" onclick="switchAuthTab('signin');return false" style="color:#B8872C;font-weight:600">Sign in</a>
+        Already have an account? <a href="#" onclick="switchAuthTab('signin');return false" style="color:#D4967D;font-weight:600">Sign in</a>
       </div>
     </div>
 
@@ -348,7 +348,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   <!-- Portal Topbar -->
   <div style="background:#1a1a1a;padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100">
     <div style="display:flex;align-items:center;gap:12px">
-      <div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-0.5px">Toast<span style="color:#B8872C;font-weight:400;font-style:italic">ed</span></div>
+      <div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-0.5px">Toast<span style="color:#D4967D;font-weight:400;font-style:italic">ed</span></div>
       <div style="width:1px;height:20px;background:#444"></div>
       <div style="color:#aaa;font-size:12px">Customer Portal</div>
     </div>
@@ -544,7 +544,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 </div>
 <div class="modal-bg" id="modal-change-pw">
   <div class="modal" style="max-width:400px">
-    <div class="modal-title"><i class="ti ti-key" style="vertical-align:-2px;margin-right:8px;color:#B8872C"></i>Change Password</div>
+    <div class="modal-title"><i class="ti ti-key" style="vertical-align:-2px;margin-right:8px;color:#D4967D"></i>Change Password</div>
     <div class="form-grid" style="gap:14px">
       <div><label class="flabel">Current password</label><input class="finput" type="password" id="cpw-current" placeholder="Enter your current password"/></div>
       <div><label class="flabel">New password</label><input class="finput" type="password" id="cpw-new" placeholder="At least 6 characters"/></div>
@@ -561,7 +561,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 <!-- Forgot Password modal -->
 <div class="modal-bg" id="modal-forgot-pw">
   <div class="modal" style="max-width:400px">
-    <div class="modal-title"><i class="ti ti-mail" style="vertical-align:-2px;margin-right:8px;color:#B8872C"></i>Reset Password</div>
+    <div class="modal-title"><i class="ti ti-mail" style="vertical-align:-2px;margin-right:8px;color:#D4967D"></i>Reset Password</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Enter your email address and we'll send you a link to reset your password.</div>
     <div class="form-grid" style="gap:14px">
       <div><label class="flabel">Email address</label><input class="finput" type="email" id="fpw-email" placeholder="you@acsbeverage.com"/></div>
@@ -578,7 +578,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 </div>
 <div class="modal-bg" id="modal-reset-pw">
   <div class="modal" style="max-width:400px">
-    <div class="modal-title"><i class="ti ti-lock" style="vertical-align:-2px;margin-right:8px;color:#B8872C"></i>Set a New Password</div>
+    <div class="modal-title"><i class="ti ti-lock" style="vertical-align:-2px;margin-right:8px;color:#D4967D"></i>Set a New Password</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Enter a new password for your account.</div>
     <div class="form-grid" style="gap:14px">
       <div><label class="flabel">New password</label><input class="finput" type="password" id="rpw-new" placeholder="At least 6 characters"/></div>
@@ -984,7 +984,7 @@ function stockChip(p){
   return`<span class="stock-chip ok"><i class="ti ti-circle-check" style="font-size:11px"></i> ${p.stock} cases</span>`;
 }
 function stockBadge(p){if(p.stock===0)return'<span class="badge badge-out">Out of stock</span>';if(p.stock<=p.reorder)return'<span class="badge badge-low">Low stock</span>';return'<span class="badge badge-ok">In stock</span>'}
-function stockBar(p){const max=Math.max(p.reorder*3,p.stock,1);const pct=Math.min(100,Math.round(p.stock/max*100));const color=p.stock===0?'#B03A2E':p.stock<=p.reorder?'#B8872C':'#2D6A4F';return`<div class="stock-bar-wrap"><div class="stock-bar" style="width:${pct}%;background:${color}"></div></div>`}
+function stockBar(p){const max=Math.max(p.reorder*3,p.stock,1);const pct=Math.min(100,Math.round(p.stock/max*100));const color=p.stock===0?'#B03A2E':p.stock<=p.reorder?'#D4967D':'#2D6A4F';return`<div class="stock-bar-wrap"><div class="stock-bar" style="width:${pct}%;background:${color}"></div></div>`}
 
 function updateBadges(){
   const ub=document.getElementById('unconf-badge');if(ub)ub.textContent=unconfirmedCount();
@@ -1223,11 +1223,11 @@ function switchAuthTab(tab){
   document.getElementById('panel-signin').style.display = isSignin?'':'none';
   document.getElementById('panel-signup').style.display = isSignin?'none':'';
   document.getElementById('tab-signin-btn').style.cssText = isSignin
-    ?'flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#B8872C;border-bottom:2px solid #B8872C;margin-bottom:-2px'
+    ?'flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#D4967D;border-bottom:2px solid #D4967D;margin-bottom:-2px'
     :'flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:600;cursor:pointer;color:#999;border-bottom:2px solid transparent;margin-bottom:-2px';
   document.getElementById('tab-signup-btn').style.cssText = isSignin
     ?'flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:600;cursor:pointer;color:#999;border-bottom:2px solid transparent;margin-bottom:-2px'
-    :'flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#B8872C;border-bottom:2px solid #B8872C;margin-bottom:-2px';
+    :'flex:1;padding:10px;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#D4967D;border-bottom:2px solid #D4967D;margin-bottom:-2px';
   document.getElementById('login-err').style.display='none';
   document.getElementById('signup-err').style.display='none';
 }
@@ -1380,7 +1380,7 @@ function renderPortalAccount(){
           <th style="padding:6px 8px"></th>
         </tr></thead>
         <tbody>${openInvoices.map(o=>`<tr style="border-bottom:1px solid #f5f5f5">
-          <td style="padding:8px;font-weight:600;color:#B8872C">${o.id}</td>
+          <td style="padding:8px;font-weight:600;color:#D4967D">${o.id}</td>
           <td style="padding:8px;color:#555">${o.date}</td>
           <td style="padding:8px;color:#555">${calcDue(o.date,acct)}</td>
           <td style="padding:8px;text-align:right;font-weight:700">$${orderTotal(o).toFixed(2)}</td>
@@ -1412,7 +1412,7 @@ function renderPortalOrders(){
           const btl=o.items.filter(x=>!x._fee).reduce((s,x)=>s+itemTotalBottles(x),0);
           const prodCount=o.items.filter(x=>!x._fee).length;
           return`<tr style="border-bottom:1px solid #f0f0f0">
-            <td style="padding:8px;font-weight:700;color:#B8872C">${o.id}${o.isSample?'<span style="margin-left:6px;font-size:10px;background:#f0e8ff;color:#6b3fa0;padding:1px 6px;border-radius:10px">Sample</span>':''}</td>
+            <td style="padding:8px;font-weight:700;color:#D4967D">${o.id}${o.isSample?'<span style="margin-left:6px;font-size:10px;background:#f0e8ff;color:#6b3fa0;padding:1px 6px;border-radius:10px">Sample</span>':''}</td>
             <td style="padding:8px;color:#555">${o.date}</td>
             <td style="padding:8px;color:#555">${o.delivery}</td>
             <td style="padding:8px;text-align:center;color:#555">${prodCount} item${prodCount!==1?'s':''}<br><span style="font-size:11px;color:#aaa">${btl} btl</span></td>
@@ -1456,12 +1456,12 @@ function _portalInvoiceTable(orders,acct){
       <th style="padding:6px 8px"></th>
     </tr></thead>
     <tbody>${orders.map(o=>`<tr style="border-bottom:1px solid #f5f5f5">
-      <td style="padding:8px;font-weight:700;color:#B8872C">${o.id}</td>
+      <td style="padding:8px;font-weight:700;color:#D4967D">${o.id}</td>
       <td style="padding:8px;color:#555">${o.date}</td>
       <td style="padding:8px;color:${calcDue(o.date,acct)<today()&&!o.paid?'#c00':'#555'}">${calcDue(o.date,acct)}</td>
       <td style="padding:8px;text-align:right;font-weight:700">$${orderTotal(o).toFixed(2)}</td>
       <td style="padding:8px;text-align:center"><span class="portal-badge ${o.paid?'delivered':'confirmed'}">${o.paid?'Paid':'Unpaid'}</span></td>
-      <td style="padding:8px"><button onclick="portalViewInvoice('${o.id}')" style="background:#B8872C;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">View invoice</button></td>
+      <td style="padding:8px"><button onclick="portalViewInvoice('${o.id}')" style="background:#D4967D;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">View invoice</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
 }
@@ -1529,7 +1529,7 @@ function renderPortalNewOrder(){
             <div style="font-size:13px;font-weight:600;color:#222;line-height:1.35">${item.name}</div>
             <div style="font-size:11px;color:#999">${item.producer||''}</div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px">
-              <span style="font-size:12px;color:#B8872C;font-weight:700">${fmt(item.price*item.btl)}/cs</span>
+              <span style="font-size:12px;color:#D4967D;font-weight:700">${fmt(item.price*item.btl)}/cs</span>
               <button onclick="portalAddRecentItem('${item.sku.replace(/'/g,"\\'")}')" style="background:#222;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Add</button>
             </div>
           </div>`).join('')}
@@ -1570,7 +1570,7 @@ function renderPortalNewOrder(){
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
         <div style="display:flex;gap:24px;align-items:center">
           <div class="portal-stat"><div class="val" id="tot-btl" style="font-size:20px">0</div><div class="lbl">Bottles</div></div>
-          <div class="portal-stat"><div class="val" id="tot-amt" style="font-size:20px;color:#B8872C">$0.00</div><div class="lbl">Order total</div></div>
+          <div class="portal-stat"><div class="val" id="tot-amt" style="font-size:20px;color:#D4967D">$0.00</div><div class="lbl">Order total</div></div>
           <div id="portal-min-status" style="font-size:12px;color:#c00;font-weight:600"></div>
         </div>
         <button id="portal-submit-btn" onclick="submitPortalOrder()"
@@ -1705,7 +1705,7 @@ function submitPortalOrder(){
         <div style="font-size:56px;margin-bottom:12px">&#10003;</div>
         <div style="font-size:22px;font-weight:700;color:#222;margin-bottom:8px">Order submitted!</div>
         <div style="font-size:14px;color:#666;margin-bottom:6px">Order ID: <strong>${finalId}</strong></div>
-        <div style="font-size:14px;color:#666;margin-bottom:24px">Total: <strong style="color:#B8872C">${fmt(orderTotal(ORDERS.find(o=>o.id===finalId)||{}))}</strong></div>
+        <div style="font-size:14px;color:#666;margin-bottom:24px">Total: <strong style="color:#D4967D">${fmt(orderTotal(ORDERS.find(o=>o.id===finalId)||{}))}</strong></div>
         <div style="font-size:13px;color:#888;margin-bottom:28px">Your sales rep will confirm your order and be in touch shortly.</div>
         <button onclick="showPortalPage('orders')" style="background:#222;color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">View order history</button>
       </div>
@@ -4328,7 +4328,7 @@ function _renderDocsByCategory(isAdmin){
     const docs=SHARED_DOCS.filter(d=>(d.category||'General')===cat).sort((a,b)=>b.uploadedAt.localeCompare(a.uploadedAt));
     return`<div class="card" style="margin-bottom:14px">
       <div class="card-header">
-        <span class="card-title"><i class="ti ti-folder" style="vertical-align:-2px;margin-right:6px;color:#B8872C"></i>${cat}</span>
+        <span class="card-title"><i class="ti ti-folder" style="vertical-align:-2px;margin-right:6px;color:#D4967D"></i>${cat}</span>
         <span style="font-size:12px;color:var(--text2)">${docs.length} file${docs.length!==1?'s':''}</span>
       </div>
       <table class="tbl">
@@ -4470,13 +4470,13 @@ function previewDoc(id){
   overlay.innerHTML=`
     <div style="background:#111;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">
       <span style="color:#fff;font-size:13px;font-weight:600;flex:1">${doc.name} -- ${doc.filename}</span>
-      <a href="${doc.dataUrl}" download="${doc.filename}" style="background:#B8872C;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">v Download</a>
+      <a href="${doc.dataUrl}" download="${doc.filename}" style="background:#D4967D;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">v Download</a>
       <button onclick="this.closest('div[style*=\"position:fixed\"]').remove()" style="background:#555;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer">x Close</button>
     </div>
     <div style="flex:1;overflow:auto;display:flex;align-items:${isImage?'center':'stretch'};justify-content:center;padding:${isImage?'20px':'0'}">
       ${isPDF?`<embed src="${doc.dataUrl}" type="application/pdf" style="width:100%;height:100%;border:none"/>`:
         isImage?`<img src="${doc.dataUrl}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px"/>`:
-        `<div style="color:#fff;padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:16px"></div><div style="font-size:16px;margin-bottom:8px">${doc.filename}</div><div style="color:#aaa;font-size:13px">Preview not available for this file type</div><a href="${doc.dataUrl}" download="${doc.filename}" style="display:inline-block;margin-top:20px;background:#B8872C;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700">v Download to view</a></div>`}
+        `<div style="color:#fff;padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:16px"></div><div style="font-size:16px;margin-bottom:8px">${doc.filename}</div><div style="color:#aaa;font-size:13px">Preview not available for this file type</div><a href="${doc.dataUrl}" download="${doc.filename}" style="display:inline-block;margin-top:20px;background:#D4967D;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700">v Download to view</a></div>`}
     </div>`;
   document.body.appendChild(overlay);
 }
@@ -6490,7 +6490,7 @@ function renderExportOrders(){
       onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.10)'" onmouseout="this.style.boxShadow=''">
       <div class="card-body" style="display:flex;align-items:center;gap:16px;padding:18px 20px">
         <div style="width:44px;height:44px;background:#fdf0e0;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <i class="ti ti-clipboard-list" style="font-size:22px;color:#B8872C"></i>
+          <i class="ti ti-clipboard-list" style="font-size:22px;color:#D4967D"></i>
         </div>
         <div>
           <div style="font-weight:700;font-size:15px;color:var(--text)">Pick List PDF</div>
@@ -6541,7 +6541,7 @@ function showExportPanel(type){
   if(type==='picklist'){
     panel.innerHTML=`
     <div class="card">
-      <div class="card-header"><span class="card-title"><i class="ti ti-clipboard-list" style="vertical-align:-2px;margin-right:6px;color:#B8872C"></i>Pick List PDF</span></div>
+      <div class="card-header"><span class="card-title"><i class="ti ti-clipboard-list" style="vertical-align:-2px;margin-right:6px;color:#D4967D"></i>Pick List PDF</span></div>
       <div class="card-body">
         <div class="form-grid form-grid-2" style="gap:14px;margin-bottom:16px">
           <div><label class="flabel">Start date</label><input type="date" class="finput" id="ex-pl-from" value="${today()}"/></div>
@@ -6918,7 +6918,7 @@ function _showExportResult(doc, filename, label){
       const bar=document.createElement('div');
       bar.style.cssText='background:#222;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0';
       bar.innerHTML=`<span style="color:#fff;font-size:13px;font-weight:600;flex:1">${filename}</span>
-        <button onclick="window.print()" style="background:#B8872C;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer"> Print / Save PDF</button>
+        <button onclick="window.print()" style="background:#D4967D;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer"> Print / Save PDF</button>
         <button onclick="document.getElementById('inv-overlay').remove()" style="background:#555;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer">x Close</button>`;
       const embed=document.createElement('embed');
       embed.src=b64;embed.type='application/pdf';
@@ -10428,7 +10428,7 @@ function _renderInvoiceHTML(orderId, b64){
       .topbar { position: sticky; top: 0; z-index: 100; background: #222; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
       .topbar span { color: #fff; font-size: 13px; font-weight: 600; flex: 1; }
       .btn-close { background: #555; color: #fff; border: none; padding: 8px 14px; border-radius: 7px; font-size: 13px; cursor: pointer; }
-      .btn-print { background: #B8872C; color: #fff; border: none; padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }
+      .btn-print { background: #D4967D; color: #fff; border: none; padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }
       .invoice { max-width: 860px; margin: 0 auto; padding: 24px 20px 40px; }
       .inv-header { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; align-items: flex-start; margin-bottom: 14px; }
       .inv-title { font-size: 24px; font-weight: 700; letter-spacing: 1px; color: #222; margin-bottom: 6px; }
@@ -10838,7 +10838,7 @@ function openProductPricing(sku){
             <tr style="border-bottom:2px solid #222;background:#fafafa">
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555;width:32px">#</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Label</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#B8872C">Price</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#D4967D">Price</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Premise</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Status</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Visibility</th>
@@ -10881,7 +10881,7 @@ async function loadPricingLanes(sku){
     container.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid #222;background:#fafafa">
         <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Lane Name</th>
-        <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#B8872C">Price/cs</th>
+        <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#D4967D">Price/cs</th>
         <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B6BA0">DA/cs</th>
         <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Restricted To</th>
         <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555">Visible To</th>
@@ -11973,11 +11973,11 @@ function renderQBOSettings(){
 
   // Items card
   html+='<div style="background:var(--bg3);border-radius:var(--radius);padding:14px;border:1px solid var(--border)">';
-  html+='<div style="font-weight:600;font-size:13px;margin-bottom:4px"><i class="ti ti-bottle" style="color:#B8872C;vertical-align:-2px;margin-right:5px"></i>Items (Products)</div>';
+  html+='<div style="font-weight:600;font-size:13px;margin-bottom:4px"><i class="ti ti-bottle" style="color:#D4967D;vertical-align:-2px;margin-right:5px"></i>Items (Products)</div>';
   html+='<div style="font-size:11px;color:var(--text2);margin-bottom:10px">Fetch items created or modified in QBO. Optionally update Toasted inventory quantities to match QBO on-hand.</div>';
   html+='<select class="finput" id="qbo-fetch-items-range" style="margin-bottom:8px;font-size:12px">'+rangeOpts+'</select>';
   html+='<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="qbo-fetch-items-qty"/> Update inventory quantity on hand?</label>';
-  html+='<button class="btn btn-sm" style="background:#B8872C;color:#fff;border-color:#B8872C;width:100%" onclick="qboFetchItems()" '+dis+'><i class="ti ti-refresh"></i> Fetch Items</button>';
+  html+='<button class="btn btn-sm" style="background:#D4967D;color:#fff;border-color:#D4967D;width:100%" onclick="qboFetchItems()" '+dis+'><i class="ti ti-refresh"></i> Fetch Items</button>';
   html+=(QBO_STATE.lastItemFetch?'<div style="font-size:10px;color:var(--text3);margin-top:6px">Last fetched: '+QBO_STATE.lastItemFetch+'</div>':'');
   html+='</div>';
 
