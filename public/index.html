@@ -4847,7 +4847,6 @@ function openAccountDetail(acctId){
   html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:16px;font-weight:700;color:var(--text)">'+(lastOrder?lastOrder.date:'--')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Last Order</div></div>';
   html+='</div>';
 
-  html+='<div class="acct-detail-grid" style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
   html+='<div class="card"><div class="card-header"><span class="card-title">Account Info</span></div><div class="card-body" style="font-size:13px;line-height:2">';
   if(a.code)html+='<div><span style="color:var(--text2)">Account Number:</span> <strong>'+a.code+'</strong></div>';
   html+='<div><span style="color:var(--text2)">QuickBooks:</span> '+(a.qboId?'<span style="color:#2CA01C;font-weight:600"><i class="ti ti-circle-check" style="vertical-align:-2px"></i> Linked</span>':'<span style="color:var(--text3)">Not synced</span>')+'</div>';
@@ -4898,7 +4897,7 @@ function openAccountDetail(acctId){
   purchaseLines.sort((a,b)=>b.date.localeCompare(a.date));
   window._acctPurchaseLines=purchaseLines;
 
-  html+='<div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Purchase History ('+purchaseLines.length+' items)</span>';
+  html+='<div class="card" style="margin-top:14px;margin-bottom:14px"><div class="card-header"><span class="card-title">Purchase History ('+purchaseLines.length+' items)</span>';
   html+='<div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="acct-purchase-search" placeholder="Search product or SKU..." oninput="filterAcctPurchases()"/></div>';
   html+='</div><div id="acct-purchase-table-view" style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Qty</th><th>Tier</th><th>Price /case</th><th>Price /btl</th><th></th></tr></thead><tbody id="acct-purchase-body"></tbody></table></div>';
   html+='<div id="acct-purchase-cards-view" style="display:none;max-height:420px;overflow-y:auto;padding:14px"></div>';
@@ -4928,7 +4927,6 @@ function openAccountDetail(acctId){
   html+='<th>Order ID</th><th>Date</th><th>Delivery</th><th>Status</th><th>Total</th><th>Paid</th><th></th>';
   html+='</tr></thead><tbody>'+ordersHtml+'</tbody></table></div>';
   html+='<div id="acct-orders-cards-view" style="display:none;max-height:520px;overflow-y:auto;padding:14px">'+ordersCardsHtml+'</div>';
-  html+='</div>';
   html+='</div>';
 
   html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Contacts</span>'+(isAdmin?'<button class="btn btn-sm btn-dark" onclick="openAddContact(\''+a.id+'\')"><i class="ti ti-plus"></i> Add Contact</button>':'')+'</div><div id="acct-contacts-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
