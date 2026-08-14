@@ -4831,21 +4831,6 @@ function openAccountDetail(acctId){
   const lastOrder=allOrders[0];
   const statusColor=st=>({unconfirmed:'var(--amber)',confirmed:'var(--green)',delivered:'var(--navy)'}[st]||'var(--text2)');
 
-  const ordersHtml=allOrders.length===0
-    ?'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No orders yet</td></tr>'
-    :allOrders.map(o=>{
-      const tot=orderTotal(o);
-      return '<tr>'+
-        '<td style="font-weight:600;font-size:12px">'+o.id+'</td>'+
-        '<td style="font-size:12px">'+o.date+'</td>'+
-        '<td style="font-size:12px">'+(o.delivery||'--')+'</td>'+
-        '<td><span style="font-size:11px;font-weight:600;color:'+statusColor(o.status)+'">'+o.status+'</span></td>'+
-        '<td style="font-weight:600">'+fmt(tot)+'</td>'+
-        '<td style="font-size:12px">'+(o.paid?'<span style="color:var(--green)">Paid</span>':'<span style="color:var(--red)">Unpaid</span>')+'</td>'+
-        '<td><button class="btn btn-sm" onclick="viewInvoice(\''+o.id+'\')"><i class="ti ti-file-invoice"></i></button></td>'+
-      '</tr>';
-    }).join('');
-
   let html='<div style="margin-bottom:16px">';
   html+='<button onclick="showPage(\'accounts\')" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:13px;font-weight:600;padding:0"><i class="ti ti-arrow-left" style="vertical-align:-2px"></i> Back to Accounts</button></div>';
   html+='<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:20px 24px">';
@@ -4910,37 +4895,24 @@ function openAccountDetail(acctId){
   });
   purchaseLines.sort((a,b)=>b.date.localeCompare(a.date));
   window._acctPurchaseLines=purchaseLines;
+  window._acctPurchasePage=1;
 
-  html+='<div class="card" style="margin-top:14px;margin-bottom:14px"><div class="card-header"><span class="card-title">Purchase History ('+purchaseLines.length+' items)</span>';
-  html+='<div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="acct-purchase-search" placeholder="Search product or SKU..." oninput="filterAcctPurchases()"/></div>';
-  html+='</div><div id="acct-purchase-table-view" style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Qty</th><th>Tier</th><th>Price /case</th><th>Price /btl</th><th></th></tr></thead><tbody id="acct-purchase-body"></tbody></table></div>';
-  html+='<div id="acct-purchase-cards-view" style="display:none;max-height:420px;overflow-y:auto;padding:14px"></div>';
-  html+='</div>';
-
-  const ordersCardsHtml=allOrders.length===0
-    ?'<div style="padding:40px;text-align:center;color:var(--text3)">No orders yet</div>'
-    :allOrders.map(o=>{
-      const tot=orderTotal(o);
-      return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px" onclick="viewInvoice('${o.id}')">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-          <div>
-            <div style="font-weight:700;font-size:14px">${o.id}</div>
-            <div style="font-size:12px;color:var(--text2);margin-top:2px">${o.date} &rarr; ${o.delivery||'--'}</div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-weight:700;font-size:15px">${fmt(tot)}</div>
-            <div style="font-size:11px;font-weight:600;color:${statusColor(o.status)};margin-top:2px">${o.status}</div>
-          </div>
-        </div>
-        <div style="margin-top:8px;font-size:12px">${o.paid?'<span style="color:var(--green)">Paid</span>':'<span style="color:var(--red)">Unpaid</span>'}</div>
-      </div>`;
-    }).join('');
+  window._acctOrdersList=allOrders;
+  window._acctOrdersPage=1;
 
   html+='<div class="card"><div class="card-header"><span class="card-title">Order History ('+allOrders.length+')</span></div>';
   html+='<div id="acct-orders-table-view" style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="tbl"><thead><tr>';
   html+='<th>Order ID</th><th>Date</th><th>Delivery</th><th>Status</th><th>Total</th><th>Paid</th><th></th>';
-  html+='</tr></thead><tbody>'+ordersHtml+'</tbody></table></div>';
-  html+='<div id="acct-orders-cards-view" style="display:none;max-height:520px;overflow-y:auto;padding:14px">'+ordersCardsHtml+'</div>';
+  html+='</tr></thead><tbody id="acct-orders-body"></tbody></table></div>';
+  html+='<div id="acct-orders-cards-view" style="display:none;max-height:520px;overflow-y:auto;padding:14px"></div>';
+  html+='<div id="acct-orders-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border-top:1px solid var(--border)"></div>';
+  html+='</div>';
+
+  html+='<div class="card" style="margin-top:14px;margin-bottom:14px"><div class="card-header"><span class="card-title">Purchase History ('+purchaseLines.length+' items)</span>';
+  html+='<div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="acct-purchase-search" placeholder="Search product or SKU..." oninput="_acctPurchasePage=1;filterAcctPurchases()"/></div>';
+  html+='</div><div id="acct-purchase-table-view" style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Qty</th><th>Tier</th><th>Price /case</th><th>Price /btl</th><th></th></tr></thead><tbody id="acct-purchase-body"></tbody></table></div>';
+  html+='<div id="acct-purchase-cards-view" style="display:none;max-height:420px;overflow-y:auto;padding:14px"></div>';
+  html+='<div id="acct-purchase-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border-top:1px solid var(--border)"></div>';
   html+='</div>';
 
   html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Contacts</span>'+(isAdmin?'<button class="btn btn-sm btn-dark" onclick="openAddContact(\''+a.id+'\')"><i class="ti ti-plus"></i> Add Contact</button>':'')+'</div><div id="acct-contacts-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
@@ -4948,6 +4920,7 @@ function openAccountDetail(acctId){
   html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Attachments</span>'+(isAdmin?'<div><input type="file" id="acct-attach-file" style="display:none" onchange="handleAttachmentUpload(\''+a.id+'\',this)"/><button class="btn btn-sm btn-dark" onclick="document.getElementById(\'acct-attach-file\').click()"><i class="ti ti-paperclip"></i> Upload File</button></div>':'')+'</div><div id="acct-attachments-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
 
   document.getElementById('main-content').innerHTML=html;
+  renderAcctOrdersPage();
   filterAcctPurchases();
   loadAccountContacts(a.id);
   loadAccountAttachments(a.id);
@@ -5118,9 +5091,15 @@ async function deleteAttachment(acctId,attId){
   }catch(e){toast('Could not delete -- check connection');}
 }
 
+const ACCT_DETAIL_PAGE_SIZE=25;
 function filterAcctPurchases(){
   const acctPurchQ=document.getElementById('acct-purchase-search')?.value||'';
-  const lines=(window._acctPurchaseLines||[]).filter(l=>!acctPurchQ.trim()||matchesSearch(l.name+' '+l.sku,acctPurchQ));
+  const allLines=(window._acctPurchaseLines||[]).filter(l=>!acctPurchQ.trim()||matchesSearch(l.name+' '+l.sku,acctPurchQ));
+  const totalPages=Math.max(1,Math.ceil(allLines.length/ACCT_DETAIL_PAGE_SIZE));
+  if(!window._acctPurchasePage)window._acctPurchasePage=1;
+  if(window._acctPurchasePage>totalPages)window._acctPurchasePage=totalPages;
+  const start=(window._acctPurchasePage-1)*ACCT_DETAIL_PAGE_SIZE;
+  const lines=allLines.slice(start,start+ACCT_DETAIL_PAGE_SIZE);
   const tbody=document.getElementById('acct-purchase-body');
   if(tbody){
     tbody.innerHTML=lines.length?lines.map(l=>`<tr>
@@ -5149,6 +5128,64 @@ function filterAcctPurchases(){
       </div>
       <div style="margin-top:8px;font-size:12px;color:var(--text2)">${l.qtyLabel} &middot; ${tierName(l.tier)}</div>
     </div>`).join(''):`<div style="padding:30px;text-align:center;color:var(--text3)">No purchase history${acctPurchQ?' matching "'+acctPurchQ+'"':''}</div>`;
+  }
+  const pag=document.getElementById('acct-purchase-pagination');
+  if(pag){
+    pag.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${window._acctPurchasePage<=1?'disabled':''} onclick="window._acctPurchasePage--;filterAcctPurchases()"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${window._acctPurchasePage} of ${totalPages}</span>
+      <button class="btn btn-sm" ${window._acctPurchasePage>=totalPages?'disabled':''} onclick="window._acctPurchasePage++;filterAcctPurchases()">Next <i class="ti ti-chevron-right"></i></button>`;
+  }
+}
+function renderAcctOrdersPage(){
+  const statusColor=st=>({unconfirmed:'var(--amber)',confirmed:'var(--green)',delivered:'var(--navy)'}[st]||'var(--text2)');
+  const allOrders=window._acctOrdersList||[];
+  const totalPages=Math.max(1,Math.ceil(allOrders.length/ACCT_DETAIL_PAGE_SIZE));
+  if(!window._acctOrdersPage)window._acctOrdersPage=1;
+  if(window._acctOrdersPage>totalPages)window._acctOrdersPage=totalPages;
+  const start=(window._acctOrdersPage-1)*ACCT_DETAIL_PAGE_SIZE;
+  const orders=allOrders.slice(start,start+ACCT_DETAIL_PAGE_SIZE);
+
+  const tbody=document.getElementById('acct-orders-body');
+  if(tbody){
+    tbody.innerHTML=orders.length?orders.map(o=>{
+      const tot=orderTotal(o);
+      return '<tr>'+
+        '<td style="font-weight:600;font-size:12px">'+o.id+'</td>'+
+        '<td style="font-size:12px">'+o.date+'</td>'+
+        '<td style="font-size:12px">'+(o.delivery||'--')+'</td>'+
+        '<td><span style="font-size:11px;font-weight:600;color:'+statusColor(o.status)+'">'+o.status+'</span></td>'+
+        '<td style="font-weight:600">'+fmt(tot)+'</td>'+
+        '<td style="font-size:12px">'+(o.paid?'<span style="color:var(--green)">Paid</span>':'<span style="color:var(--red)">Unpaid</span>')+'</td>'+
+        '<td><button class="btn btn-sm" onclick="viewInvoice(\''+o.id+'\')"><i class="ti ti-file-invoice"></i></button></td>'+
+      '</tr>';
+    }).join(''):'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No orders yet</td></tr>';
+  }
+  const cardsView=document.getElementById('acct-orders-cards-view');
+  if(cardsView){
+    cardsView.innerHTML=orders.length?orders.map(o=>{
+      const tot=orderTotal(o);
+      return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px" onclick="viewInvoice('${o.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-weight:700;font-size:14px">${o.id}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">${o.date} &rarr; ${o.delivery||'--'}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-weight:700;font-size:15px">${fmt(tot)}</div>
+            <div style="font-size:11px;font-weight:600;color:${statusColor(o.status)};margin-top:2px">${o.status}</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px">${o.paid?'<span style="color:var(--green)">Paid</span>':'<span style="color:var(--red)">Unpaid</span>'}</div>
+      </div>`;
+    }).join(''):'<div style="padding:40px;text-align:center;color:var(--text3)">No orders yet</div>';
+  }
+  const pag=document.getElementById('acct-orders-pagination');
+  if(pag){
+    pag.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${window._acctOrdersPage<=1?'disabled':''} onclick="window._acctOrdersPage--;renderAcctOrdersPage()"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${window._acctOrdersPage} of ${totalPages}</span>
+      <button class="btn btn-sm" ${window._acctOrdersPage>=totalPages?'disabled':''} onclick="window._acctOrdersPage++;renderAcctOrdersPage()">Next <i class="ti ti-chevron-right"></i></button>`;
   }
 }
 
