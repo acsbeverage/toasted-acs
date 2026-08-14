@@ -20,7 +20,8 @@ router.post('/login', async (req, res) => {
       const token = signToken(user);
       return res.json({ ok: true, token, user: {
         id: user.id, fname: user.fname, lname: user.lname,
-        email: user.email, role: user.role, commission: user.commission
+        email: user.email, role: user.role, commission: user.commission,
+        pricing_admin: !!user.pricing_admin
       }});
     }
     let cust = await getOne('SELECT * FROM customer_users WHERE LOWER(email)=$1', [emailLower]);
