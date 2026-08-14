@@ -51,7 +51,7 @@ router.get('/', requireAuth, async (req, res) => {
         tier: item.tier, discountPct: parseFloat(item.discount_pct)||0,
         _fee: item.is_fee, feeAmt: item.fee_amt ? parseFloat(item.fee_amt) : undefined,
         count: item.fee_count, _manual: item.is_manual,
-        rate: item.rate ? parseFloat(item.rate) : undefined,
+        rate: item.rate !== null ? parseFloat(item.rate) : undefined,
       });
     });
     const orders = rows.map(r => ({
