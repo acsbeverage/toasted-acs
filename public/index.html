@@ -10573,18 +10573,25 @@ function _renderInvoiceHTML(orderId, b64){
     </div>
     </body></html>`;
 
-  // Render inline - no new window needed
   // Open in a genuine new tab rather than a nested iframe. A nested iframe blocks normal
   // mobile pinch-zoom on its content (the parent page's zoom doesn't reach inside it), and
   // its own buttons can't call functions defined in the parent page's script at all -- which
   // is exactly why "Download PDF" from inside the preview did nothing. A real tab is a proper
   // top-level page (full native zoom/scroll like any webpage) and can reach back to this page
   // via window.opener for the download button.
-  const win = window.open('', '_blank');
-  if(!win){ toast('Please allow popups for this site to view invoices'); return; }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+  //
+  // Using a Blob URL rather than window.open('',...)+document.write(): on iOS Safari,
+  // document.write() into an about:blank popup is handled inconsistently -- it often
+  // navigates the CURRENT tab away instead of opening a genuine separate one. When that
+  // happens, the invoice's Close button (window.close()) does nothing, since a tab that
+  // wasn't opened as a real popup can't be closed by script -- so the user swipes back
+  // instead, which the app's own history handling then sends to the dashboard. A Blob URL
+  // is a real, independent, addressable page in every browser, avoiding this entirely.
+  const blob = new Blob([html], { type: 'text/html' });
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, '_blank');
+  if(!win){ toast('Please allow popups for this site to view invoices'); URL.revokeObjectURL(blobUrl); return; }
+  setTimeout(()=>URL.revokeObjectURL(blobUrl), 60000); // keep alive long enough for the tab to fully load
 }
 
 // -- INVOICE VIEW/DOWNLOAD HELPERS ---------------------------------------------
