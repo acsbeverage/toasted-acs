@@ -675,6 +675,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div><label class="flabel">Order date</label><input type="date" class="finput" id="edit-date"/></div>
       <div><label class="flabel">Delivery date</label><input type="date" class="finput" id="edit-delivery"/></div>
       <div><label class="flabel">PO number</label><input class="finput" id="edit-po"/></div>
+      <div style="display:flex;align-items:flex-end;padding-bottom:2px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px"><input type="checkbox" id="edit-is-sample" style="width:16px;height:16px" onchange="toggleEditSample(this.checked)"/> Sample order?</label></div>
       <div style="grid-column:1/-1"><label class="flabel">Delivery Instructions</label><textarea class="finput" id="edit-notes" rows="2" style="resize:vertical"></textarea></div>
     </div>
     <div style="margin-bottom:10px"><label class="flabel" style="margin-bottom:6px">Add product</label>
@@ -2831,9 +2832,15 @@ async function submitOrder(){
   if(!currentOrder.acct){alert('Please select an account.');return}
   if(!currentOrder.items.filter(x=>!x._fee).length){alert('Please add at least one product.');return}
 
+  // Orders are always credited to whoever the account is assigned to -- not whoever happens
+  // to be logged in placing it. An admin placing an order for a rep's account should show
+  // that rep as the salesperson, never "Admin".
+  const acctForOrder=acctById(currentOrder.acct);
+  const orderRep=(acctForOrder&&acctForOrder.rep)||currentUser.id;
+
   if(currentOrder.orderType==='draft'){
     const id='DRAFT-'+Date.now();
-    const draft={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,po:currentOrder.po||'',notes:currentOrder.notes||'',savedAt:today(),items:currentOrder.items.map(x=>({...x}))};
+    const draft={id,acct:currentOrder.acct,rep:orderRep,date:currentOrder.date,delivery:currentOrder.delivery,po:currentOrder.po||'',notes:currentOrder.notes||'',savedAt:today(),items:currentOrder.items.map(x=>({...x}))};
     DRAFT_ORDERS.push(draft);
     saveDraftToDB(draft);
     toast('Draft saved to Draft Orders');
@@ -2847,7 +2854,7 @@ async function submitOrder(){
   const isSample=currentOrder.orderType==='sample';
   // No client-generated id -- the backend assigns the true sequential ACS-NNNNN number,
   // and that's the only id we use once the response comes back.
-  const newOrder={acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
+  const newOrder={acct:currentOrder.acct,rep:orderRep,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
 
   const placedByLabel = (currentUser.fname||'')+' '+(currentUser.lname||'')+' ('+(currentUser.role==='admin'?'Admin':'Sales Rep')+')';
   const res=await saveNewOrderToDB({...newOrder,placedByLabel});
@@ -4017,11 +4024,19 @@ function openConfirm(orderId){
 
 // -- EDIT ORDER -----------------------------------------------------------------
 let _editingWaiveFlags={};
+function toggleEditSample(isSample){
+  _editingWaiveFlags.orderType=isSample?'sample':'standard';
+  window._editItems.filter(x=>!x._fee).forEach(x=>{x.discountPct=isSample?100:0;});
+  window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
+  toast(isSample?'Marked as sample -- products set to 100% off, CRV removed':'Sample status removed -- discounts reset, CRV restored if applicable');
+  renderEditItems();
+}
 function openEditOrder(orderId){
   editingOrderId=orderId;const o=ORDERS.find(x=>x.id===orderId);if(!o||o.status==='confirmed')return;
   document.getElementById('edit-order-id').textContent='-- '+orderId;
   document.getElementById('edit-date').value=o.date;document.getElementById('edit-delivery').value=o.delivery;
   document.getElementById('edit-po').value=o.po||'';
+  document.getElementById('edit-is-sample').checked=!!o.isSample;
   const acctForNotes=acctById(o.acct);
   document.getElementById('edit-notes').value=(o.notes&&o.notes.trim())?o.notes:((acctForNotes&&acctForNotes.deliveryNotes)?acctForNotes.deliveryNotes:'');
   window._editItems=o.items.map(x=>({...x}));
@@ -4234,7 +4249,8 @@ function saveEditOrder(){
   o.po=document.getElementById('edit-po').value;o.notes=document.getElementById('edit-notes').value;
   o.items=window._editItems.map(x=>({...x}));
   o.waiveDelivery=!!_editingWaiveFlags.waiveDelivery;o.waiveBrokenCase=!!_editingWaiveFlags.waiveBrokenCase;o.waiveCRV=!!_editingWaiveFlags.waiveCRV;
-  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV});
+  o.isSample=document.getElementById('edit-is-sample').checked;o.orderType=o.isSample?'sample':(o.orderType==='sample'?'standard':o.orderType);
+  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,isSample:o.isSample,orderType:o.orderType});
   closeModal('modal-edit-order');toast('Order updated');
   const active=document.querySelector('.nav-item.active');if(active){const p=active.id.replace('nav-','');showPage(p)}
 }
