@@ -864,7 +864,11 @@ const itemLineTotal=item=>{
   if(item.sku===BROKEN_CASE_SKU)return (item.feeAmt||BROKEN_CASE_FEE_AMT)*(item.count||1);
   if(item.sku===CRV_SKU)return item.feeAmt||0;
   const p=PRODUCTS.find(y=>y.sku===item.sku);if(!p)return 0;
-  const gross=itemPrice(p,item.tier)*itemTotalBottles(item);
+  // A manual/flat-rate item (e.g. imported historical orders) carries its own preserved
+  // per-bottle price and must use it directly, rather than looking up current live tier
+  // pricing -- which won't match a historical tier name or a since-changed price anyway.
+  const unitPrice=(item._manual&&item.rate!==undefined&&item.rate!==null)?item.rate:itemPrice(p,item.tier);
+  const gross=unitPrice*itemTotalBottles(item);
   const disc=Math.min(Math.max(parseFloat(item.discountPct)||0,0),100);
   return gross*(1-disc/100);
 };
@@ -1634,7 +1638,7 @@ function submitPortalOrder(){
     alert('Your order total ($'+productTotal.toFixed(2)+') does not meet the $'+PORTAL_ORDER_MINIMUM.toFixed(2)+' minimum. Please add more products.');
     return;
   }
-  const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  const id='ACS-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   const newOrder={
     id, acct:currentOrder.acct,
     date:currentOrder.date||today(),
@@ -2295,7 +2299,7 @@ function renderAdminDashboard(){
 // -- NEW ORDER -----------------------------------------------------------------
 function renderNewOrder(){
   currentOrder={acct:null,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
-  const orderId='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  const orderId='ACS-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">${orderId}</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
@@ -2785,7 +2789,7 @@ function submitOrder(){
   }
 
   const isSample=currentOrder.orderType==='sample';
-  const id='ORD-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  const id='ACS-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
   const newOrder={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
   ORDERS.push(newOrder);
   saveNewOrderToDB({...newOrder,placedByLabel:currentUser.fname+' '+(currentUser.lname||'')});
