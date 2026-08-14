@@ -6203,7 +6203,14 @@ const ACS_LOGO_B64 = '/9j/4AAQSkZJRgABAgEBLAEsAAD/4gxYSUNDX1BST0ZJTEUAAQEAAAxITG
 
 function _buildInvoicePDF(o,callback){
   // Fees (delivery, broken case, CRV) always render after product lines on the invoice.
-  o={...o, items:[...o.items].sort((a,b)=>(a._fee?1:0)-(b._fee?1:0))};
+  // Within product lines, group by brand (producer) so the same brand's items sit together.
+  o={...o, items:[...o.items].sort((a,b)=>{
+    const feeDiff=(a._fee?1:0)-(b._fee?1:0);
+    if(feeDiff!==0)return feeDiff;
+    if(a._fee)return 0; // preserve original relative order among fee lines
+    const pa=prodBySku(a.sku),pb=prodBySku(b.sku);
+    return (pa?.producer||'').localeCompare(pb?.producer||'');
+  })};
   const acct=acctById(o.acct);
   const rep=userById(o.rep);
   const {jsPDF}=window.jspdf;
@@ -10647,7 +10654,14 @@ function _renderInvoiceHTML(orderId, b64){
   const oRaw = ORDERS.find(x=>x.id===orderId);
   if(!oRaw){ toast('Order not found'); return; }
   // Fees (delivery, broken case, CRV) always render after product lines on the invoice.
-  const o = {...oRaw, items:[...oRaw.items].sort((a,b)=>(a._fee?1:0)-(b._fee?1:0))};
+  // Within product lines, group by brand (producer) so the same brand's items sit together.
+  const o = {...oRaw, items:[...oRaw.items].sort((a,b)=>{
+    const feeDiff=(a._fee?1:0)-(b._fee?1:0);
+    if(feeDiff!==0)return feeDiff;
+    if(a._fee)return 0;
+    const pa=prodBySku(a.sku),pb=prodBySku(b.sku);
+    return (pa?.producer||'').localeCompare(pb?.producer||'');
+  })};
   const acct = acctById(o.acct)||{};
   const rep  = userById(o.rep)||{};
   const due  = calcDue(o.date, acct);
