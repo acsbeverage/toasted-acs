@@ -2523,7 +2523,7 @@ function renderLineItems(){
       return`<tr style="background:#E8F8F5">
         <td colspan="11" style="font-size:12px;color:#0D7A5F;font-weight:500">
           <i class="ti ti-recycle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
-          CRV -- ${item.bottles} bottle${item.bottles!==1?'s':''} × $${item.rate.toFixed(2)} (${item.label})
+          CRV -- ${item.bottles} bottle${item.bottles!==1?'s':''} × $${(item.rate||0).toFixed(2)} (${item.label||'CA CRV'})
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:''}
         </td>
         <td style="font-weight:600;color:#0D7A5F;white-space:nowrap">${fmt(item.feeAmt)}</td>
@@ -2575,7 +2575,7 @@ function renderLineItems(){
       return`<div class="li-card-fee" style="background:#E8F8F5;color:#0D7A5F">
         <i class="ti ti-recycle" style="vertical-align:-2px;margin-right:6px"></i>CRV
         <span style="float:right">${fmt(item.feeAmt)}</span>
-        <div style="font-size:12px;font-weight:400;margin-top:4px">${item.bottles} bottle${item.bottles!==1?'s':''} × $${item.rate.toFixed(2)} (${item.label})</div>
+        <div style="font-size:12px;font-weight:400;margin-top:4px">${item.bottles} bottle${item.bottles!==1?'s':''} × $${(item.rate||0).toFixed(2)} (${item.label||'CA CRV'})</div>
         ${isAdmin?`<div style="margin-top:6px"><button onclick="waiveCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:13px;text-decoration:underline">Remove fee</button></div>`:''}
       </div>`;
     }
@@ -6165,7 +6165,7 @@ function _buildInvoicePDF(o,callback){
     }
     if(item.sku===CRV_SKU){
       const lt=item.feeAmt||0;subtotal+=lt;
-      feeRow('CRV1','CA CRV -- '+item.bottles+' btl × $'+item.rate.toFixed(2),item.bottles,item.rate,lt,20,110,80);return;
+      feeRow('CRV1','CA CRV -- '+item.bottles+' btl × $'+(item.rate||0).toFixed(2),item.bottles,item.rate||0,lt,20,110,80);return;
     }
 
     const p=prodBySku(item.sku);if(!p)return;
@@ -6941,7 +6941,7 @@ function doExportFintech(){
       // CRV
       if(item.sku===CRV_SKU){
         const itemCode=CRV_ITEM_CODES[item.label]||item.label||'CRV';
-        addRow(itemCode,item.label||'CA CRV',item.bottles,item.rate.toFixed(2),(item.feeAmt||0).toFixed(2));
+        addRow(itemCode,item.label||'CA CRV',item.bottles,(item.rate||0).toFixed(2),(item.feeAmt||0).toFixed(2));
         return;
       }
       // Product line items
@@ -10450,7 +10450,7 @@ function _renderInvoiceHTML(orderId, b64){
     }
     if(item.sku===CRV_SKU){
       const lt=item.feeAmt||0; subtotal+=lt;
-      rows+=`<tr class="fee-row"><td colspan="6" style="color:#0a6a50;font-style:italic">CA CRV -- ${item.bottles} btl × $${item.rate.toFixed(2)} (${item.label})</td><td style="text-align:right">$${lt.toFixed(2)}</td></tr>`;
+      rows+=`<tr class="fee-row"><td colspan="6" style="color:#0a6a50;font-style:italic">CA CRV -- ${item.bottles} btl × $${(item.rate||0).toFixed(2)} (${item.label||'CA CRV'})</td><td style="text-align:right">$${lt.toFixed(2)}</td></tr>`;
       return;
     }
     const p=prodBySku(item.sku); if(!p)return;
@@ -11613,7 +11613,7 @@ function qboOrderToInvoice(order){
         qboItemName:'Broken Case Fee'
       };
       if(item.sku===CRV_SKU) return {
-        description:'CA CRV - '+item.bottles+' btl @ $'+item.rate.toFixed(2),
+        description:'CA CRV - '+item.bottles+' btl @ $'+(item.rate||0).toFixed(2),
         qty:item.bottles, unitPrice:item.rate,
         qboItemName:'CA CRV'
       };
