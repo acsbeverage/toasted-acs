@@ -221,6 +221,12 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   #unconf-cards-view{display:block!important}
   #hist-table-view{display:none!important}
   #hist-cards-view{display:block!important}
+  /* Account Detail: stack the fixed-width sidebar instead of forcing horizontal scroll */
+  .acct-detail-grid{grid-template-columns:1fr!important}
+  #acct-purchase-table-view{display:none!important}
+  #acct-purchase-cards-view{display:block!important}
+  #acct-orders-table-view{display:none!important}
+  #acct-orders-cards-view{display:block!important}
   .li-card{background:var(--bg2,#fff);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;position:relative}
   .li-card-fee{padding:14px 16px;border-radius:12px;margin-bottom:14px;font-size:14px;font-weight:600}
   .li-label{font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px;display:block}
@@ -4825,7 +4831,7 @@ function openAccountDetail(acctId){
   if(isAdmin&&rep.fname)html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:15px;font-weight:700;color:var(--text)">'+rep.fname+' '+(rep.lname||'')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Sales Rep</div></div>';
   html+='</div>';
 
-  html+='<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
+  html+='<div class="acct-detail-grid" style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
   html+='<div class="card"><div class="card-header"><span class="card-title">Account Info</span></div><div class="card-body" style="font-size:13px;line-height:2">';
   if(a.code)html+='<div><span style="color:var(--text2)">Account Number:</span> <strong>'+a.code+'</strong></div>';
   html+='<div><span style="color:var(--text2)">QuickBooks:</span> '+(a.qboId?'<span style="color:#2CA01C;font-weight:600"><i class="ti ti-circle-check" style="vertical-align:-2px"></i> Linked</span>':'<span style="color:var(--text3)">Not synced</span>')+'</div>';
@@ -4881,12 +4887,35 @@ function openAccountDetail(acctId){
 
   html+='<div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Purchase History ('+purchaseLines.length+' items)</span>';
   html+='<div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="acct-purchase-search" placeholder="Search product or SKU..." oninput="filterAcctPurchases()"/></div>';
-  html+='</div><div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Qty</th><th>Tier</th><th>Price /case</th><th>Price /btl</th><th></th></tr></thead><tbody id="acct-purchase-body"></tbody></table></div></div>';
+  html+='</div><div id="acct-purchase-table-view" style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Qty</th><th>Tier</th><th>Price /case</th><th>Price /btl</th><th></th></tr></thead><tbody id="acct-purchase-body"></tbody></table></div>';
+  html+='<div id="acct-purchase-cards-view" style="display:none;max-height:420px;overflow-y:auto;padding:14px"></div>';
+  html+='</div>';
+
+  const ordersCardsHtml=allOrders.length===0
+    ?'<div style="padding:40px;text-align:center;color:var(--text3)">No orders yet</div>'
+    :allOrders.map(o=>{
+      const tot=orderTotal(o);
+      return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px" onclick="viewInvoice('${o.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-weight:700;font-size:14px">${o.id}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">${o.date} &rarr; ${o.delivery||'--'}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-weight:700;font-size:15px">${fmt(tot)}</div>
+            <div style="font-size:11px;font-weight:600;color:${statusColor(o.status)};margin-top:2px">${o.status}</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px">${o.paid?'<span style="color:var(--green)">Paid</span>':'<span style="color:var(--red)">Unpaid</span>'}</div>
+      </div>`;
+    }).join('');
 
   html+='<div class="card"><div class="card-header"><span class="card-title">Order History ('+allOrders.length+')</span></div>';
-  html+='<div style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="tbl"><thead><tr>';
+  html+='<div id="acct-orders-table-view" style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="tbl"><thead><tr>';
   html+='<th>Order ID</th><th>Date</th><th>Delivery</th><th>Status</th><th>Total</th><th>Paid</th><th></th>';
-  html+='</tr></thead><tbody>'+ordersHtml+'</tbody></table></div></div>';
+  html+='</tr></thead><tbody>'+ordersHtml+'</tbody></table></div>';
+  html+='<div id="acct-orders-cards-view" style="display:none;max-height:520px;overflow-y:auto;padding:14px">'+ordersCardsHtml+'</div>';
+  html+='</div>';
   html+='</div>';
 
   document.getElementById('main-content').innerHTML=html;
@@ -5063,17 +5092,35 @@ async function deleteAttachment(acctId,attId){
 function filterAcctPurchases(){
   const acctPurchQ=document.getElementById('acct-purchase-search')?.value||'';
   const lines=(window._acctPurchaseLines||[]).filter(l=>!acctPurchQ.trim()||matchesSearch(l.name+' '+l.sku,acctPurchQ));
-  const tbody=document.getElementById('acct-purchase-body');if(!tbody)return;
-  tbody.innerHTML=lines.length?lines.map(l=>`<tr>
-    <td style="font-size:12px;color:var(--text2)">${l.date}</td>
-    <td style="font-weight:500">${l.name}</td>
-    <td style="font-size:11px;color:var(--text2)">${l.sku}</td>
-    <td style="font-size:12px">${l.qtyLabel}</td>
-    <td style="font-size:11px;color:var(--text2)">${tierName(l.tier)}</td>
-    <td style="font-weight:600">${fmt(l.caseTotal)}</td>
-    <td style="font-size:11px;color:var(--text2)">${fmt(l.price)}</td>
-    <td><button class="btn btn-sm" onclick="viewInvoice('${l.orderId}')" title="View invoice"><i class="ti ti-file-invoice"></i></button></td>
-  </tr>`).join(''):`<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text3)">No purchase history${acctPurchQ?' matching &quot;'+acctPurchQ+'&quot;':''}</td></tr>`;
+  const tbody=document.getElementById('acct-purchase-body');
+  if(tbody){
+    tbody.innerHTML=lines.length?lines.map(l=>`<tr>
+      <td style="font-size:12px;color:var(--text2)">${l.date}</td>
+      <td style="font-weight:500">${l.name}</td>
+      <td style="font-size:11px;color:var(--text2)">${l.sku}</td>
+      <td style="font-size:12px">${l.qtyLabel}</td>
+      <td style="font-size:11px;color:var(--text2)">${tierName(l.tier)}</td>
+      <td style="font-weight:600">${fmt(l.caseTotal)}</td>
+      <td style="font-size:11px;color:var(--text2)">${fmt(l.price)}</td>
+      <td><button class="btn btn-sm" onclick="viewInvoice('${l.orderId}')" title="View invoice"><i class="ti ti-file-invoice"></i></button></td>
+    </tr>`).join(''):`<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text3)">No purchase history${acctPurchQ?' matching &quot;'+acctPurchQ+'&quot;':''}</td></tr>`;
+  }
+  const cardsView=document.getElementById('acct-purchase-cards-view');
+  if(cardsView){
+    cardsView.innerHTML=lines.length?lines.map(l=>`<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px" onclick="viewInvoice('${l.orderId}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <div style="font-weight:600;font-size:14px">${l.name}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${l.sku} &middot; ${l.date}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700">${fmt(l.caseTotal)}</div>
+          <div style="font-size:11px;color:var(--text2)">${fmt(l.price)}/btl</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text2)">${l.qtyLabel} &middot; ${tierName(l.tier)}</div>
+    </div>`).join(''):`<div style="padding:30px;text-align:center;color:var(--text3)">No purchase history${acctPurchQ?' matching "'+acctPurchQ+'"':''}</div>`;
+  }
 }
 
 function startOrderForAccount(acctId){
