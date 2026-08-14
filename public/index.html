@@ -1090,14 +1090,12 @@ function saveNewProductToDB(p){
 }
 
 function saveNewOrderToDB(order){
-  if(!TOASTED_BACKEND_URL||!window._authToken) return;
-  fetch(TOASTED_BACKEND_URL+'/api/orders',{
+  if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve({ok:false,error:'Not connected'});
+  return fetch(TOASTED_BACKEND_URL+'/api/orders',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(order)
-  }).then(r=>r.json()).then(d=>{
-    if(!d.ok) console.error('Failed to save order:',d.error);
-  }).catch(e=>console.error('Save new order error:',e.message));
+  }).then(r=>r.json()).catch(e=>({ok:false,error:e.message}));
 }
 
 async function loadAllDataFromBackend(){
@@ -2342,8 +2340,7 @@ function renderAdminDashboard(){
 // -- NEW ORDER -----------------------------------------------------------------
 function renderNewOrder(){
   currentOrder={acct:null,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
-  const orderId='ACS-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
-  document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">${orderId}</span>`;
+  document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">New order -- number assigned on submit</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
     <div style="margin-bottom:14px">
@@ -2817,7 +2814,7 @@ function sendOrderNotification(orderId, placedByLabel, placedByEmail){
   }
 }
 
-function submitOrder(){
+async function submitOrder(){
   if(!currentOrder.acct){alert('Please select an account.');return}
   if(!currentOrder.items.filter(x=>!x._fee).length){alert('Please add at least one product.');return}
 
@@ -2831,13 +2828,26 @@ function submitOrder(){
     return;
   }
 
+  const btn=document.getElementById('order-submit-btn');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Submitting...';}
+
   const isSample=currentOrder.orderType==='sample';
-  const id='ACS-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
-  const newOrder={id,acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
-  ORDERS.push(newOrder);
-  saveNewOrderToDB({...newOrder,placedByLabel:currentUser.fname+' '+(currentUser.lname||'')});
-  updateBadges();
+  // No client-generated id -- the backend assigns the true sequential ACS-NNNNN number,
+  // and that's the only id we use once the response comes back.
+  const newOrder={acct:currentOrder.acct,rep:currentUser.id,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
+
   const placedByLabel = (currentUser.fname||'')+' '+(currentUser.lname||'')+' ('+(currentUser.role==='admin'?'Admin':'Sales Rep')+')';
+  const res=await saveNewOrderToDB({...newOrder,placedByLabel});
+
+  if(!res.ok||!res.id){
+    alert('Could not submit order: '+(res.error||'unknown error')+'. Please try again.');
+    if(btn){btn.disabled=false;btn.innerHTML='Submit order &#x2197;';}
+    return;
+  }
+
+  const id=res.id;
+  ORDERS.push({...newOrder,id});
+  updateBadges();
   sendOrderNotification(id, placedByLabel, currentUser.email||'');
   toast(id+(isSample?' (sample) submitted -- awaiting confirmation':' submitted -- awaiting confirmation'));
   openOrderSummaryModal(id);
