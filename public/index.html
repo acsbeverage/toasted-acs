@@ -1793,7 +1793,7 @@ function openTermsModal(){
 function openChangePassword(){
   ['cpw-current','cpw-new','cpw-confirm'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('cpw-err').style.display='none';
-  openModal('modal-change-pw');
+  document.getElementById('modal-change-pw').classList.add('open');
 }
 
 function doChangePassword(){
@@ -1830,7 +1830,7 @@ function openForgotPassword(){
   document.getElementById('fpw-success').style.display='none';
   const btn=document.querySelector('#modal-forgot-pw .btn-dark');
   btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Send reset link';
-  openModal('modal-forgot-pw');
+  document.getElementById('modal-forgot-pw').classList.add('open');
 }
 
 function doForgotPassword(){
@@ -1875,7 +1875,7 @@ let _pendingResetToken=null;
     document.getElementById('rpw-err').style.display='none';
     document.getElementById('rpw-success').style.display='none';
     document.getElementById('rpw-footer').style.display='flex';
-    openModal('modal-reset-pw');
+    document.getElementById('modal-reset-pw').classList.add('open');
   },300);
 })()
 function doResetPassword(){
@@ -1968,6 +1968,7 @@ window.addEventListener('popstate', function(e){
 
 // -- DASHBOARD -----------------------------------------------------------------
 function renderDashboard(){
+  if(!currentUser){console.error('renderDashboard called with no currentUser -- redirecting to login');window.location.reload();return;}
   const isAdmin=currentUser.role==='admin';
   if(isAdmin){renderAdminDashboard();return;}
   renderRepDashboard();
