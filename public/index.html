@@ -675,7 +675,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div><label class="flabel">Order date</label><input type="date" class="finput" id="edit-date"/></div>
       <div><label class="flabel">Delivery date</label><input type="date" class="finput" id="edit-delivery"/></div>
       <div><label class="flabel">PO number</label><input class="finput" id="edit-po"/></div>
-      <div style="grid-column:1/-1"><label class="flabel">Notes</label><input class="finput" id="edit-notes"/></div>
+      <div style="grid-column:1/-1"><label class="flabel">Delivery Instructions</label><textarea class="finput" id="edit-notes" rows="2" style="resize:vertical"></textarea></div>
     </div>
     <div style="margin-bottom:10px"><label class="flabel" style="margin-bottom:6px">Add product</label>
       <div class="search-wrap" style="max-width:420px"><i class="ti ti-search si"></i><input class="search-input" id="edit-prod-search" placeholder="Search by name or SKU…" oninput="onEditSearch(this.value)" onblur="setTimeout(closeEditDD,180)"/><div class="dropdown-box" id="edit-prod-dd"></div></div>
@@ -1524,7 +1524,7 @@ function portalAddRecentItem(sku){
 
 function renderPortalNewOrder(){
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
-  currentOrder={acct:acct.id,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
+  currentOrder={acct:acct.id,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
   const isMobileView=window.matchMedia('(max-width:768px)').matches;
   const recentItems=isMobileView?portalFrequentItems(acct.id,4):portalRecentItems(acct.id,8);
 
@@ -1568,8 +1568,8 @@ function renderPortalNewOrder(){
 
       <div id="line-items-wrap" style="margin-bottom:16px"></div>
 
-      <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Order notes</label>
-        <textarea class="finput" rows="2" placeholder="Delivery instructions, special requests..." onchange="currentOrder.notes=this.value" style="width:100%;resize:vertical"></textarea>
+      <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Delivery Instructions</label>
+        <textarea class="finput" id="o-delivery-instructions" rows="2" placeholder="Special requests, gate codes, preferred delivery window..." onchange="currentOrder.notes=this.value" style="width:100%;resize:vertical">${(acct.deliveryNotes||'').replace(/</g,'&lt;')}</textarea>
       </div>
     </div>
 
@@ -2374,7 +2374,7 @@ function renderNewOrder(){
       <div id="freq-items-wrap" style="margin-top:10px"></div>
     </div>
     <div id="line-items-wrap"><div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div></div>
-    <div style="padding:12px 18px;border-top:1px solid var(--border)"><label class="flabel">Order notes</label><textarea class="finput" rows="2" placeholder="Delivery instructions..." style="resize:vertical;margin-top:6px" onchange="currentOrder.notes=this.value"></textarea></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border)"><label class="flabel">Delivery Instructions</label><textarea class="finput" id="o-delivery-instructions" rows="3" placeholder="Pre-filled from the account's standing instructions -- edit or add to it for this specific order" style="resize:vertical;margin-top:6px" onchange="currentOrder.notes=this.value"></textarea></div>
   </div>
   <div class="card order-totals-bar"><div class="card-body" style="display:flex;align-items:center;justify-content:space-between">
     <div style="display:flex;gap:32px">
@@ -2414,6 +2414,11 @@ function onAcctChange(){
   if(isSampleAcct(id)){
     currentOrder.items.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
     syncFees();renderLineItems();
+  }
+  const notesField=document.getElementById('o-delivery-instructions');
+  if(notesField&&!notesField.value.trim()&&acct&&acct.deliveryNotes){
+    notesField.value=acct.deliveryNotes;
+    currentOrder.notes=acct.deliveryNotes;
   }
   renderFreqItemsPanel(id);
 }
@@ -4007,7 +4012,9 @@ function openEditOrder(orderId){
   editingOrderId=orderId;const o=ORDERS.find(x=>x.id===orderId);if(!o||o.status==='confirmed')return;
   document.getElementById('edit-order-id').textContent='-- '+orderId;
   document.getElementById('edit-date').value=o.date;document.getElementById('edit-delivery').value=o.delivery;
-  document.getElementById('edit-po').value=o.po||'';document.getElementById('edit-notes').value=o.notes||'';
+  document.getElementById('edit-po').value=o.po||'';
+  const acctForNotes=acctById(o.acct);
+  document.getElementById('edit-notes').value=(o.notes&&o.notes.trim())?o.notes:((acctForNotes&&acctForNotes.deliveryNotes)?acctForNotes.deliveryNotes:'');
   window._editItems=o.items.map(x=>({...x}));
   if(isSampleAcct(o.acct))window._editItems.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
   renderEditItems();document.getElementById('modal-edit-order').classList.add('open');
@@ -6212,14 +6219,18 @@ function _buildInvoicePDF(o,callback){
   if(acct&&acct.lic){doc.setFontSize(7.5);doc.text('ABC Lic: '+acct.lic,ML,y);y+=10;}
   y+=8;
 
-  // Delivery Instructions & Window -- highlighted so drivers don't miss it
-  if(acct&&acct.deliveryNotes&&acct.deliveryNotes.trim()){
+  // Delivery Instructions -- highlighted so drivers don't miss it. The order's own notes
+  // (pre-filled from the account's standing instructions, editable per-order) take priority
+  // since they're the most current for this specific delivery; falls back to the account's
+  // saved instructions for older orders placed before this field existed.
+  const deliveryInstructions=(o.notes&&o.notes.trim())?o.notes.trim():((acct&&acct.deliveryNotes)?acct.deliveryNotes.trim():'');
+  if(deliveryInstructions){
     doc.setFillColor(255,251,232);
-    const noteLines=doc.splitTextToSize(acct.deliveryNotes.trim(),CW-16);
+    const noteLines=doc.splitTextToSize(deliveryInstructions,CW-16);
     const boxH=14+noteLines.length*10;
     doc.rect(ML,y,CW,boxH,'F');
     doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(138,106,0);
-    doc.text('DELIVERY INSTRUCTIONS & WINDOW',ML+8,y+10);
+    doc.text('DELIVERY INSTRUCTIONS',ML+8,y+10);
     doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,60,20);
     doc.text(noteLines,ML+8,y+21);
     y+=boxH+8;
@@ -7561,7 +7572,7 @@ function renderRA2(el, orders, producerFilter){
         sku:item.sku, product:p.name, producer:p.producer||'',
         quantity, cases:item.cases, bottles:item.bottles,
         priceLabel:tierName(item.tier), unitPrice:price, subTotal, discountPct:item.discountPct||0, total,
-        balanceDue:orderBalance, notes:item.notes||o.notes||'', deliveryInstructions:acct.deliveryNotes||'',
+        balanceDue:orderBalance, notes:item.notes||o.notes||'', deliveryInstructions:(o.notes&&o.notes.trim())?o.notes.trim():(acct.deliveryNotes||''),
         sampleOrder:o.isSample?'Yes':'', totalLiters, totalGallons,
         poNumber:o.po||'', allReps:repName, privateNote:'',
         premise:acct.kindPrimary||'', bottleSize:p._details?.bottleSize||'', unitSet:p.btl||'', productType:p.cat||'',
@@ -10691,6 +10702,11 @@ function _renderInvoiceHTML(orderId, b64){
         </div>
 
       </div>
+      ${(()=>{const di=(o.notes&&o.notes.trim())?o.notes.trim():((acct.deliveryNotes&&acct.deliveryNotes.trim())?acct.deliveryNotes.trim():'');
+        return di?`<div style="background:#fffbe8;border:1px solid #f0e8c0;border-radius:6px;padding:10px 14px;margin:0 0 14px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#8a6a00;margin-bottom:3px">Delivery Instructions</div>
+          <div style="font-size:12px;color:#5a4a10;line-height:1.5;white-space:pre-wrap">${di.replace(/</g,'&lt;')}</div>
+        </div>`:'';})()}
       <hr class="divider">
       <table class="items">
         <thead>
