@@ -1897,7 +1897,7 @@ function doResetPassword(){
   }).then(r=>r.json()).then(res=>{
     if(!res.ok)throw new Error(res.error||'Could not reset password');
     document.getElementById('rpw-success').style.display='block';
-    document.getElementById('rpw-footer').style.display='none';
+    document.getElementById('rpw-footer').innerHTML='<button class="btn btn-dark" onclick="closeModal(\'modal-reset-pw\')" style="width:100%">Continue to Login</button>';
     window.history.replaceState({},'',window.location.pathname);
     _pendingResetToken=null;
   }).catch(e=>{
