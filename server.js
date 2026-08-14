@@ -229,26 +229,35 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/backfill-crv-totals', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-backfillcrvtotals') return res.status(403).json({ok:false});
+app.get('/api/backfill-quantity-split', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-qtysplit') return res.status(403).json({ok:false});
+  const execute = req.query.execute === 'true';
   try {
-    const { query } = require('./db');
-    // Step 1: if bottles/rate were never populated (still 0/null from the original import),
-    // pull them across from fee_count/fee_amt where the raw per-unit data actually lives.
-    // Safe to run even if this already happened once -- only touches rows still at 0/null.
-    const step1 = await query(
-      `UPDATE order_items SET bottles = fee_count, rate = fee_amt
-       WHERE sku = '__CRV__' AND is_fee = TRUE AND (bottles = 0 OR bottles IS NULL) AND fee_count IS NOT NULL AND fee_count > 0`
+    const { query, getAll } = require('./db');
+    if (!execute) {
+      const preview = await getAll(
+        `SELECT oi.id, oi.sku, oi.bottles as current_bottles, p.btl,
+                FLOOR(oi.bottles::numeric / p.btl) as new_cases, oi.bottles % p.btl as new_bottles
+         FROM order_items oi JOIN products p ON oi.sku = p.sku
+         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles > 0
+         LIMIT 20`
+      );
+      const countRow = await getAll(
+        `SELECT COUNT(*) as cnt FROM order_items oi JOIN products p ON oi.sku = p.sku
+         WHERE oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles > 0`
+      );
+      return res.json({ ok: true, dryRun: true, rowsToFix: parseInt(countRow[0].cnt), sample: preview,
+        note: 'Nothing changed. Re-run with &execute=true to apply.' });
+    }
+    const result = await query(
+      `UPDATE order_items oi
+       SET cases = FLOOR(oi.bottles::numeric / p.btl), bottles = oi.bottles % p.btl
+       FROM products p
+       WHERE oi.sku = p.sku AND oi.is_manual = TRUE AND oi.is_fee = FALSE AND oi.cases = 0 AND oi.bottles > 0`
     );
-    // Step 2: now that rate (per-unit) and bottles (count) are correctly populated,
-    // recompute fee_amt as the true total -- this is the actual value the invoice displays.
-    const step2 = await query(
-      `UPDATE order_items SET fee_amt = ROUND((rate * bottles)::numeric, 2)
-       WHERE sku = '__CRV__' AND is_fee = TRUE AND rate IS NOT NULL AND bottles > 0`
-    );
-    res.json({ ok: true, step1RowsFixed: step1.rowCount, step2RowsFixed: step2.rowCount });
+    res.json({ ok: true, executed: true, rowsFixed: result.rowCount });
   } catch (err) {
-    console.error('Backfill CRV totals error:', err.message);
+    console.error('Backfill quantity split error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
