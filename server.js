@@ -229,6 +229,20 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
+app.get('/api/backfill-crv-import', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-backfillcrv') return res.status(403).json({ok:false});
+  try {
+    const { query, getOne } = require('./db');
+    const result = await query(
+      `UPDATE order_items SET bottles = fee_count, rate = fee_amt
+       WHERE sku = '__CRV__' AND is_fee = TRUE AND (bottles = 0 OR bottles IS NULL) AND fee_count IS NOT NULL`
+    );
+    res.json({ ok: true, rowsUpdated: result.rowCount });
+  } catch (err) {
+    console.error('Backfill CRV import error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-accounts', async (req, res) => {
   if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
   const {query} = require('./db');
