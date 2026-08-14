@@ -192,7 +192,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
   try {
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
-            date, delivery, po, notes, items, labelsPrinted, partialPaidAmount } = req.body;
+            date, delivery, po, notes, items, labelsPrinted, partialPaidAmount,
+            waiveDelivery, waiveBrokenCase, waiveCRV } = req.body;
     const updates = [], values = [];
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
@@ -208,6 +209,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (notes !== undefined)        { updates.push(`notes=$${idx++}`);          values.push(notes); }
     if (labelsPrinted !== undefined){ updates.push(`labels_printed=$${idx++}`); values.push(labelsPrinted); }
     if (partialPaidAmount !== undefined) { updates.push(`partial_paid_amount=$${idx++}`); values.push(partialPaidAmount); }
+    if (waiveDelivery !== undefined)   { updates.push(`waive_delivery=$${idx++}`);    values.push(waiveDelivery); }
+    if (waiveBrokenCase !== undefined) { updates.push(`waive_broken_case=$${idx++}`); values.push(waiveBrokenCase); }
+    if (waiveCRV !== undefined)        { updates.push(`waive_crv=$${idx++}`);         values.push(waiveCRV); }
     if (updates.length > 0) {
       values.push(req.params.id);
       await query(`UPDATE orders SET ${updates.join(',')} WHERE id=$${idx}`, values);
