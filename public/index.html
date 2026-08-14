@@ -209,7 +209,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   .sidebar.mobile-open{transform:translateX(0)}
   .content{padding:12px 14px}
   .topbar{padding:0 12px}
-  .form-grid-2,.form-grid-3,.form-grid-4,.dash-grid-5,.dash-grid-3,.dash-grid-2,.dash-grid-2-1{grid-template-columns:1fr!important}
+  .form-grid-2,.form-grid-3,.form-grid-4,.dash-grid-5,.dash-grid-3,.dash-grid-2,.dash-grid-2-1,.dash-action-tabs{grid-template-columns:1fr!important}
   /* New Order: hide desktop table, show mobile cards */
   #line-items-table-view{display:none!important}
   #line-items-cards-view{display:block!important}
@@ -1998,11 +1998,15 @@ function renderDashboard(){
 }
 
 function renderRepDashboard(){
-  const myOrders=ORDERS.filter(o=>o.rep===currentUser.id);
+  const period=window._repDashPeriod||'mtd';
+  // ORDERS is already correctly scoped by the backend to every order for accounts assigned
+  // to this rep -- not just orders they personally placed. No further rep_id filter needed.
+  const myOrders=ORDERS;
   const confirmed=myOrders.filter(o=>o.status==='delivered'||o.status==='confirmed');
-  const unconf=ORDERS.filter(o=>o.status==='unconfirmed'&&o.rep===currentUser.id);
+  const unconf=myOrders.filter(o=>o.status==='unconfirmed');
   const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const curYear=new Date().getFullYear();
+  const curMonth=new Date().getMonth();
   const lastYear=curYear-1;
   const monthlySales={};const monthlyLastYear={};
   confirmed.forEach(o=>{
@@ -2020,12 +2024,30 @@ function renderRepDashboard(){
   });
   const acctChartData=months.map((m,i)=>({month:m,cur:(acctsByMonth[i]?.size||0),prev:(acctsByMonthLY[i]?.size||0)}));
   const maxAcct=Math.max(...acctChartData.flatMap(d=>[d.cur,d.prev]),1);
+
+  // YTD figures (full current year vs full last year)
   const ytdRev=Object.values(monthlySales).reduce((a,b)=>a+b,0);
   const ytdRevLY=Object.values(monthlyLastYear).reduce((a,b)=>a+b,0);
   const ytdAccts=new Set(confirmed.filter(o=>parseInt(o.date.split('-')[0])===curYear).map(o=>o.acct)).size;
   const ytdAcctsLY=new Set(confirmed.filter(o=>parseInt(o.date.split('-')[0])===lastYear).map(o=>o.acct)).size;
-  const revDiff=ytdRevLY>0?((ytdRev-ytdRevLY)/ytdRevLY*100):0;
-  const acctDiff=ytdAcctsLY>0?((ytdAccts-ytdAcctsLY)/ytdAcctsLY*100):0;
+  const ytdOrders=myOrders.filter(o=>parseInt(o.date.split('-')[0])===curYear).length;
+
+  // MTD figures (current month vs the same month last year, for a fair comparison)
+  const mtdRev=monthlySales[curMonth]||0;
+  const mtdRevLY=monthlyLastYear[curMonth]||0;
+  const mtdAccts=acctsByMonth[curMonth]?.size||0;
+  const mtdAcctsLY=acctsByMonthLY[curMonth]?.size||0;
+  const mtdOrders=myOrders.filter(o=>{const d=o.date.split('-');return parseInt(d[0])===curYear&&parseInt(d[1])-1===curMonth;}).length;
+
+  const isMtd=period==='mtd';
+  const shownRev=isMtd?mtdRev:ytdRev, shownRevPrev=isMtd?mtdRevLY:ytdRevLY;
+  const shownAccts=isMtd?mtdAccts:ytdAccts, shownAcctsPrev=isMtd?mtdAcctsLY:ytdAcctsLY;
+  const shownOrders=isMtd?mtdOrders:ytdOrders;
+  const revDiff=shownRevPrev>0?((shownRev-shownRevPrev)/shownRevPrev*100):0;
+  const acctDiff=shownAcctsPrev>0?((shownAccts-shownAcctsPrev)/shownAcctsPrev*100):0;
+  const periodLabel=isMtd?months[curMonth]+' '+curYear:curYear+' YTD';
+  const prevPeriodLabel=isMtd?months[curMonth]+' '+lastYear:lastYear+' YTD';
+
   const acctMap={};confirmed.forEach(o=>{acctMap[o.acct]=(acctMap[o.acct]||0)+orderTotal(o)});
   const topAccts=Object.entries(acctMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,val])=>({acct:ACCOUNTS.find(a=>a.id===id),val}));
 
@@ -2039,12 +2061,33 @@ function renderRepDashboard(){
   }
 
   document.getElementById('main-content').innerHTML=`
+  <div class="dash-action-tabs" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-bottom:18px">
+    <button onclick="showPage('neworder')" style="border:none;cursor:pointer;background:var(--navy);color:#fff;border-radius:var(--radius-lg);padding:22px 24px;display:flex;align-items:center;gap:16px;text-align:left;transition:transform 0.15s" onmouseover="this.style.transform='scale(1.015)'" onmouseout="this.style.transform='scale(1)'">
+      <i class="ti ti-plus" style="font-size:34px;color:var(--gold)"></i>
+      <div><div style="font-size:20px;font-weight:800;letter-spacing:-0.3px">Place Order</div><div style="font-size:12px;opacity:0.75;margin-top:2px">Start a new order for any account</div></div>
+    </button>
+    <button onclick="showPage('accounts')" style="border:1px solid var(--border);cursor:pointer;background:var(--bg2);color:var(--text);border-radius:var(--radius-lg);padding:22px 20px;display:flex;align-items:center;gap:12px;text-align:left;transition:transform 0.15s" onmouseover="this.style.transform='scale(1.015)'" onmouseout="this.style.transform='scale(1)'">
+      <i class="ti ti-building-store" style="font-size:26px;color:var(--gold)"></i>
+      <div><div style="font-size:16px;font-weight:700">Accounts</div><div style="font-size:11px;color:var(--text2);margin-top:1px">View &amp; manage</div></div>
+    </button>
+    <button onclick="showPage('catalog')" style="border:1px solid var(--border);cursor:pointer;background:var(--bg2);color:var(--text);border-radius:var(--radius-lg);padding:22px 20px;display:flex;align-items:center;gap:12px;text-align:left;transition:transform 0.15s" onmouseover="this.style.transform='scale(1.015)'" onmouseout="this.style.transform='scale(1)'">
+      <i class="ti ti-bottle" style="font-size:26px;color:var(--gold)"></i>
+      <div><div style="font-size:16px;font-weight:700">Products</div><div style="font-size:11px;color:var(--text2);margin-top:1px">Browse catalog</div></div>
+    </button>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px">
+    <div style="display:flex;background:var(--bg3);border-radius:8px;padding:3px">
+      <button onclick="window._repDashPeriod='mtd';renderRepDashboard()" style="border:none;cursor:pointer;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;background:${isMtd?'var(--bg2)':'transparent'};color:${isMtd?'var(--text)':'var(--text2)'};box-shadow:${isMtd?'0 1px 3px rgba(0,0,0,0.1)':'none'}">Month to Date</button>
+      <button onclick="window._repDashPeriod='ytd';renderRepDashboard()" style="border:none;cursor:pointer;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;background:${!isMtd?'var(--bg2)':'transparent'};color:${!isMtd?'var(--text)':'var(--text2)'};box-shadow:${!isMtd?'0 1px 3px rgba(0,0,0,0.1)':'none'}">Year to Date</button>
+    </div>
+  </div>
   <div class="dash-grid-3">
-    <div class="metric"><div class="metric-label">YTD Revenue ${curYear}</div><div class="metric-value gold">${fmt(ytdRev)}</div>
-      <div class="metric-sub" style="color:${revDiff>=0?'var(--green)':'var(--red)'}">${revDiff>=0?'▲':'▼'} ${Math.abs(revDiff).toFixed(1)}% vs ${lastYear}</div></div>
-    <div class="metric"><div class="metric-label">Accounts Sold ${curYear}</div><div class="metric-value">${ytdAccts}</div>
-      <div class="metric-sub" style="color:${acctDiff>=0?'var(--green)':'var(--red)'}">${acctDiff>=0?'▲':'▼'} ${Math.abs(acctDiff).toFixed(1)}% vs ${lastYear}</div></div>
-    <div class="metric"><div class="metric-label">Orders placed</div><div class="metric-value">${myOrders.length}</div><div class="metric-sub">${confirmed.length} confirmed</div></div>
+    <div class="metric"><div class="metric-label">${isMtd?'MTD':'YTD'} Revenue -- ${periodLabel}</div><div class="metric-value gold">${fmt(shownRev)}</div>
+      <div class="metric-sub" style="color:${revDiff>=0?'var(--green)':'var(--red)'}">${revDiff>=0?'▲':'▼'} ${Math.abs(revDiff).toFixed(1)}% vs ${prevPeriodLabel}</div></div>
+    <div class="metric"><div class="metric-label">Accounts Sold -- ${periodLabel}</div><div class="metric-value">${shownAccts}</div>
+      <div class="metric-sub" style="color:${acctDiff>=0?'var(--green)':'var(--red)'}">${acctDiff>=0?'▲':'▼'} ${Math.abs(acctDiff).toFixed(1)}% vs ${prevPeriodLabel}</div></div>
+    <div class="metric"><div class="metric-label">Orders -- ${periodLabel}</div><div class="metric-value">${shownOrders}</div><div class="metric-sub">${confirmed.length} confirmed all-time</div></div>
   </div>
   <div class="dash-grid-2">
     <div class="card" style="margin:0"><div class="card-header"><span class="card-title">Monthly Sales</span>
@@ -2082,7 +2125,7 @@ function renderRepDashboard(){
     <table class="tbl">${topAccts.length?topAccts.map((r,i)=>`<tr><td style="font-size:12px;color:var(--text3);width:24px;font-weight:700">${i+1}</td><td style="font-weight:500;cursor:pointer" onclick="openAccountDetail('${r.acct?.id}')">${r.acct?r.acct.name:'--'}</td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.val)}</td></tr>`).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">No data yet</td></tr>'}
     </table>
   </div>
-  ${unconf.length?`<div class="card" style="margin-top:14px;border-color:var(--amber-border)"><div class="card-header" style="background:var(--amber-bg)"><span class="card-title" style="color:var(--amber)"><i class="ti ti-clock" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>My unconfirmed orders (${unconf.length})</span></div>
+  ${unconf.length?`<div class="card" style="margin-top:14px;border-color:var(--amber-border)"><div class="card-header" style="background:var(--amber-bg)"><span class="card-title" style="color:var(--amber)"><i class="ti ti-clock" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Unconfirmed orders (${unconf.length})</span></div>
   <table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Date</th><th>Total</th></tr></thead><tbody>${unconf.slice(0,3).map(o=>{const acct=acctById(o.acct);return`<tr><td style="font-weight:600;color:var(--gold);cursor:pointer" onclick="viewInvoice('${o.id}')">${o.id}</td><td>${acct?acct.name:'--'}</td><td>${o.date}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td></tr>`;}).join('')}</tbody></table></div>`:''}`;
 }
 
