@@ -1730,9 +1730,18 @@ function doLogout(){
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
     if(u.role==='admin')qboCheckStatus();
     const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','logistics','fetchqbo','docs','users','pricing','settings','import','reports','ar','products','po'];
-    const hashPage=(location.hash||'').replace('#','');
+    const hashParts=(location.hash||'').replace('#','').split('/');
+    const hashPage=hashParts[0];
+    const hashDetailId=hashParts[1];
     const restorePage=RESTORABLE_PAGES.includes(hashPage)?hashPage:'dashboard';
-    loadAllDataFromBackend().then(()=>{updateBadges();showPage(restorePage,false);});
+    loadAllDataFromBackend().then(()=>{
+      updateBadges();
+      showPage(restorePage,false);
+      // If the hash points at a specific account or product's detail view, reopen that
+      // exact item instead of just landing back on the plain list page.
+      if(hashPage==='accounts'&&hashDetailId)openAccountDetail(hashDetailId);
+      if(hashPage==='products'&&hashDetailId)openProductPricing(decodeURIComponent(hashDetailId));
+    });
   }catch(e){
     localStorage.removeItem('_toastedToken');
     localStorage.removeItem('_toastedUser');
@@ -4808,6 +4817,7 @@ function saveAccountRep(acctId){
 
 function openAccountDetail(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
+  history.replaceState({page:'accounts',acctDetail:acctId},'','#accounts/'+acctId);
   const isAdmin=currentUser&&currentUser.role==='admin';
   const rep=USERS.find(u=>u.id===a.rep)||{};
   const allOrders=ORDERS.filter(o=>o.acct===a.id).sort((x,y)=>y.date.localeCompare(x.date));
@@ -10782,6 +10792,7 @@ async function confirmClonePricing(targetSku,sourceSku){
 
 function openProductPricing(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  history.replaceState({page:'products',productDetail:sku},'','#products/'+encodeURIComponent(sku));
   ensureProductDetails(p);
   ensureDA();
   const d=p._details||{};
