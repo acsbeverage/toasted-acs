@@ -2314,6 +2314,7 @@ function renderNewOrder(){
   <div class="card"><div class="card-header"><span class="card-title">Line items</span><span id="item-count" style="font-size:12px;color:var(--text2)">0 items</span></div>
     <div style="padding:12px 18px;border-bottom:1px solid var(--border)">
       <div class="search-wrap" style="max-width:500px"><i class="ti ti-search si"></i><input class="search-input" id="prod-search" placeholder="Search by product name or SKU..." oninput="onProdSearch(this.value)" onblur="setTimeout(closeProdDD,200)"/><div class="dropdown-box" id="prod-dd"></div></div>
+      <div id="freq-items-wrap" style="margin-top:10px"></div>
     </div>
     <div id="line-items-wrap"><div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div></div>
     <div style="padding:12px 18px;border-top:1px solid var(--border)"><label class="flabel">Order notes</label><textarea class="finput" rows="2" placeholder="Delivery instructions..." style="resize:vertical;margin-top:6px" onchange="currentOrder.notes=this.value"></textarea></div>
@@ -2357,6 +2358,21 @@ function onAcctChange(){
     currentOrder.items.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
     syncFees();renderLineItems();
   }
+  renderFreqItemsPanel(id);
+}
+function renderFreqItemsPanel(acctId){
+  const wrap=document.getElementById('freq-items-wrap');if(!wrap)return;
+  if(!acctId){wrap.innerHTML='';return;}
+  const items=portalFrequentItems(acctId,5);
+  if(!items.length){wrap.innerHTML='';return;}
+  wrap.innerHTML=`
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Most purchased by this account</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${items.map(it=>`<button class="btn btn-sm" onclick="addLineItem('${it.sku.replace(/'/g,"\\'")}')" style="text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 12px;height:auto">
+        <span style="font-weight:600;font-size:12px">${it.name}</span>
+        <span style="font-size:11px;color:var(--text3)">${it.producer||''}${it.price>0?' &middot; '+fmt(it.price*it.btl)+'/cs':''}</span>
+      </button>`).join('')}
+    </div>`;
 }
 function onAcctSearch(val){
   const dd=document.getElementById('o-acct-dd');
@@ -4822,13 +4838,9 @@ function openAccountDetail(acctId){
   html+='</div><div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="startOrderForAccount(\''+a.id+'\')"><i class="ti ti-plus"></i> New Order</button>'+(isAdmin?'<button class="btn" style="color:#2CA01C;border-color:#2CA01C" onclick="qboSyncAccount(\''+a.id+'\')"><i class="ti ti-brand-quickbooks"></i> '+(a.qboId?'Update in QBO':'Sync to QBO')+'</button>':'')+'</div>';
   html+='</div></div></div>';
 
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:14px">';
-  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--gold)">'+allOrders.length+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Total Orders</div></div>';
-  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--green)">'+fmt(totalSpend)+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Total Spend</div></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px;max-width:400px">';
   html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:'+(openBal>0?'var(--red)':'var(--text3)')+'">'+fmt(openBal)+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Open AR</div></div>';
   html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:16px;font-weight:700;color:var(--text)">'+(lastOrder?lastOrder.date:'--')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Last Order</div></div>';
-  html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:16px;font-weight:700;color:var(--text)">'+(a.terms||'Net 30')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Terms</div></div>';
-  if(isAdmin&&rep.fname)html+='<div class="card" style="padding:16px;text-align:center"><div style="font-size:15px;font-weight:700;color:var(--text)">'+rep.fname+' '+(rep.lname||'')+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Sales Rep</div></div>';
   html+='</div>';
 
   html+='<div class="acct-detail-grid" style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">';
@@ -4836,6 +4848,7 @@ function openAccountDetail(acctId){
   if(a.code)html+='<div><span style="color:var(--text2)">Account Number:</span> <strong>'+a.code+'</strong></div>';
   html+='<div><span style="color:var(--text2)">QuickBooks:</span> '+(a.qboId?'<span style="color:#2CA01C;font-weight:600"><i class="ti ti-circle-check" style="vertical-align:-2px"></i> Linked</span>':'<span style="color:var(--text3)">Not synced</span>')+'</div>';
   if(a.corpGroup)html+='<div><span style="color:var(--text2)">Corp Group:</span> <strong>'+a.corpGroup+'</strong></div>';
+  if(isAdmin&&rep.fname)html+='<div><span style="color:var(--text2)">Sales Rep:</span> <strong>'+rep.fname+' '+(rep.lname||'')+'</strong></div>';
   if(a.contact)html+='<div><span style="color:var(--text2)">Contact:</span> '+a.contact+'</div>';
   if(a.email)html+='<div><span style="color:var(--text2)">Email:</span> '+a.email+'</div>';
   if(a.phone)html+='<div><span style="color:var(--text2)">Phone:</span> '+a.phone+'</div>';
@@ -4862,10 +4875,6 @@ function openAccountDetail(acctId){
     html+='</div>';
   }
   html+='</div></div>';
-
-  html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Contacts</span>'+(isAdmin?'<button class="btn btn-sm btn-dark" onclick="openAddContact(\''+a.id+'\')"><i class="ti ti-plus"></i> Add Contact</button>':'')+'</div><div id="acct-contacts-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
-
-  html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Attachments</span>'+(isAdmin?'<div><input type="file" id="acct-attach-file" style="display:none" onchange="handleAttachmentUpload(\''+a.id+'\',this)"/><button class="btn btn-sm btn-dark" onclick="document.getElementById(\'acct-attach-file\').click()"><i class="ti ti-paperclip"></i> Upload File</button></div>':'')+'</div><div id="acct-attachments-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
 
   // -- Purchase history (product-level): what has this account bought, and at what price --
   const purchaseLines=[];
@@ -4917,6 +4926,10 @@ function openAccountDetail(acctId){
   html+='<div id="acct-orders-cards-view" style="display:none;max-height:520px;overflow-y:auto;padding:14px">'+ordersCardsHtml+'</div>';
   html+='</div>';
   html+='</div>';
+
+  html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Contacts</span>'+(isAdmin?'<button class="btn btn-sm btn-dark" onclick="openAddContact(\''+a.id+'\')"><i class="ti ti-plus"></i> Add Contact</button>':'')+'</div><div id="acct-contacts-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
+
+  html+='<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Attachments</span>'+(isAdmin?'<div><input type="file" id="acct-attach-file" style="display:none" onchange="handleAttachmentUpload(\''+a.id+'\',this)"/><button class="btn btn-sm btn-dark" onclick="document.getElementById(\'acct-attach-file\').click()"><i class="ti ti-paperclip"></i> Upload File</button></div>':'')+'</div><div id="acct-attachments-body" style="padding:14px"><div style="text-align:center;color:var(--text3);font-size:13px;padding:10px">Loading...</div></div></div>';
 
   document.getElementById('main-content').innerHTML=html;
   filterAcctPurchases();
