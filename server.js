@@ -229,44 +229,19 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
-app.get('/api/backfill-zero-samples', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-zerosamples') return res.status(403).json({ok:false});
-  const execute = req.query.execute === 'true';
+app.get('/api/check-sample-rows', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-checksample') return res.status(403).json({ok:false});
   try {
-    const { query, getAll } = require('./db');
-    if (!execute) {
-      const preview = await getAll(
-        `SELECT oi.id, oi.order_id, oi.sku, oi.cases, oi.bottles, oi.rate, oi.fee_amt, oi.is_fee
-         FROM order_items oi JOIN orders o ON oi.order_id = o.id
-         WHERE o.is_sample = TRUE AND (oi.rate > 0 OR oi.fee_amt > 0)
-         ORDER BY oi.order_id
-         LIMIT 20`
-      );
-      const countRow = await getAll(
-        `SELECT COUNT(*) as cnt FROM order_items oi JOIN orders o ON oi.order_id = o.id
-         WHERE o.is_sample = TRUE AND (oi.rate > 0 OR oi.fee_amt > 0)`
-      );
-      const orderCountRow = await getAll(
-        `SELECT COUNT(DISTINCT o.id) as cnt FROM orders o
-         JOIN order_items oi ON oi.order_id = o.id
-         WHERE o.is_sample = TRUE AND (oi.rate > 0 OR oi.fee_amt > 0)`
-      );
-      return res.json({ ok: true, dryRun: true,
-        lineItemsToZero: parseInt(countRow[0].cnt), ordersAffected: parseInt(orderCountRow[0].cnt),
-        sample: preview,
-        note: 'Cases, bottles, and SKUs are left untouched -- only rate and fee_amt get zeroed. Re-run with &execute=true to apply.' });
-    }
-    const result1 = await query(
-      `UPDATE order_items oi SET rate = 0
-       FROM orders o WHERE oi.order_id = o.id AND o.is_sample = TRUE AND oi.rate > 0`
+    const { getAll } = require('./db');
+    const rows = await getAll(
+      `SELECT oi.id, oi.order_id, oi.sku, oi.rate, oi.fee_amt, oi.is_fee, o.is_sample, pg_typeof(oi.rate) as rate_type
+       FROM order_items oi JOIN orders o ON oi.order_id = o.id
+       WHERE oi.id = ANY($1)`,
+      [[69633, 69630, 57985, 61964]]
     );
-    const result2 = await query(
-      `UPDATE order_items oi SET fee_amt = 0
-       FROM orders o WHERE oi.order_id = o.id AND o.is_sample = TRUE AND oi.fee_amt > 0`
-    );
-    res.json({ ok: true, executed: true, rateRowsZeroed: result1.rowCount, feeRowsZeroed: result2.rowCount });
+    res.json({ ok: true, rows });
   } catch (err) {
-    console.error('Backfill zero samples error:', err.message);
+    console.error('Check sample rows error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
