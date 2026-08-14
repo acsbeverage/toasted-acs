@@ -4110,8 +4110,9 @@ function renderEditItems(){
 }
 function renderEditTotal(){
   const total=window._editItems.reduce((s,x)=>s+itemLineTotal(x),0);
-  const cases=window._editItems.reduce((s,x)=>s+(x.cases||0),0);
-  const loose=window._editItems.reduce((s,x)=>s+(x.bottles||0),0);
+  const productItems=window._editItems.filter(x=>!x._fee);
+  const cases=productItems.reduce((s,x)=>s+(x.cases||0),0);
+  const loose=productItems.reduce((s,x)=>s+(x.bottles||0),0);
   let qtyLabel;
   if(cases>0&&loose>0)qtyLabel=`${cases} case${cases!==1?'s':''} + ${loose} loose bottle${loose!==1?'s':''}`;
   else if(cases>0)qtyLabel=`${cases} case${cases!==1?'s':''}`;
