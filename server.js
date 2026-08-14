@@ -229,6 +229,24 @@ app.post('/api/notify/order', async (req, res) => {
 
 
 
+app.get('/api/find-max-invoice', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-maxinvoice') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    // Only pure ACS-NNNNN (all digits after the dash) counts as the real sequence --
+    // excludes any differently-formatted test IDs.
+    const rows = await getAll(
+      `SELECT id FROM orders WHERE id ~ '^ACS-[0-9]+$' ORDER BY (SUBSTRING(id FROM 5))::bigint DESC LIMIT 10`
+    );
+    const nonMatching = await getAll(
+      `SELECT id FROM orders WHERE id LIKE 'ACS-%' AND id !~ '^ACS-[0-9]+$' ORDER BY created_at DESC LIMIT 10`
+    );
+    res.json({ ok: true, topSequentialIds: rows.map(r=>r.id), nonSequentialSample: nonMatching.map(r=>r.id) });
+  } catch (err) {
+    console.error('Find max invoice error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/migrate-accounts', async (req, res) => {
   if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
   const {query} = require('./db');
