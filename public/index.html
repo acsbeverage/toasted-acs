@@ -4162,11 +4162,11 @@ function toggleEditSample(isSample){
 }
 function openEditOrder(orderId){
   editingOrderId=orderId;const o=ORDERS.find(x=>x.id===orderId);if(!o||o.status==='confirmed')return;
-  document.getElementById('edit-order-id').textContent='-- '+orderId;
+  const acctForNotes=acctById(o.acct);
+  document.getElementById('edit-order-id').textContent='-- '+orderId+(acctForNotes?' -- '+acctForNotes.name:'');
   document.getElementById('edit-date').value=o.date;document.getElementById('edit-delivery').value=o.delivery;
   document.getElementById('edit-po').value=o.po||'';
   document.getElementById('edit-is-sample').checked=!!o.isSample;
-  const acctForNotes=acctById(o.acct);
   document.getElementById('edit-notes').value=(o.notes&&o.notes.trim())?o.notes:((acctForNotes&&acctForNotes.deliveryNotes)?acctForNotes.deliveryNotes:'');
   window._editItems=o.items.map(x=>({...x}));
   if(isSampleAcct(o.acct))window._editItems.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
