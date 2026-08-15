@@ -640,6 +640,18 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     </div>
   </div>
 </div>
+<div class="modal-bg" id="modal-reprint-labels">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">Reprint shipping labels</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Order <strong id="reprint-order-id"></strong> -- <span id="reprint-default-note"></span></p>
+    <label class="flabel">Number of labels to print</label>
+    <input type="number" id="reprint-label-count" class="finput" min="1" step="1" style="margin-top:4px"/>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-reprint-labels')">Cancel</button>
+      <button class="btn btn-success" onclick="doReprintLabels()"><i class="ti ti-printer"></i> Print</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-send-invoice">
   <div class="modal" style="max-width:520px;max-height:88vh;overflow-y:auto" id="send-invoice-body"></div>
 </div>
@@ -3861,7 +3873,7 @@ let _unconfPage=1;
 let _unconfSort='date_desc';
 function renderUnconfirmed(){
   const isAdmin=currentUser.role==='admin';
-  const mine=isAdmin?ORDERS.filter(o=>o.status==='unconfirmed'):ORDERS.filter(o=>o.status==='unconfirmed'&&o.rep===currentUser.id);
+  const mine=ORDERS.filter(o=>o.status==='unconfirmed'); // ORDERS is already correctly scoped by the backend to this user
   _unconfPage=1;
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
@@ -3982,7 +3994,7 @@ function buildZPLShippingLabel(acct,order,copies){
 ^FO20,746^FD531 Getty Ct. STE D, Benicia CA 94510^FS
 ^XZ`;
 }
-function printShippingLabel(orderId){
+function printShippingLabel(orderId,overrideCount){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   const acct=acctById(o.acct);
   if(!acct){toast('Account not found -- cannot print label');return;}
@@ -3990,7 +4002,7 @@ function printShippingLabel(orderId){
     toast('Label printer not set up on this computer -- see Company Settings for setup steps');
     return;
   }
-  const labelCount=calcLabelCount(o);
+  const labelCount=Math.max(1,parseInt(overrideCount)||calcLabelCount(o));
   const zpl=buildZPLShippingLabel(acct,o,labelCount);
   const doSend=(device)=>{
     if(!device||!device.name){
@@ -4017,6 +4029,23 @@ function printShippingLabel(orderId){
     console.error('Local device discovery error:',err);
     fallbackToDefault();
   },'printer');
+}
+function openReprintLabelsModal(orderId){
+  const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
+  const defaultCount=calcLabelCount(o);
+  document.getElementById('reprint-order-id').textContent=orderId;
+  document.getElementById('reprint-default-note').textContent='based on this order, that\'s normally '+defaultCount+' label'+(defaultCount!==1?'s':'')+'. Adjust below if you only need some, or more.';
+  const input=document.getElementById('reprint-label-count');
+  input.value=defaultCount;
+  window._reprintOrderId=orderId;
+  document.getElementById('modal-reprint-labels').classList.add('open');
+}
+function doReprintLabels(){
+  const orderId=window._reprintOrderId;if(!orderId)return;
+  const count=parseInt(document.getElementById('reprint-label-count').value);
+  if(!count||count<1){toast('Enter a number of labels to print');return}
+  closeModal('modal-reprint-labels');
+  printShippingLabel(orderId,count);
 }
 function doConfirm(){
   const o=ORDERS.find(x=>x.id===confirmingOrderId);if(!o)return;
@@ -4386,7 +4415,7 @@ function saveEditOrder(){
 
 // -- HISTORY --------------------------------------------------------------------
 function renderHistory(){
-  const isAdmin=currentUser.role==='admin';const mine=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
+  const isAdmin=currentUser.role==='admin';const mine=ORDERS; // ORDERS is already correctly scoped by the backend to this user
   _histPage=1;_histSort='date_desc';
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
@@ -4436,7 +4465,7 @@ function filterHistory(){
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
       ${isAdmin&&(o.status==='delivered'||o.status==='confirmed')?`<button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
       ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button>`:''} 
-      ${(o.status==='confirmed'||o.status==='delivered')?`<button class="btn btn-sm" onclick="printShippingLabel('${o.id}')" title="Print shipping label"><i class="ti ti-printer"></i> Label</button>`:''}
+      ${(o.status==='confirmed'||o.status==='delivered')?`<button class="btn btn-sm" onclick="openReprintLabelsModal('${o.id}')" title="Reprint shipping label(s)"><i class="ti ti-printer"></i> Label</button>`:''}
       ${pdfSplitBtn(o.id)}
     </td></tr>`;
   }).join('');
@@ -4464,7 +4493,7 @@ function filterHistory(){
           ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
           ${isAdmin&&(o.status==='delivered'||o.status==='confirmed')?`<button class="btn btn-warning" onclick="unconfirmOrder('${o.id}')"><i class="ti ti-arrow-back-up"></i> Unconfirm</button>`:''}
           ${(isAdmin||o.rep===currentUser.id)&&o.status==='unconfirmed'?`<button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>`:''}
-          ${(o.status==='confirmed'||o.status==='delivered')?`<button class="btn" onclick="printShippingLabel('${o.id}')" title="Print shipping label"><i class="ti ti-printer"></i> Label</button>`:''}
+          ${(o.status==='confirmed'||o.status==='delivered')?`<button class="btn" onclick="openReprintLabelsModal('${o.id}')" title="Reprint shipping label(s)"><i class="ti ti-printer"></i> Label</button>`:''}
           ${pdfSplitBtn(o.id)}
         </div>
       </div>`;
@@ -7204,7 +7233,7 @@ function _filterExportOrders(fromId,toId,repId,statusId){
   const statusVal=document.getElementById(statusId)?.value||'all';
   const isAdmin=currentUser&&currentUser.role==='admin';
 
-  let orders=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
+  let orders=ORDERS; // ORDERS is already correctly scoped by the backend to this user
   if(from)orders=orders.filter(o=>o.date>=from);
   if(to)orders=orders.filter(o=>o.date<=to);
   if(repVal)orders=orders.filter(o=>o.rep===repVal);
@@ -7311,7 +7340,7 @@ function doExportExcel(){
   const inclAcctId=document.getElementById('ex-xl-acctid')?.checked;
   const isAdmin=currentUser&&currentUser.role==='admin';
 
-  let orders=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
+  let orders=ORDERS; // ORDERS is already correctly scoped by the backend to this user
   if(from)orders=orders.filter(o=>o.date>=from);
   if(to)orders=orders.filter(o=>o.date<=to);
   if(repVal)orders=orders.filter(o=>o.rep===repVal);
@@ -7371,7 +7400,7 @@ function doExportFintech(){
   const acctFilter=(document.getElementById('ex-ft-accts')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
   const isAdmin=currentUser&&currentUser.role==='admin';
 
-  let orders=isAdmin?ORDERS:ORDERS.filter(o=>o.rep===currentUser.id);
+  let orders=ORDERS; // ORDERS is already correctly scoped by the backend to this user
   orders=orders.filter(o=>{
     const d=dateMode==='delivery'?o.delivery:o.date;
     return(!from||d>=from)&&(!to||d<=to);
