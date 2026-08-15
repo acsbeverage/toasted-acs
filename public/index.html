@@ -2113,10 +2113,11 @@ function renderRepDashboard(){
       '</div>';
   }
 
-  document.getElementById('topbar-right').innerHTML=`
+  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px;align-items:center">
     <button class="btn btn-sm btn-dark" onclick="showPage('neworder')"><i class="ti ti-plus"></i> Place Order</button>
     <button class="btn btn-sm" onclick="showPage('accounts')"><i class="ti ti-building-store"></i> Accounts</button>
-    <button class="btn btn-sm" onclick="showPage('catalog')"><i class="ti ti-bottle"></i> Products</button>`;
+    <button class="btn btn-sm" onclick="showPage('catalog')"><i class="ti ti-bottle"></i> Products</button>
+  </div>`;
 
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px">
