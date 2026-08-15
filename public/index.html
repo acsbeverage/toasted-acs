@@ -1983,8 +1983,18 @@ async function triggerBackgroundRefresh(page){
     const isTyping=activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT';
     const elapsed=Date.now()-startedAt;
     if(_currentPage===page && !BUILDER_PAGES.includes(page) && !isTyping){
-      if(elapsed>1500)_logNavDiagnostic('bgRefresh-rerender',{page,elapsedMs:elapsed}); // only log the slow ones -- those are the ones that could feel like an unexpected reset
-      _dispatchPageRender(page);
+      if(elapsed>1500)_logNavDiagnostic('bgRefresh-rerender',{page,elapsedMs:elapsed,openDetailView:window._openDetailView}); // only log the slow ones -- those are the ones that could feel like an unexpected reset
+      // If an account or product detail view is currently open, re-open that specific view
+      // with fresh data instead of falling back to the plain list -- _currentPage alone can't
+      // tell the difference between "on the accounts list" and "viewing one account's detail",
+      // since opening a detail view never changes _currentPage away from 'accounts'.
+      if(window._openDetailView&&window._openDetailView.type==='account'&&page==='accounts'){
+        openAccountDetail(window._openDetailView.id);
+      } else if(window._openDetailView&&window._openDetailView.type==='product'&&page==='products'){
+        openProductPricing(window._openDetailView.id);
+      } else {
+        _dispatchPageRender(page);
+      }
     } else if(_currentPage!==page){
       _logNavDiagnostic('bgRefresh-skipped-page-changed',{startedForPage:page,userNowOn:_currentPage,elapsedMs:elapsed});
     }
@@ -1994,6 +2004,7 @@ async function triggerBackgroundRefresh(page){
 
 function showPage(page, pushState=true){
   _logNavDiagnostic('showPage',{page,pushState,fromPage:_currentPage,stack:(new Error()).stack.split('\n').slice(1,4).join(' | ')});
+  window._openDetailView=null;
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
   const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',logistics:'ACS Logistics',fetchqbo:'Fetch QuickBooks',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders'};
@@ -5055,6 +5066,7 @@ function saveAccountRep(acctId){
 
 function openAccountDetail(acctId){
   const a=ACCOUNTS.find(x=>x.id===acctId);if(!a)return;
+  window._openDetailView={type:'account',id:acctId};
   history.replaceState({page:'accounts',acctDetail:acctId},'','#accounts/'+acctId);
   const isAdmin=currentUser&&currentUser.role==='admin';
   const rep=USERS.find(u=>u.id===a.rep)||{};
@@ -11169,6 +11181,7 @@ async function confirmClonePricing(targetSku,sourceSku){
 function openProductPricing(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const isAdminUser=currentUser&&currentUser.role==='admin';
+  window._openDetailView={type:'product',id:sku};
   history.replaceState({page:'products',productDetail:sku},'','#products/'+encodeURIComponent(sku));
   ensureProductDetails(p);
   ensureDA();
