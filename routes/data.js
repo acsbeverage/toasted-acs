@@ -580,7 +580,9 @@ router.get('/tastings', requireAuth, async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     const rows = isAdmin
       ? await getAll('SELECT * FROM tastings ORDER BY created_at DESC')
-      : await getAll('SELECT * FROM tastings WHERE rep_id=$1 ORDER BY created_at DESC', [req.user.id]);
+      : await getAll(
+          `SELECT t.* FROM tastings t JOIN accounts a ON t.acct_id = a.id
+           WHERE a.rep=$1 ORDER BY t.created_at DESC`, [req.user.id]);
     res.json({ ok: true, tastings: rows.map(r => ({
       id: r.id, acct: r.acct_id, rep: r.rep_id,
       date: r.date?.toISOString().slice(0,10),
