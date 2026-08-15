@@ -6509,27 +6509,31 @@ function _buildInvoicePDF(o,callback){
 
   // == PAGE 1 HEADER ==========================================================
 
-  // Logo
-  try{doc.addImage('data:image/jpeg;base64,'+ACS_LOGO_B64,'JPEG',ML,y,60,60);}catch(e){}
+  // Logo -- kept small and positioned beside the company info text (not stacked above it),
+  // so the whole company-info block starts at the same height as Bill To/Ship To instead of
+  // being pushed down below a tall logo
+  try{doc.addImage('data:image/jpeg;base64,'+ACS_LOGO_B64,'JPEG',ML,y,34,34);}catch(e){}
 
-  // Company info (left, below logo) -- no separate "INVOICE" title, which just repeated
-  // what the invoice number already states clearly in the meta block on the right
+  // Company info -- no separate "INVOICE" title, which just repeated what the invoice
+  // number already states clearly in the meta block on the right
+  const infoX=ML+42;
   doc.setFontSize(6.5);doc.setFont('helvetica','bold');doc.setTextColor(160,40,40);
-  doc.text('*** NEW REMITTANCE ADDRESS ***',ML,y+68);
+  doc.text('*** NEW REMITTANCE ADDRESS ***',infoX,y+8);
   doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(40,40,40);
-  doc.text(COMPANY.name,ML,y+78);
+  doc.text(COMPANY.name,infoX,y+18);
   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(80,80,80);
-  doc.text(COMPANY.address,ML,y+88);
-  doc.text('Email: '+COMPANY.email,ML,y+98);
-  doc.text(COMPANY.website,ML,y+108);
+  const addrLines=doc.splitTextToSize(COMPANY.address,190); // safety wrap -- fits on one line at this width in the normal case
+  doc.text(addrLines,infoX,y+28);
+  doc.text('Email: '+COMPANY.email,infoX,y+28+addrLines.length*9);
+  doc.text(COMPANY.website,infoX,y+38+addrLines.length*9);
   if(o.isSample){
     doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(107,79,160);
-    doc.text('SAMPLE ORDER -- NO CRV APPLIED',ML,y+120);
+    doc.text('SAMPLE ORDER -- NO CRV APPLIED',infoX,y+50+addrLines.length*9);
     doc.setTextColor(40,40,40);
   }
 
   // Bill To (second column)
-  const col2=ML+205;
+  const col2=ML+235;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
   doc.text('BILL TO',col2,y+8);
   doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
@@ -6543,7 +6547,7 @@ function _buildInvoicePDF(o,callback){
   if(acct&&acct.lic){doc.setFontSize(7.5);doc.text('ABC: '+acct.lic,col2,byBT);byBT+=10;}
 
   // Ship To (third column)
-  const col3=ML+205+150;
+  const col3=ML+235+140;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
   doc.text('SHIP TO',col3,y+8);
   doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
@@ -6584,7 +6588,7 @@ function _buildInvoicePDF(o,callback){
   doc.text(rep&&rep.email?rep.email:'--',iX,repY+12,{align:'right'});
 
   // Advance past whichever column in this header ended up tallest
-  y=Math.max(y+128,byBT,bySH,repY+20);
+  y=Math.max(y+62+addrLines.length*9,byBT,bySH,repY+20);
   hline(y,0.75,80,80,80);y+=10;
 
   // Delivery Instructions -- highlighted so drivers don't miss it. The order's own notes
