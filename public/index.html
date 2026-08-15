@@ -1972,6 +1972,7 @@ async function triggerBackgroundRefresh(page){
   const now=Date.now();
   if(now-_lastBgRefresh<BG_REFRESH_MIN_INTERVAL)return;
   _bgRefreshInFlight=true;_lastBgRefresh=now;
+  const startedAt=now;
   try{
     await loadAllDataFromBackend();
     updateBadges();
@@ -1980,14 +1981,19 @@ async function triggerBackgroundRefresh(page){
     // and they're not actively typing somewhere -- a re-render would wipe out unsaved input.
     const activeTag=document.activeElement?document.activeElement.tagName:'';
     const isTyping=activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT';
+    const elapsed=Date.now()-startedAt;
     if(_currentPage===page && !BUILDER_PAGES.includes(page) && !isTyping){
+      if(elapsed>1500)_logNavDiagnostic('bgRefresh-rerender',{page,elapsedMs:elapsed}); // only log the slow ones -- those are the ones that could feel like an unexpected reset
       _dispatchPageRender(page);
+    } else if(_currentPage!==page){
+      _logNavDiagnostic('bgRefresh-skipped-page-changed',{startedForPage:page,userNowOn:_currentPage,elapsedMs:elapsed});
     }
   }catch(e){console.error('Background refresh failed:',e.message);}
   finally{_bgRefreshInFlight=false;}
 }
 
 function showPage(page, pushState=true){
+  _logNavDiagnostic('showPage',{page,pushState,fromPage:_currentPage,stack:(new Error()).stack.split('\n').slice(1,4).join(' | ')});
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
   const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',logistics:'ACS Logistics',fetchqbo:'Fetch QuickBooks',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders'};
@@ -2011,7 +2017,23 @@ function showPage(page, pushState=true){
 }
 
 // Handle browser back/forward buttons
+function _logNavDiagnostic(kind,detail){
+  try{
+    const entry={kind,detail,time:new Date().toISOString(),currentPage:_currentPage,historyLength:history.length,url:location.href};
+    console.warn('[NAV DIAGNOSTIC]',entry);
+    const log=JSON.parse(sessionStorage.getItem('_navDiagLog')||'[]');
+    log.push(entry);
+    if(log.length>30)log.shift(); // keep only the most recent 30 events
+    sessionStorage.setItem('_navDiagLog',JSON.stringify(log));
+  }catch(e){}
+}
+window._showNavDiagnosticLog=function(){console.table(JSON.parse(sessionStorage.getItem('_navDiagLog')||'[]'));};
+window._copyNavDiagnosticLog=function(){
+  const text=sessionStorage.getItem('_navDiagLog')||'[]';
+  navigator.clipboard.writeText(text).then(()=>alert('Diagnostic log copied -- paste it back to support.')).catch(()=>alert('Could not copy -- open devtools console and run: sessionStorage.getItem(\'_navDiagLog\')'));
+};
 window.addEventListener('popstate', function(e){
+  _logNavDiagnostic('popstate',{stateFromEvent:e.state});
   if(e.state&&e.state.page){
     showPage(e.state.page, false);
   } else {
@@ -3996,6 +4018,7 @@ function confirmSendInvoice(orderId){
   const subject=document.getElementById('send-invoice-subject').value.trim();
   const bodyText=document.getElementById('send-invoice-body-text').value;
   const timing=document.querySelector('input[name="send-timing"]:checked').value;
+  const originatingPage=_currentPage; // this send can take a few seconds -- only refresh this page later if the user is still on it
 
   const btn=document.getElementById('send-invoice-btn');
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Generating invoice...';
@@ -4023,14 +4046,15 @@ function confirmSendInvoice(orderId){
         toast('Invoice scheduled to send the morning of '+o.delivery);
       }
       closeModal('modal-send-invoice');
-      updatePageAfterConfirm();
+      updatePageAfterConfirm(originatingPage);
     }catch(e){
       alert('Could not send invoice: '+e.message);
       btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Confirm & Send';
     }
   });
 }
-function updatePageAfterConfirm(){
+function updatePageAfterConfirm(originatingPage){
+  if(originatingPage!==undefined&&_currentPage!==originatingPage)return; // user already moved to a different page -- don't yank them back
   const active=document.querySelector('.nav-item.active');
   if(active){const p=active.id.replace('nav-','');showPage(p);}
 }
@@ -12080,6 +12104,7 @@ function qboSendInvoice(orderId){
   if(!o){toast('Order not found');return}
   if(!QBO_STATE.connected){toast('Not connected to QuickBooks -- check Settings');return}
   const payload=qboOrderToInvoice(o);
+  const originatingPage=_currentPage; // this can take a few seconds -- only refresh later if the user is still on this page
   toast('Sending to QuickBooks...');
   qboFetch('/api/qbo/invoices','POST',{invoices:[payload]})
     .then(data=>{
@@ -12087,9 +12112,10 @@ function qboSendInvoice(orderId){
       o.qboSyncedAt=today();
       saveOrderStatusToDB(o.id,{qboInvoiceId:o.qboInvoiceId,qboSyncedAt:o.qboSyncedAt});
       toast(orderId+' sent to QuickBooks'+(o.qboInvoiceId?' (#'+o.qboInvoiceId+')':''));
-      // Refresh current page
-      const active=document.querySelector('.nav-item.active');
-      if(active)showPage(active.id.replace('nav-',''));
+      if(_currentPage===originatingPage){
+        const active=document.querySelector('.nav-item.active');
+        if(active)showPage(active.id.replace('nav-',''));
+      }
     })
     .catch(e=>toast('QBO error: '+e.message));
 }
@@ -12100,6 +12126,7 @@ function qboBatchSend(orderIds){
   if(!QBO_STATE.connected){toast('Not connected to QuickBooks -- check Settings');return}
   const orders=ORDERS.filter(o=>orderIds.includes(o.id));
   const payloads=orders.map(qboOrderToInvoice);
+  const originatingPage=_currentPage; // this can take a while for a batch -- only refresh later if the user is still on this page
   toast('Sending '+payloads.length+' invoice'+( payloads.length!==1?'s':'')+'...');
   qboFetch('/api/qbo/invoices','POST',{invoices:payloads})
     .then(data=>{
@@ -12111,8 +12138,10 @@ function qboBatchSend(orderIds){
       });
       toast(payloads.length+' invoice'+(payloads.length!==1?'s':'')+' sent to QuickBooks');
       renderQBOBatchModal(false);
-      const active=document.querySelector('.nav-item.active');
-      if(active)showPage(active.id.replace('nav-',''));
+      if(_currentPage===originatingPage){
+        const active=document.querySelector('.nav-item.active');
+        if(active)showPage(active.id.replace('nav-',''));
+      }
     })
     .catch(e=>toast('QBO batch error: '+e.message));
 }
