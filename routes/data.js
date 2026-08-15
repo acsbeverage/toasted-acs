@@ -245,8 +245,8 @@ router.get('/products', requireAuth, async (req, res) => {
       isAdmin
         ? 'SELECT * FROM products ORDER BY name'
         : seesAllTiers
-          ? `SELECT * FROM products WHERE COALESCE(warehouse,'main')<>'acs_logistics' ORDER BY name`
-          : `SELECT * FROM products WHERE COALESCE(warehouse,'main')<>'acs_logistics' AND COALESCE(restricted,FALSE)=FALSE ORDER BY name`
+          ? `SELECT * FROM products WHERE COALESCE(warehouse,'main')<>'acs_logistics' AND COALESCE(active,'Yes')<>'No' ORDER BY name`
+          : `SELECT * FROM products WHERE COALESCE(warehouse,'main')<>'acs_logistics' AND COALESCE(restricted,FALSE)=FALSE AND COALESCE(active,'Yes')<>'No' ORDER BY name`
     );
 
     // Bulk-fetch all dynamic tier prices, grouped by SKU, filtered by what this user is allowed to see
