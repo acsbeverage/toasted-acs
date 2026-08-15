@@ -67,6 +67,49 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/verify-ar-totals', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-verifyar') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    const expected = [["ACS-41013", 159.9, 0.0, 159.9], ["ACS-40990", 779.5, 0.0, 779.5], ["ACS-40986", 522.6, 0.0, 522.6], ["ACS-40992", 639.6, 0.0, 639.6], ["ACS-40991", 784.8, 0.0, 784.8], ["ACS-40982", 78.45, 0.0, 78.45], ["ACS-40948", 553.9, 0.0, 553.9], ["ACS-40947", 78.45, 0.0, 78.45], ["ACS-40915", 711.6, 0.0, 711.6], ["ACS-40914", 530.8, 0.0, 530.8], ["ACS-40848", 513.6, 0.0, 513.6], ["ACS-41086", 91.5, 0.0, 91.5], ["ACS-40754", 1320.9, 0.0, 1320.9], ["ACS-40994", 476.4, 0.0, 476.4], ["ACS-40654", 229.2, 217.2, 12.0], ["ACS-40881", 463.2, 0.0, 463.2], ["ACS-40617", 1478.7, 0.0, 1478.7], ["ACS-39762", 49.35, 0.0, 49.35], ["ACS-40485", 221.6, 0.0, 221.6], ["ACS-40358", 1211.75, 0.0, 1211.75], ["ACS-40320", 693.6, 0.0, 693.6], ["ACS-39796", 136.5, 68.25, 68.25], ["ACS-39693", 867.65, 0.0, 867.65], ["ACS-39204", 1034.6, 0.0, 1034.6], ["ACS-39205", 1537.5, 1508.1, 29.4], ["ACS-39033", 642.8, 0.0, 642.8], ["ACS-38937", 150.9, 148.5, 2.4], ["ACS-38705", 283.2, 0.0, 283.2], ["ACS-38665", 446.6, 0.0, 446.6], ["ACS-38506", 3172.26, 0.0, 3172.26], ["ACS-37613", 1528.9, 1343.35, 185.55], ["ACS-37623", 349.2, 0.0, 349.2], ["ACS-37284", 1417.4, 1349.4, 68.0], ["ACS-37317", 1772.4, 1770.0, 2.4], ["ACS-37053", 605.1, 0.0, 605.1], ["ACS-36310", 603.6, 420.6, 183.0], ["ACS-36312", 888.9, 882.9, 6.0], ["ACS-36164", 912.6, 0.0, 912.6], ["ACS-36063", 784.8, 0.0, 784.8], ["ACS-35170", 251.35, 0.0, 251.35], ["ACS-35405", 349.2, 0.0, 349.2], ["ACS-35150", 947.35, 934.75, 12.6], ["ACS-34941", 675.6, 669.6, 6.0], ["ACS-34210", 730.8, 724.8, 6.0], ["ACS-33082", 590.55, 581.1, 9.45], ["ACS-33083", 511.5, 505.5, 6.0], ["ACS-33073", 300.4, 294.4, 6.0], ["ACS-31956", 584.2, 577.9, 6.3], ["ACS-30900", 449.1, 443.1, 6.0], ["ACS-30913", 304.8, 298.8, 6.0], ["ACS-30902", 406.2, 399.9, 6.3], ["ACS-29996", 533.7, 527.7, 6.0], ["ACS-29973", 1080.25, 1074.25, 6.0], ["ACS-29997", 571.2, 568.8, 2.4], ["ACS-28909", 830.8, 824.8, 6.0], ["ACS-26130", 666.3, 660.3, 6.0], ["ACS-26101", 672.6, 575.12, 97.48], ["ACS-25645", 613.58, 0.0, 613.58], ["ACS-23793", 277.6, 0.0, 277.6], ["ACS-23658", 1808.4, 1776.4, 32.0], ["ACS-23259", 1489.5, 1483.5, 6.0], ["ACS-22955", 1031.7, 654.0, 377.7], ["ACS-22314", 241.6, 235.0, 6.6], ["ACS-22165", 97.5, 91.5, 6.0], ["ACS-22147", 167.25, 161.25, 6.0], ["ACS-21246", 634.9, 0.0, 634.9], ["ACS-20756", 490.2, 484.2, 6.0], ["ACS-19581", 4598.0, 4593.0, 5.0], ["ACS-19598", 594.6, 504.6, 90.0], ["ACS-19213", 237.0, 231.0, 6.0], ["ACS-18773", 1154.85, 1148.85, 6.0], ["ACS-17158", 349.45, 0.0, 349.45], ["ACS-16930", 236.0, 231.0, 5.0], ["ACS-16962", 74.75, 69.75, 5.0], ["ACS-16960", 681.0, 0.0, 681.0], ["ACS-15999", 1356.5, 946.2, 410.3], ["ACS-14871", 375.5, 214.25, 161.25], ["ACS-14581", 438.8, 437.6, 1.2], ["ACS-14320", 564.2, 559.2, 5.0], ["ACS-14316", 367.4, 345.4, 22.0], ["ACS-13073", 257.6, 0.0, 257.6], ["ACS-7694", 774.7, 612.8, 161.9], ["ACS-7165", 443.6, 421.18, 22.42], ["ACS-6700", 426.2, 0.0, 426.2], ["ACS-6499", 102.2, 101.0, 1.2], ["ACS-5639", 2395.1, 2390.4, 4.7], ["ACS-5389", 2617.4, 2418.38, 199.02], ["ACS-6066", 501.8, 496.8, 5.0], ["ACS-5100", 9060.0, 9000.0, 60.0], ["ACS-5102", 1776.5, 1771.77, 4.73], ["ACS-4876", 522.2, 516.6, 5.6], ["ACS-4219", 7596.0, 7408.1, 187.9], ["ACS-3690", 263.3, 258.6, 4.7], ["ACS-2119", 6234.1, 6030.2, 203.9], ["ACS-2329", 655.4, 492.8, 162.6], ["ACS-2878", 12967.4, 12959.5, 7.9], ["ACS-2304", 510.2, 504.2, 6.0], ["ACS-2106", 781.1, 0.0, 781.1], ["ACS-2016", 579.2, 479.2, 100.0], ["ACS-2003", 338.6, 333.6, 5.0], ["ACS-1812", 180.6, 102.6, 78.0], ["ACS-1698", 602.0, 0.0, 602.0], ["ACS-1682", 462.2, 0.0, 462.2], ["ACS-1527", 654.8, 0.0, 654.8], ["ACS-1503", 2961.6, 2946.6, 15.0], ["ACS-1368", 438.2, 0.0, 438.2], ["ACS-1162", 653.0, 0.0, 653.0], ["ACS-882", 194.0, 0.0, 194.0], ["ACS-872", 764.5, 229.5, 535.0], ["ACS-288", 2393.0, 2008.78, 384.22], ["ACS-253", 1236.0, 0.0, 1236.0], ["ACS-22445", 941.1, 0.0, 941.1]];
+    const invoiceIds = expected.map(r => r[0]);
+
+    const items = await getAll(
+      'SELECT oi.order_id, oi.sku, oi.cases, oi.bottles, oi.rate, oi.discount_pct, oi.is_fee, oi.fee_amt, p.btl as product_btl ' +
+      'FROM order_items oi LEFT JOIN products p ON oi.sku = p.sku WHERE oi.order_id = ANY($1)',
+      [invoiceIds]
+    );
+
+    const totalsByOrder = {};
+    for (const it of items) {
+      if (!totalsByOrder[it.order_id]) totalsByOrder[it.order_id] = 0;
+      if (it.is_fee) {
+        totalsByOrder[it.order_id] += parseFloat(it.fee_amt) || 0;
+      } else {
+        const btl = it.product_btl || 1;
+        const totalBottles = (it.cases || 0) * btl + (it.bottles || 0);
+        const rate = parseFloat(it.rate) || 0;
+        const discountPct = parseFloat(it.discount_pct) || 0;
+        totalsByOrder[it.order_id] += totalBottles * rate * (1 - discountPct / 100);
+      }
+    }
+
+    const results = expected.map(([invoiceId, expectedTotal, amountReceived, expectedBalance]) => {
+      const liveTotal = totalsByOrder[invoiceId] !== undefined ? Math.round(totalsByOrder[invoiceId] * 100) / 100 : null;
+      const diff = liveTotal !== null ? Math.round((liveTotal - expectedTotal) * 100) / 100 : null;
+      return { invoiceId, expectedTotal, liveTotal, diff, amountReceived, expectedBalance };
+    });
+
+    const mismatches = results.filter(r => r.diff === null || Math.abs(r.diff) > 1);
+    const matching = results.filter(r => r.diff !== null && Math.abs(r.diff) <= 1);
+
+    res.json({ ok: true, totalChecked: results.length, matchingCount: matching.length, mismatchCount: mismatches.length, mismatches });
+  } catch (err) {
+    console.error('Verify AR totals error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/remove-dash12-skus', async (req, res) => {
   if(req.query.secret !== 'toasted2026-dash12') return res.status(403).json({ok:false});
   const execute = req.query.execute === 'true';
