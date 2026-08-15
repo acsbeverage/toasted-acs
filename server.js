@@ -67,6 +67,19 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/diagnose-acs2878', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-diag2878') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    const order = await getAll('SELECT * FROM orders WHERE id=$1', ['ACS-2878']);
+    const items = await getAll('SELECT * FROM order_items WHERE order_id=$1', ['ACS-2878']);
+    const skus = [...new Set(items.map(i => i.sku))];
+    const products = await getAll('SELECT sku,name,btl,active FROM products WHERE sku = ANY($1)', [skus]);
+    res.json({ ok: true, order, items, products });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/fix-partial-payments', async (req, res) => {
   if(req.query.secret !== 'toasted2026-fixpartial') return res.status(403).json({ok:false});
   const execute = req.query.execute === 'true';
