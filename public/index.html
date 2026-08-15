@@ -2113,22 +2113,12 @@ function renderRepDashboard(){
       '</div>';
   }
 
-  document.getElementById('main-content').innerHTML=`
-  <div class="dash-action-tabs" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-bottom:18px">
-    <button onclick="showPage('neworder')" style="border:none;cursor:pointer;background:var(--navy);color:#fff;border-radius:var(--radius-lg);padding:22px 24px;display:flex;align-items:center;gap:16px;text-align:left;transition:transform 0.15s" onmouseover="this.style.transform='scale(1.015)'" onmouseout="this.style.transform='scale(1)'">
-      <i class="ti ti-plus" style="font-size:34px;color:var(--gold)"></i>
-      <div><div style="font-size:20px;font-weight:800;letter-spacing:-0.3px">Place Order</div><div style="font-size:12px;opacity:0.75;margin-top:2px">Start a new order for any account</div></div>
-    </button>
-    <button onclick="showPage('accounts')" style="border:1px solid var(--border);cursor:pointer;background:var(--bg2);color:var(--text);border-radius:var(--radius-lg);padding:22px 20px;display:flex;align-items:center;gap:12px;text-align:left;transition:transform 0.15s" onmouseover="this.style.transform='scale(1.015)'" onmouseout="this.style.transform='scale(1)'">
-      <i class="ti ti-building-store" style="font-size:26px;color:var(--gold)"></i>
-      <div><div style="font-size:16px;font-weight:700">Accounts</div><div style="font-size:11px;color:var(--text2);margin-top:1px">View &amp; manage</div></div>
-    </button>
-    <button onclick="showPage('catalog')" style="border:1px solid var(--border);cursor:pointer;background:var(--bg2);color:var(--text);border-radius:var(--radius-lg);padding:22px 20px;display:flex;align-items:center;gap:12px;text-align:left;transition:transform 0.15s" onmouseover="this.style.transform='scale(1.015)'" onmouseout="this.style.transform='scale(1)'">
-      <i class="ti ti-bottle" style="font-size:26px;color:var(--gold)"></i>
-      <div><div style="font-size:16px;font-weight:700">Products</div><div style="font-size:11px;color:var(--text2);margin-top:1px">Browse catalog</div></div>
-    </button>
-  </div>
+  document.getElementById('topbar-right').innerHTML=`
+    <button class="btn btn-sm btn-dark" onclick="showPage('neworder')"><i class="ti ti-plus"></i> Place Order</button>
+    <button class="btn btn-sm" onclick="showPage('accounts')"><i class="ti ti-building-store"></i> Accounts</button>
+    <button class="btn btn-sm" onclick="showPage('catalog')"><i class="ti ti-bottle"></i> Products</button>`;
 
+  document.getElementById('main-content').innerHTML=`
   <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px">
     <div style="display:flex;background:var(--bg3);border-radius:8px;padding:3px">
       <button onclick="window._repDashPeriod='mtd';renderRepDashboard()" style="border:none;cursor:pointer;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;background:${isMtd?'var(--bg2)':'transparent'};color:${isMtd?'var(--text)':'var(--text2)'};box-shadow:${isMtd?'0 1px 3px rgba(0,0,0,0.1)':'none'}">Month to Date</button>
@@ -4428,6 +4418,7 @@ function renderInventory(){
     </div>
     <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Cat</th><th>Pack</th><th>Stock</th><th>Cases</th><th>Reorder</th><th>Status</th>${isAdmin?'<th></th>':''}</tr></thead>
     <tbody id="inv-body"></tbody></table>
+    <div id="inv-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
   </div>
   ${isAdmin&&RECEIVE_LOG.length?`<div class="card"><div class="card-header"><span class="card-title">Inventory adjustment log</span></div>
   <table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Reason</th><th>Adjustment</th><th>Notes</th><th>By</th></tr></thead>
@@ -4445,6 +4436,7 @@ function filterInv(q){
   const cat=document.getElementById('inv-cat').value;const sf=document.getElementById('inv-stock').value;const pf=document.getElementById('inv-prod').value;
   let res=mainInventory().filter(p=>(!q||p.name.toLowerCase().includes(q.toLowerCase())||p.sku.toLowerCase().includes(q.toLowerCase()))&&(!cat||p.cat===cat)&&(!pf||p.producer===pf));
   if(sf==='out')res=res.filter(p=>p.stock===0);else if(sf==='low')res=res.filter(p=>p.stock>0&&p.stock<=p.reorder);else if(sf==='ok')res=res.filter(p=>p.stock>p.reorder);
+  window._invPage=1;
   renderInvBody(res);
 }
 function renderACSLogistics(){
@@ -4482,9 +4474,23 @@ function renderLogisticsBody(prods){
   const b=document.getElementById('log-body');if(!b)return;
   b.innerHTML=prods.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td><td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}','acs_logistics')"><i class="ti ti-plus"></i></button></td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No products in ACS Logistics yet</td></tr>';
 }
+const PRODUCT_LIST_PAGE_SIZE=50;
 function renderInvBody(prods){
   const isAdmin=currentUser.role==='admin';const b=document.getElementById('inv-body');if(!b)return;
-  b.innerHTML=prods.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500;max-width:200px">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td>${isAdmin?`<td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button></td>`:''}</tr>`).join('');
+  const totalPages=Math.max(1,Math.ceil(prods.length/PRODUCT_LIST_PAGE_SIZE));
+  if(!window._invPage)window._invPage=1;
+  if(window._invPage>totalPages)window._invPage=totalPages;
+  const start=(window._invPage-1)*PRODUCT_LIST_PAGE_SIZE;
+  const pageProds=prods.slice(start,start+PRODUCT_LIST_PAGE_SIZE);
+  b.innerHTML=pageProds.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500;max-width:200px">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td>${isAdmin?`<td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button></td>`:''}</tr>`).join('');
+  const pag=document.getElementById('inv-pagination');
+  if(pag){
+    pag.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${window._invPage<=1?'disabled':''} onclick="window._invPage--;renderInvBody(_lastInvFiltered)"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${window._invPage} of ${totalPages}</span>
+      <button class="btn btn-sm" ${window._invPage>=totalPages?'disabled':''} onclick="window._invPage++;renderInvBody(_lastInvFiltered)">Next <i class="ti ti-chevron-right"></i></button>`;
+  }
+  window._lastInvFiltered=prods;
 }
 function openReceive(sku='',warehouse='main'){
   const pool=warehouse==='acs_logistics'?logisticsInventory():mainInventory();
@@ -5444,9 +5450,14 @@ function renderCatalog(){
   ).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
 
   function renderBody(){
-    const prods=filtered();
+    const allProds=filtered();
+    const totalPages=Math.max(1,Math.ceil(allProds.length/PRODUCT_LIST_PAGE_SIZE));
+    if(!window._catalogPage)window._catalogPage=1;
+    if(window._catalogPage>totalPages)window._catalogPage=totalPages;
+    const start=(window._catalogPage-1)*PRODUCT_LIST_PAGE_SIZE;
+    const prods=allProds.slice(start,start+PRODUCT_LIST_PAGE_SIZE);
     const tbody=document.getElementById('catalog-body');if(!tbody)return;
-    document.getElementById('catalog-count').textContent=prods.length+' product'+(prods.length!==1?'s':'');
+    document.getElementById('catalog-count').textContent=allProds.length+' product'+(allProds.length!==1?'s':'');
     tbody.innerHTML=prods.map(p=>{
       const fl=(p.prices?.frontline||0)*p.btl;
       const inStock=p.stock>0;
@@ -5462,7 +5473,15 @@ function renderCatalog(){
           <i class="ti ti-plus"></i> Add to order</button></td>
       </tr>`;
     }).join('')||`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3)">No products match</td></tr>`;
+    const pag=document.getElementById('catalog-pagination');
+    if(pag){
+      pag.innerHTML=totalPages<=1?'':`
+        <button class="btn btn-sm" ${window._catalogPage<=1?'disabled':''} onclick="window._catalogPage--;window._catalogRenderBody()"><i class="ti ti-chevron-left"></i> Prev</button>
+        <span style="font-size:13px;color:var(--text2)">Page ${window._catalogPage} of ${totalPages}</span>
+        <button class="btn btn-sm" ${window._catalogPage>=totalPages?'disabled':''} onclick="window._catalogPage++;window._catalogRenderBody()">Next <i class="ti ti-chevron-right"></i></button>`;
+    }
   }
+  window._catalogRenderBody=renderBody;
 
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
@@ -5483,11 +5502,13 @@ function renderCatalog(){
   <div class="card"><div style="overflow-x:auto"><table class="tbl">
     <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>Category</th><th>Pack</th><th>Frontline</th><th>Stock</th><th></th></tr></thead>
     <tbody id="catalog-body"></tbody>
-  </table></div></div>`;
+  </table></div>
+  <div id="catalog-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
+  </div>`;
 
   renderBody();
-  document.getElementById('cat-search').addEventListener('input',function(){_q=this.value.toLowerCase();renderBody();});
-  document.getElementById('cat-cat').addEventListener('change',function(){_cat=this.value;renderBody();});
+  document.getElementById('cat-search').addEventListener('input',function(){_q=this.value.toLowerCase();window._catalogPage=1;renderBody();});
+  document.getElementById('cat-cat').addEventListener('change',function(){_cat=this.value;window._catalogPage=1;renderBody();});
 }
 
 function addProductToOrder(sku){
@@ -11598,12 +11619,24 @@ function _renderProductRows(filtered){
   }).join('')||'<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No products match</td></tr>';
 }
 function filterProducts(val){
-  if(val!==undefined)_prodSearch=val;
-  const filtered=_filterProductsList();
+  if(val!==undefined){_prodSearch=val;window._productsPage=1;}
+  const allFiltered=_filterProductsList();
+  const totalPages=Math.max(1,Math.ceil(allFiltered.length/PRODUCT_LIST_PAGE_SIZE));
+  if(!window._productsPage)window._productsPage=1;
+  if(window._productsPage>totalPages)window._productsPage=totalPages;
+  const start=(window._productsPage-1)*PRODUCT_LIST_PAGE_SIZE;
+  const filtered=allFiltered.slice(start,start+PRODUCT_LIST_PAGE_SIZE);
   const tbody=document.getElementById('products-tbody');
   if(tbody)tbody.innerHTML=_renderProductRows(filtered);
   const count=document.getElementById('products-count');
-  if(count)count.textContent=filtered.length+' product'+(filtered.length!==1?'s':'');
+  if(count)count.textContent=allFiltered.length+' product'+(allFiltered.length!==1?'s':'');
+  const pag=document.getElementById('products-pagination');
+  if(pag){
+    pag.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${window._productsPage<=1?'disabled':''} onclick="window._productsPage--;filterProducts()"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${window._productsPage} of ${totalPages}</span>
+      <button class="btn btn-sm" ${window._productsPage>=totalPages?'disabled':''} onclick="window._productsPage++;filterProducts()">Next <i class="ti ti-chevron-right"></i></button>`;
+  }
 }
 function renderProducts(){
   const isAdmin=currentUser&&currentUser.role==='admin';
@@ -11628,12 +11661,12 @@ function renderProducts(){
     </div>
     <div>
       <div class="flabel" style="margin-bottom:4px">Category</div>
-      <select class="finput" onchange="_prodCat=this.value;filterProducts()" style="padding:7px 10px;width:160px">
+      <select class="finput" onchange="_prodCat=this.value;window._productsPage=1;filterProducts()" style="padding:7px 10px;width:160px">
         <option value="">All categories</option>
         ${cats.map(c=>`<option value="${c}" ${_prodCat===c?'selected':''}>${c}</option>`).join('')}
       </select>
     </div>
-    <button class="btn btn-sm" onclick="document.getElementById('prod-search').value='';_prodSearch='';_prodCat='';renderProducts()">Clear</button>
+    <button class="btn btn-sm" onclick="document.getElementById('prod-search').value='';_prodSearch='';_prodCat='';window._productsPage=1;renderProducts()">Clear</button>
     <span id="products-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${filtered.length} product${filtered.length!==1?'s':''}</span>
   </div>
 
@@ -11643,8 +11676,9 @@ function renderProducts(){
         <th>Name</th><th>SKU / Code</th><th>Producer</th><th>Category</th>
         <th>Bottle Size</th><th>Pack</th><th>Frontline</th><th>Active</th><th></th>
       </tr></thead>
-      <tbody id="products-tbody">${_renderProductRows(filtered)}</tbody>
+      <tbody id="products-tbody"></tbody>
     </table></div>
+    <div id="products-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
   </div>
 
   <!-- PRODUCT EDIT MODAL -->
@@ -11658,6 +11692,7 @@ function renderProducts(){
       </div>
     </div>
   </div>`;
+  filterProducts();
 }
 
 function openEditProduct(sku){
