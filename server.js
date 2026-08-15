@@ -67,6 +67,22 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/diagnose-ar-mismatches', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-armismatch') return res.status(403).json({ok:false});
+  try {
+    const { getAll } = require('./db');
+    const invoiceIds = ["ACS-39205", "ACS-25645", "ACS-23793", "ACS-21246", "ACS-19581", "ACS-17158", "ACS-5639", "ACS-5389", "ACS-5100", "ACS-5102", "ACS-4219", "ACS-2119", "ACS-2106", "ACS-1503", "ACS-288"];
+    const items = await getAll(
+      'SELECT oi.order_id, oi.sku, oi.cases, oi.bottles, oi.rate, oi.discount_pct, oi.is_fee, oi.fee_amt, p.name, p.btl as product_btl, p.active ' +
+      'FROM order_items oi LEFT JOIN products p ON oi.sku = p.sku WHERE oi.order_id = ANY($1) ORDER BY oi.order_id, oi.sort_order',
+      [invoiceIds]
+    );
+    res.json({ ok: true, items });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/verify-ar-totals', async (req, res) => {
   if(req.query.secret !== 'toasted2026-verifyar') return res.status(403).json({ok:false});
   try {
