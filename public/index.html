@@ -11199,6 +11199,8 @@ function ensureProductDetails(p){
 
 let _prodSearch='';
 let _prodCat='';
+let _prodStock='';
+let _prodProducer='';
 let _editingProductSku=null;
 
 function newPricingReset(sku){
@@ -11705,7 +11707,12 @@ function _filterProductsList(){
   return mainInventory().filter(p=>{
     const matchQ=!_prodSearch.trim()||matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),_prodSearch);
     const matchCat=!_prodCat||p.cat===_prodCat;
-    return matchQ&&matchCat;
+    const matchProducer=!_prodProducer||p.producer===_prodProducer;
+    let matchStock=true;
+    if(_prodStock==='out')matchStock=p.stock===0;
+    else if(_prodStock==='low')matchStock=p.stock>0&&p.stock<=p.reorder;
+    else if(_prodStock==='ok')matchStock=p.stock>p.reorder;
+    return matchQ&&matchCat&&matchProducer&&matchStock;
   }).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
 }
 function _renderProductRows(filtered){
@@ -11777,7 +11784,23 @@ function renderProducts(){
         ${cats.map(c=>`<option value="${c}" ${_prodCat===c?'selected':''}>${c}</option>`).join('')}
       </select>
     </div>
-    <button class="btn btn-sm" onclick="document.getElementById('prod-search').value='';_prodSearch='';_prodCat='';window._productsPage=1;renderProducts()">Clear</button>
+    <div>
+      <div class="flabel" style="margin-bottom:4px">Stock level</div>
+      <select class="finput" onchange="_prodStock=this.value;window._productsPage=1;filterProducts()" style="padding:7px 10px;width:140px">
+        <option value="">All stock levels</option>
+        <option value="out" ${_prodStock==='out'?'selected':''}>Out of stock</option>
+        <option value="low" ${_prodStock==='low'?'selected':''}>Low stock</option>
+        <option value="ok" ${_prodStock==='ok'?'selected':''}>In stock</option>
+      </select>
+    </div>
+    <div>
+      <div class="flabel" style="margin-bottom:4px">Producer</div>
+      <select class="finput" onchange="_prodProducer=this.value;window._productsPage=1;filterProducts()" style="padding:7px 10px;width:170px">
+        <option value="">All producers</option>
+        ${[...new Set(PRODUCTS.map(p=>p.producer).filter(Boolean))].sort().map(pr=>`<option value="${pr}" ${_prodProducer===pr?'selected':''}>${pr}</option>`).join('')}
+      </select>
+    </div>
+    <button class="btn btn-sm" onclick="document.getElementById('prod-search').value='';_prodSearch='';_prodCat='';_prodStock='';_prodProducer='';window._productsPage=1;renderProducts()">Clear</button>
     <span id="products-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${filtered.length} product${filtered.length!==1?'s':''}</span>
   </div>
 
