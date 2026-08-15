@@ -55,6 +55,7 @@ router.get('/', requireAuth, async (req, res) => {
         _fee: item.is_fee, feeAmt: item.fee_amt ? parseFloat(item.fee_amt) : undefined,
         count: item.fee_count, _manual: item.is_manual,
         rate: item.rate !== null ? parseFloat(item.rate) : undefined,
+        notes: item.notes || '',
       });
     });
     const orders = rows.map(r => ({
@@ -183,11 +184,11 @@ router.post('/', requireAuth, async (req, res) => {
         const item = items[i];
         await query(`
           INSERT INTO order_items (order_id,sku,cases,bottles,tier,discount_pct,
-            is_fee,fee_amt,fee_count,is_manual,rate,sort_order)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            is_fee,fee_amt,fee_count,is_manual,rate,sort_order,notes)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         `, [id, item.sku, item.cases||0, item.bottles||0, item.tier||'frontline',
             item.discountPct||0, !!item._fee, item.feeAmt||null, item.count||null,
-            !!item._manual, item.rate||null, i]);
+            !!item._manual, item.rate||null, i, item.notes||null]);
       }
     }
     sendOrderNotification(id, placedByLabel||req.user.fname+' '+(req.user.lname||''), req.user.email).catch(console.error);
@@ -235,11 +236,11 @@ router.patch('/:id', requireAuth, async (req, res) => {
         const item = items[i];
         await query(`
           INSERT INTO order_items (order_id,sku,cases,bottles,tier,discount_pct,
-            is_fee,fee_amt,fee_count,is_manual,rate,sort_order)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            is_fee,fee_amt,fee_count,is_manual,rate,sort_order,notes)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         `, [req.params.id, item.sku, item.cases||0, item.bottles||0, item.tier||'frontline',
             item.discountPct||0, !!item._fee, item.feeAmt||null, item.count||null,
-            !!item._manual, item.rate||null, i]);
+            !!item._manual, item.rate||null, i, item.notes||null]);
       }
     }
     if (updates.length === 0 && !Array.isArray(items)) {
