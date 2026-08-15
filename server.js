@@ -67,6 +67,48 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/remove-dash12-skus', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-dash12') return res.status(403).json({ok:false});
+  const execute = req.query.execute === 'true';
+  try {
+    const { query, getAll } = require('./db');
+    const matches = await getAll(
+      `SELECT sku, name, producer, btl, active FROM products
+       WHERE sku LIKE '%-12' AND producer NOT ILIKE '%liber%'
+       ORDER BY producer, name`
+    );
+    const skus = matches.map(m => m.sku);
+    const orderUsage = skus.length ? await getAll(
+      `SELECT sku, COUNT(*) as line_items, COUNT(DISTINCT order_id) as orders
+       FROM order_items WHERE sku = ANY($1) GROUP BY sku`,
+      [skus]
+    ) : [];
+    const usageMap = {};
+    orderUsage.forEach(u => { usageMap[u.sku] = { lineItems: parseInt(u.line_items), orders: parseInt(u.orders) }; });
+    const withUsage = matches.map(m => ({ ...m, usedInOrders: usageMap[m.sku] || { lineItems: 0, orders: 0 } }));
+    const safeToDelete = withUsage.filter(m => m.usedInOrders.lineItems === 0);
+    const referencedByOrders = withUsage.filter(m => m.usedInOrders.lineItems > 0);
+
+    if (!execute) {
+      return res.json({ ok: true, dryRun: true,
+        totalMatching: matches.length,
+        safeToDeleteCount: safeToDelete.length,
+        referencedByOrdersCount: referencedByOrders.length,
+        safeToDelete, referencedByOrders,
+        note: 'referencedByOrders products are used by real historical orders and will NOT be deleted, to avoid breaking those records -- only safeToDelete products get removed. Re-run with &execute=true to apply.' });
+    }
+
+    let deleted = 0;
+    for (const m of safeToDelete) {
+      await query('DELETE FROM products WHERE sku=$1', [m.sku]);
+      deleted++;
+    }
+    res.json({ ok: true, executed: true, deletedCount: deleted, skippedDueToOrderReferences: referencedByOrders.length });
+  } catch (err) {
+    console.error('Remove dash-12 SKUs error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.get('/api/diagnose-acs2878', async (req, res) => {
   if(req.query.secret !== 'toasted2026-diag2878') return res.status(403).json({ok:false});
   try {
