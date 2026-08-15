@@ -1825,15 +1825,15 @@ function openChangePassword(){
   document.getElementById('modal-change-pw').classList.add('open');
 }
 
-function doChangePassword(){
+async function doChangePassword(){
   const current = document.getElementById('cpw-current').value;
   const newPw   = document.getElementById('cpw-new').value;
   const confirm = document.getElementById('cpw-confirm').value;
   const errEl   = document.getElementById('cpw-err');
   errEl.style.display='none';
 
-  if(current !== currentUser.pw){
-    errEl.textContent='Incorrect current password.';
+  if(!current){
+    errEl.textContent='Please enter your current password.';
     errEl.style.display='block'; return;
   }
   if(newPw.length < 6){
@@ -1844,12 +1844,33 @@ function doChangePassword(){
     errEl.textContent='New passwords do not match.';
     errEl.style.display='block'; return;
   }
-  currentUser.pw = newPw;
-  // Update in USERS array too
-  const u = USERS.find(x=>x.id===currentUser.id);
-  if(u) u.pw = newPw;
-  closeModal('modal-change-pw');
-  toast('Password updated successfully');
+  if(!TOASTED_BACKEND_URL){
+    errEl.textContent='Not connected -- try again in a moment.';
+    errEl.style.display='block'; return;
+  }
+
+  const btn=document.querySelector('#modal-change-pw .btn-dark');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Updating...';}
+
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/auth/change-password',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({currentPassword:current,newPassword:newPw})
+    }).then(r=>r.json());
+    if(!res.ok){
+      errEl.textContent=res.error||'Could not update password.';
+      errEl.style.display='block';
+      return;
+    }
+    closeModal('modal-change-pw');
+    toast('Password updated successfully');
+  }catch(e){
+    errEl.textContent='Could not connect -- please try again.';
+    errEl.style.display='block';
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Update password';}
+  }
 }
 
 // ── FORGOT PASSWORD ───────────────────────────────────────────────────────────
