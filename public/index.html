@@ -2225,14 +2225,14 @@ function renderAdminDashboard(){
   const revChg=priorRev>0?((totalRev-priorRev)/priorRev*100):0;
   const totalOrders=orders.length;
   const activeAccts=new Set(orders.map(o=>o.acct)).size;
-  const openAR=ORDERS.filter(o=>o.status==='delivered'&&!o.paid).reduce((s,o)=>s+orderTotal(o),0);
+  const openAR=ORDERS.filter(o=>o.status==='delivered'&&!o.paid).reduce((s,o)=>s+arBalanceDue(o),0);
   const pastDue=ORDERS.filter(o=>{
     if(o.status!=='delivered'||o.paid)return false;
     const acct=acctById(o.acct)||{};
     const terms=parseInt((acct.terms||'Net 30').replace(/\D/g,''))||30;
     const due=new Date(o.delivery||o.date);due.setDate(due.getDate()+terms);
     return due.toISOString().slice(0,10)<new Date().toISOString().slice(0,10);
-  }).reduce((s,o)=>s+orderTotal(o),0);
+  }).reduce((s,o)=>s+arBalanceDue(o),0);
 
   // Rep leaderboard
   const repMap={};
@@ -4773,7 +4773,7 @@ function _renderAcctRows(filtered){
     const rep=USERS.find(u=>u.id===a.rep)||{};
     const myOrders=ORDERS.filter(o=>o.acct===a.id);
     const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
-    const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
+    const openBal=openAR.reduce((s,o)=>s+arBalanceDue(o),0);
     return`<tr style="cursor:pointer" onclick="openAccountDetail('${a.id}')">
       <td style="font-weight:600;color:var(--gold)">${a.name}</td>
       <td style="font-size:12px;color:var(--text2)">${a.lic||a.abcNum||'--'}</td>
@@ -5072,7 +5072,7 @@ function openAccountDetail(acctId){
   const rep=USERS.find(u=>u.id===a.rep)||{};
   const allOrders=ORDERS.filter(o=>o.acct===a.id).sort((x,y)=>y.date.localeCompare(x.date));
   const openAR=allOrders.filter(o=>o.status==='delivered'&&!o.paid);
-  const openBal=openAR.reduce((s,o)=>s+orderTotal(o),0);
+  const openBal=openAR.reduce((s,o)=>s+arBalanceDue(o),0);
   const totalSpend=allOrders.filter(o=>o.paid).reduce((s,o)=>s+orderTotal(o),0);
   const lastOrder=allOrders[0];
   const statusColor=st=>({unconfirmed:'var(--amber)',confirmed:'var(--green)',delivered:'var(--navy)'}[st]||'var(--text2)');
@@ -8272,10 +8272,13 @@ function renderRI2(el){
     const pastDue=dueDateStr<today_;
     const daysOut=Math.round((new Date(dueDateStr)-new Date(today_))/(1000*60*60*24));
     const total=orderTotal(o);
-    return{invoice:o.id,date:o.date,delivery:o.delivery||o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,terms:acct.terms||'Net 30',dueDate:dueDateStr,daysOut,pastDue,total};
+    const received=o.partialPaidAmount||0;
+    const balanceDue=arBalanceDue(o);
+    const status=received>0?'partially_paid':'pending';
+    return{invoice:o.id,date:o.date,delivery:o.delivery||o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,terms:acct.terms||'Net 30',dueDate:dueDateStr,daysOut,pastDue,total,received,balanceDue,status};
   }).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-  const totalOwed=rows.reduce((s,r)=>s+r.total,0);
-  const pastDueAmt=rows.filter(r=>r.pastDue).reduce((s,r)=>s+r.total,0);
+  const totalOwed=rows.reduce((s,r)=>s+r.balanceDue,0);
+  const pastDueAmt=rows.filter(r=>r.pastDue).reduce((s,r)=>s+r.balanceDue,0);
   el.innerHTML+=`
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
     <div class="card" style="padding:16px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--red)">${rows.filter(r=>r.pastDue).length}</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Past Due</div></div>
@@ -8290,7 +8293,7 @@ function renderRI2(el){
     </div>
     <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
       <table class="tbl">
-        <thead><tr><th>Invoice</th><th>Invoice Date</th><th>Account</th><th>Rep</th><th>Terms</th><th>Due Date</th><th style="text-align:right">Days</th><th style="text-align:right">Amount</th><th>Status</th></tr></thead>
+        <thead><tr><th>Invoice</th><th>Invoice Date</th><th>Account</th><th>Rep</th><th>Terms</th><th>Due Date</th><th style="text-align:right">Days</th><th style="text-align:right">Total Due</th><th style="text-align:right">Received</th><th style="text-align:right">Balance Due</th><th>Status</th></tr></thead>
         <tbody>
         ${rows.length?rows.map(r=>`<tr>
           <td style="font-size:11px;color:var(--gold)">${r.invoice}</td>
@@ -8300,16 +8303,18 @@ function renderRI2(el){
           <td style="font-size:12px;color:var(--text2)">${r.terms}</td>
           <td style="font-size:12px">${r.dueDate}</td>
           <td style="text-align:right;font-size:12px;font-weight:600;color:${r.pastDue?'var(--red)':'var(--text2)'}">${r.pastDue?'+'+Math.abs(r.daysOut)+' overdue':r.daysOut+' days'}</td>
-          <td style="text-align:right;font-weight:600">${fmt(r.total)}</td>
-          <td><span style="font-size:11px;font-weight:700;color:${r.pastDue?'var(--red)':'var(--amber)'}">${r.pastDue?'PAST DUE':'OPEN'}</span></td>
-        </tr>`).join(''):`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No open invoices</td></tr>`}
+          <td style="text-align:right;font-size:12px;color:var(--text2)">${fmt(r.total)}</td>
+          <td style="text-align:right;font-size:12px;color:var(--text2)">${r.received>0?fmt(r.received):'--'}</td>
+          <td style="text-align:right;font-weight:700">${fmt(r.balanceDue)}</td>
+          <td><span style="font-size:11px;font-weight:700;color:${r.status==='partially_paid'?'#8A6100':(r.pastDue?'var(--red)':'var(--amber)')}">${r.status==='partially_paid'?'PARTIAL':(r.pastDue?'PAST DUE':'OPEN')}</span></td>
+        </tr>`).join(''):`<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--text3)">No open invoices</td></tr>`}
         </tbody>
-        ${rows.length?`<tfoot><tr><td colspan="7" style="padding:10px 12px;font-weight:700">Total Open AR</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalOwed)}</td><td></td></tr></tfoot>`:''}
+        ${rows.length?`<tfoot><tr><td colspan="9" style="padding:10px 12px;font-weight:700">Total Open AR</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalOwed)}</td><td></td></tr></tfoot>`:''}
       </table>
     </div>
   </div>`;
   window._lastReportRows=rows;
-  window._lastReportCols=['invoice','date','acct','rep','terms','dueDate','daysOut','total','pastDue'];
+  window._lastReportCols=['invoice','date','acct','rep','terms','dueDate','daysOut','total','received','balanceDue','status','pastDue'];
 }
 
 // Export report as CSV
@@ -8359,12 +8364,13 @@ function renderFINTECH(el, from, to){
     if(to)   acctOrders = acctOrders.filter(o=>o.date<=to);
 
     const acctRevenue = acctOrders.reduce((s,o)=>s+orderTotal(o),0);
-    const acctUnpaid  = acctOrders.filter(o=>!o.paid).reduce((s,o)=>s+orderTotal(o),0);
+    const acctUnpaid  = acctOrders.filter(o=>!o.paid).reduce((s,o)=>s+arBalanceDue(o),0);
     totalRevenue += acctRevenue;
     totalUnpaid  += acctUnpaid;
 
     acctOrders.forEach(o=>{
       const total = orderTotal(o);
+      const balanceDue = arBalanceDue(o);
       const terms = parseInt((a.terms||'Net 30').replace(/\D/g,''))||30;
       const dueDate = new Date(o.delivery||o.date);
       dueDate.setDate(dueDate.getDate()+terms);
@@ -8380,6 +8386,7 @@ function renderFINTECH(el, from, to){
         delivery: o.delivery||o.date,
         dueDate: dueDateStr,
         total,
+        balanceDue,
         paid: o.paid,
         paidDate: o.paidDate||'',
         pastDue,
@@ -8433,7 +8440,7 @@ function renderFINTECH(el, from, to){
           const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
           const acctRows=rows.filter(r=>r.acctId===a.id);
           const rev=acctRows.reduce((s,r)=>s+r.total,0);
-          const unpaid=acctRows.filter(r=>!r.paid).reduce((s,r)=>s+r.total,0);
+          const unpaid=acctRows.filter(r=>!r.paid).reduce((s,r)=>s+r.balanceDue,0);
           const hasPastDue=acctRows.some(r=>r.pastDue);
           return`<tr>
             <td style="font-weight:600;cursor:pointer;color:var(--gold)" onclick="openAccountDetail('${a.id}')">${a.name}</td>
@@ -10378,6 +10385,12 @@ function arAgingBucket(o){
   if(d<=90)return'61-90';
   return'90+';
 }
+// The true outstanding amount for an unpaid order -- the full total minus whatever partial
+// payment has already been received. Every AR total, aging bucket, and displayed balance
+// must use this, not the raw order total, or a short-paid invoice looks fully outstanding.
+function arBalanceDue(o){
+  return orderTotal(o)-(o.paid?0:(o.partialPaidAmount||0));
+}
 
 function renderAR(){
   document.getElementById('topbar-right').innerHTML=`
@@ -10387,14 +10400,14 @@ function renderAR(){
   const open=all.filter(o=>!o.paid);
   const paid=all.filter(o=>o.paid);
   const overdue=open.filter(o=>arDaysOverdue(o)>0);
-  const openTotal=open.reduce((s,o)=>s+orderTotal(o),0);
-  const overdueTotal=overdue.reduce((s,o)=>s+orderTotal(o),0);
+  const openTotal=open.reduce((s,o)=>s+arBalanceDue(o),0);
+  const overdueTotal=overdue.reduce((s,o)=>s+arBalanceDue(o),0);
   const current=open.filter(o=>arDaysOverdue(o)===0);
-  const currentTotal=current.reduce((s,o)=>s+orderTotal(o),0);
+  const currentTotal=current.reduce((s,o)=>s+arBalanceDue(o),0);
 
   // Aging buckets
   const buckets={'current':0,'1-30':0,'31-60':0,'61-90':0,'90+':0};
-  open.forEach(o=>buckets[arAgingBucket(o)]+=orderTotal(o));
+  open.forEach(o=>buckets[arAgingBucket(o)]+=arBalanceDue(o));
 
   document.getElementById('topbar-right').innerHTML=`<button class="btn btn-sm btn-dark" onclick="exportARExcel()"><i class="ti ti-file-spreadsheet"></i> Export Excel</button>`;
 
@@ -10566,7 +10579,7 @@ function renderARTable(){
     return arDue(a).localeCompare(arDue(b));
   });
 
-  const totalAmt=filtered.reduce((s,o)=>s+orderTotal(o),0);
+  const totalAmt=filtered.reduce((s,o)=>s+arBalanceDue(o),0);
   const title=document.getElementById('ar-table-title');
   const summary=document.getElementById('ar-table-summary');
   const statusLabels={open:'Open AR',overdue:'Overdue invoices',paid:'Paid invoices',all:'All invoices'};
@@ -10611,7 +10624,7 @@ function renderARTable(){
             ?`<span class="badge" style="background:#FFF3D6;color:#8A6100;font-size:11px" title="${fmt(o.partialPaidAmount)} of ${fmt(amt)} received">Partial</span>`
             :`<span class="badge" style="background:${agingBgColors[bucket]};color:${agingColors[bucket]};font-size:11px">${bucket==='current'?'Current':bucket+' days'}</span>`}
       </td>
-      <td style="text-align:right;font-weight:700;font-size:14px">${fmt(amt)}${(!o.paid&&o.partialPaidAmount>0)?`<div style="font-size:11px;font-weight:500;color:#8A6100">${fmt(o.partialPaidAmount)} paid &middot; ${fmt(amt-o.partialPaidAmount)} due</div>`:''}</td>
+      <td style="text-align:right;font-weight:700;font-size:14px">${(!o.paid&&o.partialPaidAmount>0)?`${fmt(amt-o.partialPaidAmount)}<div style="font-size:11px;font-weight:500;color:#8A6100">of ${fmt(amt)} &middot; ${fmt(o.partialPaidAmount)} paid</div>`:fmt(amt)}</td>
       <td>
         ${o.paid
           ?`<span style="font-size:11px;color:var(--text2)">Paid ${o.paidAt||''}</span>`
@@ -10648,7 +10661,7 @@ function exportARExcel(){
   const filtered=applyARFilters(all).sort((a,b)=>arDue(a).localeCompare(arDue(b)));
 
   // Build CSV with all key fields
-  const headers=['Invoice #','Account','License #','Account Email','Sales Rep','Terms','Invoice Date','Delivery Date','Due Date','Days Overdue','Aging Bucket','Products (SKUs)','Bottles','Cases','Amount','Paid','Paid Date','Notes'];
+  const headers=['Invoice #','Account','License #','Account Email','Sales Rep','Terms','Invoice Date','Delivery Date','Due Date','Days Overdue','Aging Bucket','Products (SKUs)','Bottles','Cases','Amount','Amount Received','Balance Due','Paid','Paid Date','Notes'];
   const rows=filtered.map(o=>{
     const acct=acctById(o.acct);
     const rep=userById(o.rep);
@@ -10660,6 +10673,8 @@ function exportARExcel(){
     const cases=o.items.reduce((s,x)=>s+x.cases,0);
     const skus=o.items.map(x=>x.sku).join('; ');
     const amt=orderTotal(o);
+    const received=o.paid?amt:(o.partialPaidAmount||0);
+    const balance=arBalanceDue(o);
     return[
       o.id,
       acct?acct.name:'',
@@ -10676,6 +10691,8 @@ function exportARExcel(){
       btl,
       cases,
       amt.toFixed(2),
+      received.toFixed(2),
+      balance.toFixed(2),
       o.paid?'Yes':'No',
       o.paidAt||'',
       o.notes||''
@@ -10690,7 +10707,7 @@ function exportARExcel(){
   const csv=[headers,...rows].map(row=>row.map(escape).join(',')).join('\n');
 
   // Summary rows at bottom
-  const openAmt=filtered.filter(o=>!o.paid).reduce((s,o)=>s+orderTotal(o),0);
+  const openAmt=filtered.filter(o=>!o.paid).reduce((s,o)=>s+arBalanceDue(o),0);
   const paidAmt=filtered.filter(o=>o.paid).reduce((s,o)=>s+orderTotal(o),0);
   const summaryRows=[
     [],
