@@ -210,8 +210,9 @@ async function migrate() {
     is_fee BOOLEAN DEFAULT FALSE,
     fee_amt NUMERIC(10,2), fee_count INTEGER,
     is_manual BOOLEAN DEFAULT FALSE,
-    rate NUMERIC(10,4), sort_order INTEGER DEFAULT 0
+    rate NUMERIC(10,4), sort_order INTEGER DEFAULT 0, notes TEXT
   )`);
+  await query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS notes TEXT`);
 
   await query(`CREATE TABLE IF NOT EXISTS draft_orders (
     id TEXT PRIMARY KEY,
