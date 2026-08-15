@@ -3057,9 +3057,16 @@ function renderNewTasting(){
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Tasting details</span></div><div class="card-body">
     <div class="form-grid form-grid-4" style="gap:12px">
-      <div><label class="flabel">Account</label><select class="finput" id="ts-acct" onchange="currentTasting.acct=this.value">
-        <option value="">-- Select account --</option>${myAccounts().map(a=>`<option value="${a.id}" ${currentTasting.acct===a.id?'selected':''}>${a.name}</option>`).join('')}
-      </select></div>
+      <div>
+        <label class="flabel">Account</label>
+        <input type="hidden" id="ts-acct" value="${currentTasting.acct||''}"/>
+        <div class="search-wrap"><i class="ti ti-search si"></i>
+          <input class="search-input" id="ts-acct-search" placeholder="-- Select account --" autocomplete="off"
+            value="${currentTasting.acct?(acctById(currentTasting.acct)?.name||'').replace(/"/g,'&quot;'):''}"
+            oninput="onTastingAcctSearch(this.value)" onblur="setTimeout(closeTastingAcctDD,200)"/>
+          <div class="dropdown-box" id="ts-acct-dd"></div>
+        </div>
+      </div>
       <div><label class="flabel">Tasting date</label><input type="date" class="finput" id="ts-date" value="${currentTasting.date||today()}" onchange="currentTasting.date=this.value"/></div>
       <div style="grid-column:span 2"><label class="flabel">Notes (optional)</label><input type="text" class="finput" id="ts-notes" placeholder="e.g. by-the-glass focus, new spring releases..." value="${(currentTasting.notes||'').replace(/"/g,'&quot;')}" onchange="currentTasting.notes=this.value"/></div>
     </div>
@@ -3078,6 +3085,29 @@ function renderNewTasting(){
   renderTastingItems();
 }
 
+function onTastingAcctSearch(val){
+  const dd=document.getElementById('ts-acct-dd');
+  if(!val.trim()){dd.classList.remove('open');return}
+  const matches=myAccounts().filter(a=>matchesSearch(a.name,val)).slice(0,15);
+  if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No accounts found</span></div>';dd.classList.add('open');return}
+  dd.innerHTML=matches.map(a=>`
+    <div class="dd-item" onmousedown="selectTastingAcct('${a.id.replace(/'/g,"\\'")}')">
+      <div>
+        <div class="dd-name">${a.name}</div>
+        <div class="dd-meta">${a.address||''}</div>
+      </div>
+    </div>`).join('');
+  dd.classList.add('open');
+}
+function closeTastingAcctDD(){const dd=document.getElementById('ts-acct-dd');if(dd)dd.classList.remove('open');}
+function selectTastingAcct(id){
+  const acct=acctById(id);
+  document.getElementById('ts-acct').value=id;
+  const searchInput=document.getElementById('ts-acct-search');
+  if(searchInput)searchInput.value=acct?acct.name:'';
+  currentTasting.acct=id;
+  closeTastingAcctDD();
+}
 function onTastingProdSearch(val){
   const dd=document.getElementById('ts-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
