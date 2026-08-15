@@ -2422,6 +2422,7 @@ function renderNewOrder(){
       <div><label class="flabel">PO number (optional)</label><input type="text" class="finput" id="o-po" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
     </div>
     <div id="acct-info" style="display:none;margin-top:12px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);font-size:12px;color:var(--text2);border:1px solid var(--border)"></div>
+    <div id="acct-pastdue-banner"></div>
   </div></div>
   <div class="card"><div class="card-header"><span class="card-title">Line items</span><span id="item-count" style="font-size:12px;color:var(--text2)">0 items</span></div>
     <div style="padding:12px 18px;border-bottom:1px solid var(--border)">
@@ -2466,6 +2467,18 @@ function onAcctChange(){
   const info=document.getElementById('acct-info');
   if(acct){info.style.display='block';info.innerHTML=`<i class="ti ti-map-pin" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>${acct.address} &nbsp;·&nbsp; <i class="ti ti-user" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>${acct.contact} &nbsp;·&nbsp; <i class="ti ti-mail" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>${acct.email||'--'}`}
   else info.style.display='none';
+  const pastDueBanner=document.getElementById('acct-pastdue-banner');
+  if(pastDueBanner){
+    const pastDueInfo=acct?acctPastDueInfo(acct.id):{isPastDue:false};
+    pastDueBanner.innerHTML=pastDueInfo.isPastDue?`
+      <div style="margin-top:12px;padding:12px 16px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);display:flex;align-items:center;gap:10px">
+        <i class="ti ti-alert-triangle" style="font-size:20px;color:var(--red);flex-shrink:0"></i>
+        <div>
+          <div style="font-weight:700;color:var(--red);font-size:13px">This account is past due</div>
+          <div style="font-size:12px;color:var(--red)">${pastDueInfo.count} invoice${pastDueInfo.count!==1?'s':''} totaling ${fmt(pastDueInfo.total)} -- up to ${pastDueInfo.maxDaysOverdue} day${pastDueInfo.maxDaysOverdue!==1?'s':''} overdue</div>
+        </div>
+      </div>`:'';
+  }
   if(isSampleAcct(id)){
     currentOrder.items.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
     syncFees();renderLineItems();
@@ -4774,8 +4787,9 @@ function _renderAcctRows(filtered){
     const myOrders=ORDERS.filter(o=>o.acct===a.id);
     const openAR=myOrders.filter(o=>o.status==='delivered'&&!o.paid);
     const openBal=openAR.reduce((s,o)=>s+arBalanceDue(o),0);
+    const pastDueInfo=acctPastDueInfo(a.id);
     return`<tr style="cursor:pointer" onclick="openAccountDetail('${a.id}')">
-      <td style="font-weight:600;color:var(--gold)">${a.name}</td>
+      <td style="font-weight:600;color:var(--gold)">${a.name}${pastDueInfo.isPastDue?` <span style="background:var(--red-bg);color:var(--red);font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;vertical-align:middle" title="${pastDueInfo.count} past-due invoice${pastDueInfo.count!==1?'s':''}, ${fmt(pastDueInfo.total)} total, up to ${pastDueInfo.maxDaysOverdue} days overdue">PAST DUE</span>`:''}</td>
       <td style="font-size:12px;color:var(--text2)">${a.lic||a.abcNum||'--'}</td>
       <td style="font-size:12px;color:var(--text2)">${a.contact||'--'}</td>
       <td style="font-size:12px;color:var(--text2)">${a.phone||'--'}</td>
@@ -5075,13 +5089,14 @@ function openAccountDetail(acctId){
   const openBal=openAR.reduce((s,o)=>s+arBalanceDue(o),0);
   const totalSpend=allOrders.filter(o=>o.paid).reduce((s,o)=>s+orderTotal(o),0);
   const lastOrder=allOrders[0];
+  const pastDueInfo=acctPastDueInfo(a.id);
   const statusColor=st=>({unconfirmed:'var(--amber)',confirmed:'var(--green)',delivered:'var(--navy)'}[st]||'var(--text2)');
 
   let html='<div style="margin-bottom:16px">';
   html+='<button onclick="showPage(\'accounts\')" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:13px;font-weight:600;padding:0"><i class="ti ti-arrow-left" style="vertical-align:-2px"></i> Back to Accounts</button></div>';
-  html+='<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:20px 24px">';
+  html+='<div class="card" style="margin-bottom:14px'+(pastDueInfo.isPastDue?';border-color:var(--red-border)':'')+'"><div class="card-body" style="padding:20px 24px">';
   html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">';
-  html+='<div><div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">'+a.name+(a.code?' <span style="font-size:12px;font-weight:600;color:var(--gold);background:var(--bg3);padding:3px 9px;border-radius:20px;vertical-align:middle">#'+a.code+'</span>':'')+'</div>';
+  html+='<div><div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">'+a.name+(a.code?' <span style="font-size:12px;font-weight:600;color:var(--gold);background:var(--bg3);padding:3px 9px;border-radius:20px;vertical-align:middle">#'+a.code+'</span>':'')+(pastDueInfo.isPastDue?' <span style="font-size:12px;font-weight:700;color:var(--red);background:var(--red-bg);padding:3px 9px;border-radius:20px;vertical-align:middle"><i class="ti ti-alert-triangle" style="font-size:12px;vertical-align:-1px"></i> PAST DUE -- '+fmt(pastDueInfo.total)+'</span>':'')+'</div>';
   html+='<div style="font-size:13px;color:var(--text2)">'+[a.shipStreet,a.shipCity,a.shipState,a.shipZip].filter(Boolean).join(', ')+'</div>';
   html+=(a.lic?'<div style="font-size:13px;color:var(--text2)">ABC: '+a.lic+(a.phone?' &nbsp;&middot;&nbsp; '+a.phone:'')+'</div>':'');
   html+='</div><div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="startOrderForAccount(\''+a.id+'\')"><i class="ti ti-plus"></i> New Order</button>'+(isAdmin?'<button class="btn" style="color:#2CA01C;border-color:#2CA01C" onclick="qboSyncAccount(\''+a.id+'\')"><i class="ti ti-brand-quickbooks"></i> '+(a.qboId?'Update in QBO':'Sync to QBO')+'</button>':'')+'</div>';
@@ -10390,6 +10405,19 @@ function arAgingBucket(o){
 // must use this, not the raw order total, or a short-paid invoice looks fully outstanding.
 function arBalanceDue(o){
   return orderTotal(o)-(o.paid?0:(o.partialPaidAmount||0));
+}
+// Whether an account has any genuinely past-due, unpaid balance -- and if so, how much and
+// how overdue. Used to show a past-due indicator both next to the account's name and as a
+// banner when the account is selected in New Order.
+function acctPastDueInfo(acctId){
+  const pastDueOrders=ORDERS.filter(o=>o.acct===acctId&&o.status==='delivered'&&!o.paid&&arDaysOverdue(o)>0);
+  if(!pastDueOrders.length)return{isPastDue:false,count:0,total:0,maxDaysOverdue:0};
+  return{
+    isPastDue:true,
+    count:pastDueOrders.length,
+    total:pastDueOrders.reduce((s,o)=>s+arBalanceDue(o),0),
+    maxDaysOverdue:Math.max(...pastDueOrders.map(o=>arDaysOverdue(o))),
+  };
 }
 
 function renderAR(){
