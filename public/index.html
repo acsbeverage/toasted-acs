@@ -11010,7 +11010,6 @@ function _renderInvoiceHTML(orderId, b64){
       .btn-print { background: #D4967D; color: #fff; border: none; padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }
       .invoice { max-width: 860px; margin: 0 auto; padding: 24px 20px 40px; }
       .inv-header { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; align-items: flex-start; margin-bottom: 14px; }
-      .inv-title { font-size: 24px; font-weight: 700; letter-spacing: 1px; color: #222; margin-bottom: 6px; }
       .inv-meta table { border-collapse: collapse; font-size: 11px; width: 100%; }
       .inv-meta td { padding: 2px 5px; }
       .inv-meta td:first-child { color: #666; text-align: right; white-space: nowrap; }
@@ -11059,55 +11058,57 @@ function _renderInvoiceHTML(orderId, b64){
       <button class="btn-close" onclick="window.close()">&#10005; Close</button>
     </div>
     <div class="invoice">
-      <div class="inv-header">
+      <div class="inv-header" style="grid-template-columns:1.15fr 0.85fr 0.85fr 1fr">
 
-        <!-- LEFT: ACS info + rep -->
+        <!-- COL 1: Logo + company info (no separate "INVOICE" heading -- redundant since
+             the invoice number is already shown clearly in the details column) -->
         <div>
-          <img src="data:image/jpeg;base64,${ACS_LOGO_B64}" alt="ACS Beverage Co." style="height:64px;display:block;margin-bottom:8px" onerror="this.style.display='none'"/>
-          <div class="inv-title">INVOICE</div>
+          <img src="data:image/jpeg;base64,${ACS_LOGO_B64}" alt="ACS Beverage Co." style="height:56px;display:block;margin-bottom:8px" onerror="this.style.display='none'"/>
           ${isSample?'<div class="sample-badge">SAMPLE ORDER -- NO CRV APPLIED</div>':''}
-          <div style="margin-top:8px;font-size:11px;color:#555;line-height:1.7">
+          <div style="font-size:11px;color:#555;line-height:1.7">
             <strong style="font-size:12px">${COMPANY.name}</strong><br>
             ${COMPANY.address}<br>
             ${COMPANY.email}<br>
             ${COMPANY.website}
           </div>
           <div style="font-size:9px;color:#c00;font-weight:700;margin-top:4px">*** NEW REMITTANCE ADDRESS ***</div>
-          <div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee;font-size:11px;color:#444;line-height:1.7">
+        </div>
+
+        <!-- COL 2: Bill To -->
+        <div class="addr-block">
+          <h4>Bill To</h4>
+          <p><strong>${acct.name||'--'}</strong><br>
+          ${acct.shipStreet||''}<br>
+          ${[acct.shipCity,acct.shipState,acct.shipZip].filter(Boolean).join(', ')||''}<br>
+          ${acct.phone||''}
+          ${acct.lic?('<br>ABC: '+acct.lic):''}</p>
+        </div>
+
+        <!-- COL 3: Ship To -->
+        <div class="addr-block">
+          <h4>Ship To</h4>
+          <p><strong>${acct.name||'--'}</strong><br>
+          ${acct.shipStreet||''}<br>
+          ${[acct.shipCity,acct.shipState,acct.shipZip].filter(Boolean).join(', ')||''}</p>
+        </div>
+
+        <!-- COL 4: Invoice meta, with Rep info directly underneath it -->
+        <div>
+          <div class="inv-meta">
+            <table>
+              <tr><td>Invoice #</td><td>${orderId}</td></tr>
+              <tr><td>Invoice Date</td><td>${o.date}</td></tr>
+              <tr><td>Delivery Date</td><td>${o.delivery}</td></tr>
+              <tr><td>Due Date</td><td>${due}</td></tr>
+              <tr><td>Terms</td><td>${acct.terms||'Net 30'}</td></tr>
+              <tr><td>Account #</td><td>${acct.code||'--'}</td></tr>
+              ${o.po?('<tr><td>PO #</td><td>'+o.po+'</td></tr>'):''}
+            </table>
+          </div>
+          <div style="margin-top:10px;padding-top:8px;border-top:1px solid #eee;font-size:11px;color:#444;line-height:1.7;text-align:right">
             <strong>Rep:</strong> ${rep.fname||''} ${rep.lname||''}<br>
             ${rep.email?('<strong>Email:</strong> '+rep.email):''}
           </div>
-        </div>
-
-        <!-- MIDDLE: Bill To / Ship To -->
-        <div style="display:flex;gap:16px">
-          <div class="addr-block" style="flex:1">
-            <h4>Bill To</h4>
-            <p><strong>${acct.name||'--'}</strong><br>
-            ${acct.shipStreet||''}<br>
-            ${[acct.shipCity,acct.shipState,acct.shipZip].filter(Boolean).join(', ')||''}<br>
-            ${acct.phone||''}
-            ${acct.lic?('<br>ABC: '+acct.lic):''}</p>
-          </div>
-          <div class="addr-block" style="flex:1">
-            <h4>Ship To</h4>
-            <p><strong>${acct.name||'--'}</strong><br>
-            ${acct.shipStreet||''}<br>
-            ${[acct.shipCity,acct.shipState,acct.shipZip].filter(Boolean).join(', ')||''}</p>
-          </div>
-        </div>
-
-        <!-- RIGHT: Invoice meta -->
-        <div class="inv-meta">
-          <table>
-            <tr><td>Invoice #</td><td>${orderId}</td></tr>
-            <tr><td>Invoice Date</td><td>${o.date}</td></tr>
-            <tr><td>Delivery Date</td><td>${o.delivery}</td></tr>
-            <tr><td>Due Date</td><td>${due}</td></tr>
-            <tr><td>Terms</td><td>${acct.terms||'Net 30'}</td></tr>
-            <tr><td>Account #</td><td>${acct.code||'--'}</td></tr>
-            ${o.po?('<tr><td>PO #</td><td>'+o.po+'</td></tr>'):''}
-          </table>
         </div>
 
       </div>
