@@ -1014,7 +1014,7 @@ function updateBadges(){
   const db=document.getElementById('deliv-badge');if(db){const dc=pendingDeliveries().length;db.textContent=dc;db.style.display=dc>0?'inline':'none'}
   const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.date,acctById(o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
   const drb=document.getElementById('drafts-badge');if(drb){const mine=currentUser&&currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>currentUser&&d.rep===currentUser.id);const dc=mine.length;drb.textContent=dc;drb.style.display=dc>0?'inline':'none'}
-  const tsb=document.getElementById('tastings-badge');if(tsb){const mine=currentUser&&currentUser.role==='admin'?TASTINGS:TASTINGS.filter(t=>currentUser&&t.rep===currentUser.id);const tc=mine.length;tsb.textContent=tc;tsb.style.display=tc>0?'inline':'none'}
+  const tsb=document.getElementById('tastings-badge');if(tsb){const tc=TASTINGS.length;tsb.textContent=tc;tsb.style.display=tc>0?'inline':'none'}
 }
 function toast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800)}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
@@ -3030,7 +3030,9 @@ function renderDraftOrders(){
 
 // -- TASTINGS --------------------------------------------------------------------
 function renderTastings(){
-  const mine=currentUser.role==='admin'?TASTINGS:TASTINGS.filter(t=>t.rep===currentUser.id);
+  // TASTINGS is already correctly scoped by the backend to accounts assigned to this rep --
+  // not just tastings they personally created. No further rep_id filter needed.
+  const mine=TASTINGS;
   const sorted=[...mine].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   document.getElementById('main-content').innerHTML=`<div class="card">
     <div class="card-header"><span class="card-title">${mine.length} tasting${mine.length!==1?'s':''}</span><button class="btn btn-sm btn-dark" onclick="openNewTasting()"><i class="ti ti-plus"></i> New Tasting</button></div>
@@ -3167,7 +3169,9 @@ function saveTasting(thenExport){
   if(!currentTasting.items.length){toast('Add at least one product');return}
   const id=currentTasting.id||('t'+Date.now());
   currentTasting.id=id;
-  const rec={id,acct:currentTasting.acct,rep:currentUser.id,date:currentTasting.date||today(),notes:currentTasting.notes||'',items:currentTasting.items.map(x=>({...x})),createdAt:today()};
+  const existing=TASTINGS.find(t=>t.id===id);
+  const rep=existing?existing.rep:currentUser.id;
+  const rec={id,acct:currentTasting.acct,rep,date:currentTasting.date||today(),notes:currentTasting.notes||'',items:currentTasting.items.map(x=>({...x})),createdAt:existing?existing.createdAt:today()};
   const idx=TASTINGS.findIndex(t=>t.id===id);
   if(idx>=0)TASTINGS[idx]=rec;else TASTINGS.push(rec);
   saveTastingToDB(rec);
