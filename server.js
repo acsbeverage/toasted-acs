@@ -67,6 +67,50 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/fix-partial-payments', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-fixpartial') return res.status(403).json({ok:false});
+  const execute = req.query.execute === 'true';
+  try {
+    const { query, getAll } = require('./db');
+    const records = [["ACS-14316", 345.4], ["ACS-14320", 559.2], ["ACS-14581", 437.6], ["ACS-14871", 214.25], ["ACS-1503", 2946.6], ["ACS-15999", 946.2], ["ACS-16930", 231.0], ["ACS-16962", 69.75], ["ACS-1812", 102.6], ["ACS-18773", 1148.85], ["ACS-19213", 231.0], ["ACS-19581", 4593.0], ["ACS-19598", 504.6], ["ACS-2003", 333.6], ["ACS-2016", 479.2], ["ACS-20756", 484.2], ["ACS-2119", 6030.2], ["ACS-22147", 161.25], ["ACS-22165", 91.5], ["ACS-22314", 235.0], ["ACS-22955", 654.0], ["ACS-2304", 504.2], ["ACS-23259", 1483.5], ["ACS-2329", 492.8], ["ACS-23658", 1776.4], ["ACS-26101", 575.12], ["ACS-26130", 660.3], ["ACS-2878", 12959.5], ["ACS-288", 2008.78], ["ACS-28909", 824.8], ["ACS-29973", 1074.25], ["ACS-29996", 527.7], ["ACS-29997", 568.8], ["ACS-30900", 443.1], ["ACS-30902", 399.9], ["ACS-30913", 298.8], ["ACS-31956", 577.9], ["ACS-33073", 294.4], ["ACS-33082", 581.1], ["ACS-33083", 505.5], ["ACS-34210", 724.8], ["ACS-34941", 669.6], ["ACS-35150", 934.75], ["ACS-36310", 420.6], ["ACS-36312", 882.9], ["ACS-3690", 258.6], ["ACS-37284", 1349.4], ["ACS-37317", 1770.0], ["ACS-37613", 1343.35], ["ACS-38937", 148.5], ["ACS-39205", 1508.1], ["ACS-39796", 68.25], ["ACS-40654", 217.2], ["ACS-4219", 7408.1], ["ACS-4876", 516.6], ["ACS-5100", 9000.0], ["ACS-5102", 1771.77], ["ACS-5389", 2418.38], ["ACS-5639", 2390.4], ["ACS-6066", 496.8], ["ACS-6499", 101.0], ["ACS-7165", 421.18], ["ACS-7694", 612.8], ["ACS-872", 229.5]];
+
+    if (!execute) {
+      const invoiceIds = records.map(r => r[0]);
+      const preview = await getAll(
+        'SELECT id, paid, partial_paid_amount FROM orders WHERE id = ANY($1) ORDER BY id LIMIT 15',
+        [invoiceIds]
+      );
+      const countRow = await getAll(
+        'SELECT COUNT(*) as cnt FROM orders WHERE id = ANY($1)',
+        [invoiceIds]
+      );
+      const alreadySetRow = await getAll(
+        'SELECT COUNT(*) as cnt FROM orders WHERE id = ANY($1) AND partial_paid_amount IS NOT NULL AND partial_paid_amount > 0',
+        [invoiceIds]
+      );
+      return res.json({ ok: true, dryRun: true,
+        totalInvoicesProvided: records.length,
+        matchedInLiveDb: parseInt(countRow[0].cnt),
+        alreadyHavingAPartialAmountSet: parseInt(alreadySetRow[0].cnt),
+        sample: preview,
+        note: 'Sets partial_paid_amount to the true amount received, and paid=false, for each invoice. Re-run with &execute=true to apply.' });
+    }
+
+    let updated = 0;
+    for (const [invoiceId, amountReceived] of records) {
+      const result = await query(
+        'UPDATE orders SET partial_paid_amount = $1, paid = FALSE WHERE id = $2',
+        [amountReceived, invoiceId]
+      );
+      if (result.rowCount > 0) updated++;
+    }
+    res.json({ ok: true, executed: true, ordersUpdated: updated, totalProvided: records.length });
+  } catch (err) {
+    console.error('Fix partial payments error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/diagnose-rep-visibility', async (req, res) => {
   if(req.query.secret !== 'toasted2026-diagreps') return res.status(403).json({ok:false});
   try {
