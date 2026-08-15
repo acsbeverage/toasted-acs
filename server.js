@@ -71,23 +71,17 @@ app.get('/api/diagnose-crv-issue', async (req, res) => {
   if(req.query.secret !== 'toasted2026-diagcrv') return res.status(403).json({ok:false});
   try {
     const { getAll } = require('./db');
-    const accts = await getAll("SELECT id, name, is_sample_account FROM accounts WHERE name ILIKE '%total wine%emeryville%' OR name ILIKE '%emeryville%'");
-    let orderInfo = [];
-    if (accts.length) {
-      const acctIds = accts.map(a => a.id);
-      const orders = await getAll(
-        'SELECT id, acct_id, waive_crv, order_type, status, date FROM orders WHERE acct_id = ANY($1) ORDER BY date DESC LIMIT 5',
-        [acctIds]
-      );
-      for (const o of orders) {
-        const items = await getAll(
-          'SELECT oi.sku, oi.cases, oi.bottles, p.name, p.redemption_entry, p.active FROM order_items oi LEFT JOIN products p ON oi.sku=p.sku WHERE oi.order_id=$1 AND oi.is_fee=FALSE',
-          [o.id]
-        );
-        orderInfo.push({ order: o, items });
-      }
-    }
-    res.json({ ok: true, accountsFound: accts, orderInfo });
+    const orderIds = ['ACS-42657','ACS-41080','ACS-39759','ACS-38671','ACS-37618'];
+    const allItems = await getAll(
+      'SELECT order_id, sku, cases, bottles, is_fee, fee_amt, fee_count, rate FROM order_items WHERE order_id = ANY($1) ORDER BY order_id, sort_order',
+      [orderIds]
+    );
+    const byOrder = {};
+    allItems.forEach(it => {
+      if (!byOrder[it.order_id]) byOrder[it.order_id] = [];
+      byOrder[it.order_id].push(it);
+    });
+    res.json({ ok: true, byOrder });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
