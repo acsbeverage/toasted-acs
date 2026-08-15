@@ -3822,25 +3822,58 @@ async function sendPOEmailToSupplier(id){
 }
 
 // -- UNCONFIRMED ----------------------------------------------------------------
-const UNCONF_PAGE_SIZE=50;
+const UNCONF_PAGE_SIZE=20;
 let _unconfPage=1;
 let _unconfSort='date_desc';
-function unconfGoToPage(p){_unconfPage=p;renderUnconfirmed();}
 function renderUnconfirmed(){
-  const allUnconf=ORDERS.filter(o=>o.status==='unconfirmed');
-  const sortedAll=sortOrdersBy(allUnconf,_unconfSort);
   const isAdmin=currentUser.role==='admin';
+  const mine=isAdmin?ORDERS.filter(o=>o.status==='unconfirmed'):ORDERS.filter(o=>o.status==='unconfirmed'&&o.rep===currentUser.id);
+  _unconfPage=1;
+  document.getElementById('main-content').innerHTML=`
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="search-wrap" style="max-width:280px"><i class="ti ti-search si"></i><input class="search-input" id="unconf-search" placeholder="Search order ID or account..." oninput="_unconfPage=1;filterUnconfirmed()"/></div>
+    ${isAdmin?`<select class="finput" id="unconf-rep" onchange="_unconfPage=1;filterUnconfirmed()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
+    ${orderSortSelectHtml('unconf-sort',"_unconfSort=this.value;_unconfPage=1;filterUnconfirmed()",_unconfSort)}
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title" id="unconf-count">${mine.length} order${mine.length!==1?'s':''} awaiting confirmation</span></div>
+    <div id="unconf-empty" style="display:none;padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>No orders match</div>
+    <div id="unconf-table-view"><table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+    <tbody id="unconf-body"></tbody></table></div>
+    <div id="unconf-cards-view" style="display:none;padding:14px"></div>
+    <div id="unconf-page-total" style="padding:10px 16px;border-top:1px solid var(--border);text-align:right;font-size:13px;font-weight:700"></div>
+    <div id="unconf-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)"></div>
+  </div>`;
+  window._unconfOrders=mine;filterUnconfirmed();
+}
+function unconfGoToPage(p){_unconfPage=p;filterUnconfirmed();}
+function filterUnconfirmed(){
+  const isAdmin=currentUser.role==='admin';
+  const rf=document.getElementById('unconf-rep')?.value||'';
+  const sq=(document.getElementById('unconf-search')?.value||'').trim().toLowerCase();
+  let res=window._unconfOrders||[];
+  if(rf)res=res.filter(o=>o.rep===rf);
+  if(sq)res=res.filter(o=>{
+    if(o.id.toLowerCase().includes(sq))return true;
+    const acct=acctById(o.acct);
+    return acct&&acct.name.toLowerCase().includes(sq);
+  });
+  document.getElementById('unconf-count').textContent=res.length+' order'+(res.length!==1?'s':'')+' awaiting confirmation';
+  const sortedAll=sortOrdersBy(res,_unconfSort);
   const totalPages=Math.max(1,Math.ceil(sortedAll.length/UNCONF_PAGE_SIZE));
   if(_unconfPage>totalPages)_unconfPage=totalPages;
   const startIdx=(_unconfPage-1)*UNCONF_PAGE_SIZE;
   const unconf=sortedAll.slice(startIdx,startIdx+UNCONF_PAGE_SIZE);
+  const pageTotal=unconf.reduce((s,o)=>s+orderTotal(o),0);
 
-  const tableHtml=`<table class="tbl"><thead><tr><th>Order ID</th><th>Account</th><th>Rep</th><th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Notes</th><th></th></tr></thead>
-    <tbody>${unconf.map(o=>{const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
-      <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('')}
-    </tbody></table>`;
+  document.getElementById('unconf-empty').style.display=sortedAll.length?'none':'block';
+  document.getElementById('unconf-table-view').style.display=sortedAll.length?'':'none';
+  document.getElementById('unconf-page-total').style.display=sortedAll.length?'':'none';
 
-  const cardsHtml=unconf.map(o=>{
+  document.getElementById('unconf-body').innerHTML=unconf.map(o=>{const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
+    <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('');
+
+  document.getElementById('unconf-cards-view').innerHTML=unconf.map(o=>{
     const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;
     return`<div class="order-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -3863,17 +3896,15 @@ function renderUnconfirmed(){
     </div>`;
   }).join('');
 
-  const pagHtml=totalPages<=1?'':`
-    <button class="btn btn-sm" ${_unconfPage<=1?'disabled':''} onclick="unconfGoToPage(${_unconfPage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
-    <span style="font-size:13px;color:var(--text2)">Page ${_unconfPage} of ${totalPages}</span>
-    <button class="btn btn-sm" ${_unconfPage>=totalPages?'disabled':''} onclick="unconfGoToPage(${_unconfPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+  document.getElementById('unconf-page-total').innerHTML=sortedAll.length?`Page total: <span style="color:var(--gold);font-size:15px">${fmt(pageTotal)}</span>`:'';
 
-  document.getElementById('main-content').innerHTML=`<div class="card">
-    <div class="card-header"><span class="card-title">${sortedAll.length} order${sortedAll.length!==1?'s':''} awaiting confirmation</span>
-      ${sortedAll.length?orderSortSelectHtml('unconf-sort',"_unconfSort=this.value;_unconfPage=1;renderUnconfirmed()",_unconfSort):''}
-    </div>
-    ${sortedAll.length?`<div id="unconf-table-view">${tableHtml}</div><div id="unconf-cards-view" style="display:none;padding:14px">${cardsHtml}</div><div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)">${pagHtml}</div>`:`<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-circle-check" style="font-size:32px;display:block;margin-bottom:10px;color:var(--green)"></i>All orders confirmed</div>`}
-  </div>`;
+  const pag=document.getElementById('unconf-pagination');
+  if(pag){
+    pag.innerHTML=totalPages<=1?'':`
+      <button class="btn btn-sm" ${_unconfPage<=1?'disabled':''} onclick="unconfGoToPage(${_unconfPage-1})"><i class="ti ti-chevron-left"></i> Prev</button>
+      <span style="font-size:13px;color:var(--text2)">Page ${_unconfPage} of ${totalPages}</span>
+      <button class="btn btn-sm" ${_unconfPage>=totalPages?'disabled':''} onclick="unconfGoToPage(${_unconfPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
+  }
 }
 // -- ZEBRA LABEL PRINTING (2.25in x 4in, 203dpi) --------------------------------
 function calcLabelCount(order){
@@ -4338,7 +4369,7 @@ function renderHistory(){
   </div>`;
   window._histOrders=mine;filterHistory();
 }
-const HIST_PAGE_SIZE=50;
+const HIST_PAGE_SIZE=20;
 let _histPage=1;
 let _histSort='date_desc';
 function histGoToPage(p){_histPage=p;filterHistory();}
@@ -6662,17 +6693,29 @@ function calcDue(dateStr,acct){
 }
 
 // -- DELIVERIES ----------------------------------------------------------------
-const DELIV_PAGE_SIZE=50;
+const DELIV_PAGE_SIZE=20;
 let _delivPendingSort='delivery_asc';
 let _delivPendingPage=1;
 let _delivDoneSort='delivery_desc';
 let _delivDonePage=1;
+let _delivSearch='';
+let _delivRepFilter='';
+let _delivSearchFocused=false;
 function delivPendingGoToPage(p){_delivPendingPage=p;renderDeliveries();}
 function delivDoneGoToPage(p){_delivDonePage=p;renderDeliveries();}
 function renderDeliveries(){
   const isAdmin=currentUser&&currentUser.role==='admin';
-  const pendingAll=sortOrdersBy(ORDERS.filter(o=>o.status==='confirmed'),_delivPendingSort);
-  const doneAll=sortOrdersBy(ORDERS.filter(o=>o.status==='delivered'),_delivDoneSort);
+  const matchesFilter=o=>{
+    if(_delivRepFilter&&o.rep!==_delivRepFilter)return false;
+    if(_delivSearch){
+      const sq=_delivSearch.toLowerCase();
+      const acct=acctById(o.acct);
+      if(!o.id.toLowerCase().includes(sq)&&!(acct&&acct.name.toLowerCase().includes(sq)))return false;
+    }
+    return true;
+  };
+  const pendingAll=sortOrdersBy(ORDERS.filter(o=>o.status==='confirmed').filter(matchesFilter),_delivPendingSort);
+  const doneAll=sortOrdersBy(ORDERS.filter(o=>o.status==='delivered').filter(matchesFilter),_delivDoneSort);
 
   const pendingTotalPages=Math.max(1,Math.ceil(pendingAll.length/DELIV_PAGE_SIZE));
   if(_delivPendingPage>pendingTotalPages)_delivPendingPage=pendingTotalPages;
@@ -6681,6 +6724,11 @@ function renderDeliveries(){
   const doneTotalPages=Math.max(1,Math.ceil(doneAll.length/DELIV_PAGE_SIZE));
   if(_delivDonePage>doneTotalPages)_delivDonePage=doneTotalPages;
   const delivered=doneAll.slice((_delivDonePage-1)*DELIV_PAGE_SIZE,_delivDonePage*DELIV_PAGE_SIZE);
+
+  const filterBarHtml=`<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="search-wrap" style="max-width:280px"><i class="ti ti-search si"></i><input class="search-input" id="deliv-search" placeholder="Search order ID or account..." value="${_delivSearch.replace(/"/g,'&quot;')}" oninput="_delivSearchFocused=true;_delivSearch=this.value;_delivPendingPage=1;_delivDonePage=1;renderDeliveries()"/></div>
+    ${isAdmin?`<select class="finput" id="deliv-rep" onchange="_delivRepFilter=this.value;_delivPendingPage=1;_delivDonePage=1;renderDeliveries()" style="width:180px;padding:7px 9px"><option value="">All reps</option>${USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${_delivRepFilter===u.id?'selected':''}>${u.fname} ${u.lname}</option>`).join('')}</select>`:''}
+  </div>`;
 
   document.getElementById('topbar-right').innerHTML=`
     <div style="display:flex;gap:8px">
@@ -6701,6 +6749,7 @@ function renderDeliveries(){
     <button class="btn btn-sm" ${_delivDonePage>=doneTotalPages?'disabled':''} onclick="delivDoneGoToPage(${_delivDonePage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
 
   document.getElementById('main-content').innerHTML=`
+  ${filterBarHtml}
   <div class="card" style="margin-bottom:16px">
     <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <span class="card-title"><i class="ti ti-clock" style="font-size:13px;vertical-align:-2px;margin-right:5px"></i>Pending delivery -- ${pendingAll.length} order${pendingAll.length!==1?'s':''}</span>
@@ -6783,6 +6832,11 @@ function renderDeliveries(){
     </table>
     ${doneTotalPages>1?`<div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px;border-top:1px solid var(--border)">${donePagHtml}</div>`:''}
   </div>`:''}`;
+  if(_delivSearchFocused){
+    const searchEl=document.getElementById('deliv-search');
+    if(searchEl){searchEl.focus();searchEl.setSelectionRange(searchEl.value.length,searchEl.value.length);}
+    _delivSearchFocused=false;
+  }
 }
 
 function getSelectedDeliveryIds(){
