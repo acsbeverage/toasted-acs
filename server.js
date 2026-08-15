@@ -67,6 +67,33 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/fix-7-pack-sizes', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-fix7pack') return res.status(403).json({ok:false});
+  const execute = req.query.execute === 'true';
+  try {
+    const { query, getAll } = require('./db');
+    const fixes = [
+      ['845074', 6], ['845178', 6], ['845179', 6], ['845177', 6],
+      ['845024', 6], ['945025', 6], ['845262', 6]
+    ];
+    const skus = fixes.map(f => f[0]);
+    const preview = await getAll('SELECT sku, name, btl FROM products WHERE sku = ANY($1)', [skus]);
+
+    if (!execute) {
+      return res.json({ ok: true, dryRun: true, matchedInLiveDb: preview.length, current: preview,
+        note: 'Sets these 7 SKUs to btl=6. Re-run with &execute=true to apply.' });
+    }
+    let updated = 0;
+    for (const [sku, btl] of fixes) {
+      const result = await query('UPDATE products SET btl=$1 WHERE sku=$2', [btl, sku]);
+      if (result.rowCount > 0) updated++;
+    }
+    res.json({ ok: true, executed: true, updated });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/diagnose-ar-mismatches', async (req, res) => {
   if(req.query.secret !== 'toasted2026-armismatch') return res.status(403).json({ok:false});
   try {
