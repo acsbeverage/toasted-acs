@@ -6510,29 +6510,52 @@ function _buildInvoicePDF(o,callback){
   // == PAGE 1 HEADER ==========================================================
 
   // Logo
-  try{doc.addImage('data:image/jpeg;base64,'+ACS_LOGO_B64,'JPEG',ML,y,70,70);}catch(e){}
+  try{doc.addImage('data:image/jpeg;base64,'+ACS_LOGO_B64,'JPEG',ML,y,60,60);}catch(e){}
 
-  // Company info (left, below logo)
+  // Company info (left, below logo) -- no separate "INVOICE" title, which just repeated
+  // what the invoice number already states clearly in the meta block on the right
   doc.setFontSize(6.5);doc.setFont('helvetica','bold');doc.setTextColor(160,40,40);
-  doc.text('*** NEW REMITTANCE ADDRESS ***',ML,y+76);
+  doc.text('*** NEW REMITTANCE ADDRESS ***',ML,y+68);
   doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(40,40,40);
-  doc.text(COMPANY.name,ML,y+86);
+  doc.text(COMPANY.name,ML,y+78);
   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(80,80,80);
-  doc.text(COMPANY.address,ML,y+96);
-  doc.text('Email: '+COMPANY.email,ML,y+106);
-  doc.text(COMPANY.website,ML,y+116);
-
-  // INVOICE title (center)
-  const cX=ML+CW*0.38;
-  doc.setFont('helvetica','bold');doc.setFontSize(20);doc.setTextColor(40,40,40);
-  doc.text('INVOICE',cX,y+24);
+  doc.text(COMPANY.address,ML,y+88);
+  doc.text('Email: '+COMPANY.email,ML,y+98);
+  doc.text(COMPANY.website,ML,y+108);
   if(o.isSample){
-    doc.setFontSize(8);doc.setTextColor(107,79,160);
-    doc.text('SAMPLE ORDER -- NO CRV APPLIED',cX,y+36);
+    doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(107,79,160);
+    doc.text('SAMPLE ORDER -- NO CRV APPLIED',ML,y+120);
     doc.setTextColor(40,40,40);
   }
 
-  // Invoice meta (right)
+  // Bill To (second column)
+  const col2=ML+205;
+  doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
+  doc.text('BILL TO',col2,y+8);
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
+  doc.text(acct?acct.name:'--',col2,y+18);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
+  let byBT=y+28;
+  if(acct&&acct.shipStreet){doc.text(acct.shipStreet,col2,byBT);byBT+=10;}
+  const cityLine=[acct&&acct.shipCity,acct&&acct.shipState,acct&&acct.shipZip].filter(Boolean).join(', ');
+  if(cityLine){doc.text(cityLine,col2,byBT);byBT+=10;}
+  if(acct&&acct.phone){doc.text(acct.phone,col2,byBT);byBT+=10;}
+  if(acct&&acct.lic){doc.setFontSize(7.5);doc.text('ABC: '+acct.lic,col2,byBT);byBT+=10;}
+
+  // Ship To (third column)
+  const col3=ML+205+150;
+  doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
+  doc.text('SHIP TO',col3,y+8);
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
+  doc.text(acct?acct.name:'--',col3,y+18);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
+  let bySH=y+28;
+  if(acct&&acct.shipStreet){doc.text(acct.shipStreet,col3,bySH);bySH+=10;}
+  if(cityLine){doc.text(cityLine,col3,bySH);bySH+=10;}
+
+  // Invoice meta (right) -- Sales Rep / Rep Email moved to their own block below this,
+  // rather than mixed into the same list, so it reads as "who to contact" separately from
+  // "the invoice facts"
   const iX=PW-MR;
   const meta=[
     ['Invoice #:',o.id],
@@ -6541,32 +6564,28 @@ function _buildInvoicePDF(o,callback){
     ['Due Date:',calcDue(o.date,acct)],
     ['Terms:',acct&&acct.terms?acct.terms:'Net 30'],
     ['Account #:',acct&&acct.code?acct.code:'--'],
-    ['Sales Rep:',rep?rep.fname+' '+rep.lname:'--'],
-    ['Rep Email:',rep&&rep.email?rep.email:'--'],
     ['PO #:',o.po||'--'],
   ];
   doc.setFontSize(8);
   meta.forEach(([k,v],i)=>{
-    const ry=y+i*12;
+    const ry=y+8+i*12;
     doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);doc.text(k,iX-155,ry);
     doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);doc.text(String(v),iX,ry,{align:'right'});
   });
+  const repY=y+8+meta.length*12+10;
+  line(iX-165,repY-8,iX,repY-8,0.4,220,220,220);
+  doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(60,60,60);
+  doc.text('Sales Rep:',iX-155,repY);
+  doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+  doc.text(rep?rep.fname+' '+rep.lname:'--',iX,repY,{align:'right'});
+  doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);
+  doc.text('Rep Email:',iX-155,repY+12);
+  doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+  doc.text(rep&&rep.email?rep.email:'--',iX,repY+12,{align:'right'});
 
-  y+=146;
+  // Advance past whichever column in this header ended up tallest
+  y=Math.max(y+128,byBT,bySH,repY+20);
   hline(y,0.75,80,80,80);y+=10;
-
-  // Bill To / Ship To
-  const col2=ML+CW*0.5;
-  doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
-  doc.text('BILL TO',ML,y);doc.text('SHIP TO',col2,y);y+=9;
-  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
-  doc.text(acct?acct.name:'--',ML,y);doc.text(acct?acct.name:'--',col2,y);y+=10;
-  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  if(acct&&acct.shipStreet){doc.text(acct.shipStreet,ML,y);doc.text(acct.shipStreet,col2,y);y+=10;}
-  const cityLine=[acct&&acct.shipCity,acct&&acct.shipState,acct&&acct.shipZip].filter(Boolean).join(', ');
-  if(cityLine){doc.text(cityLine,ML,y);doc.text(cityLine,col2,y);y+=10;}
-  if(acct&&acct.lic){doc.setFontSize(7.5);doc.text('ABC Lic: '+acct.lic,ML,y);y+=10;}
-  y+=8;
 
   // Delivery Instructions -- highlighted so drivers don't miss it. The order's own notes
   // (pre-filled from the account's standing instructions, editable per-order) take priority
