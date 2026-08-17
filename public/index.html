@@ -6572,14 +6572,10 @@ function _buildInvoicePDF(o,callback){
 
   // == PAGE 1 HEADER ==========================================================
 
-  // Logo -- kept small and positioned beside the company info text (not stacked above it),
-  // so the whole company-info block starts at the same height as Bill To/Ship To instead of
-  // being pushed down below a tall logo
-  try{doc.addImage('data:image/jpeg;base64,'+ACS_LOGO_B64,'JPEG',ML,y,34,34);}catch(e){}
-
-  // Company info -- no separate "INVOICE" title, which just repeated what the invoice
-  // number already states clearly in the meta block on the right
-  const infoX=ML+42;
+  // Company info -- no logo (removed), no separate "INVOICE" title (redundant with the
+  // invoice number already shown clearly in the meta block on the right). Starts at ML,
+  // same as Bill To/Ship To start at their own column, so this reads as one even row.
+  const infoX=ML;
   doc.setFontSize(6.5);doc.setFont('helvetica','bold');doc.setTextColor(160,40,40);
   doc.text('*** NEW REMITTANCE ADDRESS ***',infoX,y+8);
   doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(40,40,40);
@@ -11147,10 +11143,9 @@ function _renderInvoiceHTML(orderId, b64){
     <div class="invoice">
       <div class="inv-header" style="grid-template-columns:1.15fr 0.85fr 0.85fr 1fr">
 
-        <!-- COL 1: Logo + company info (no separate "INVOICE" heading -- redundant since
+        <!-- COL 1: Company info (no logo, no separate "INVOICE" heading -- redundant since
              the invoice number is already shown clearly in the details column) -->
         <div>
-          <img src="data:image/jpeg;base64,${ACS_LOGO_B64}" alt="ACS Beverage Co." style="height:56px;display:block;margin-bottom:8px" onerror="this.style.display='none'"/>
           ${isSample?'<div class="sample-badge">SAMPLE ORDER -- NO CRV APPLIED</div>':''}
           <div style="font-size:11px;color:#555;line-height:1.7">
             <strong style="font-size:12px">${COMPANY.name}</strong><br>
