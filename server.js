@@ -1,11 +1,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
+const compression = require('compression');
 const path    = require('path');
 const fs      = require('fs');
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
+// Compresses responses (typically 70-90% smaller for repetitive JSON like order data)
+// transparently at the HTTP layer -- no application code elsewhere needs to change.
+app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res) => {
@@ -67,22 +71,6 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-app.get('/api/diagnose-orders-payload-size', async (req, res) => {
-  if(req.query.secret !== 'toasted2026-payloadsize') return res.status(403).json({ok:false});
-  try {
-    const { getAll } = require('./db');
-    const orderCount = (await getAll('SELECT COUNT(*) as c FROM orders'))[0].c;
-    const itemCount = (await getAll('SELECT COUNT(*) as c FROM order_items'))[0].c;
-    const rows = await getAll("SELECT o.*, COALESCE(json_agg(oi.*) FILTER (WHERE oi.order_id IS NOT NULL), '[]') as items FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id GROUP BY o.id");
-    const jsonStr = JSON.stringify(rows);
-    const bytes = Buffer.byteLength(jsonStr, 'utf8');
-    res.json({ ok: true, orderCount: parseInt(orderCount), itemCount: parseInt(itemCount),
-      approxPayloadBytes: bytes, approxPayloadMB: (bytes/1024/1024).toFixed(2) });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
 app.get('/api/seed-now', async (req, res) => {
   if (req.query.secret !== 'toasted2026') {
     return res.status(403).json({ ok: false, error: 'Forbidden' });
