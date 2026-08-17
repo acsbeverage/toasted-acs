@@ -1,15 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
-const compression = require('compression');
 const path    = require('path');
 const fs      = require('fs');
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
-// Compresses responses (typically 70-90% smaller for repetitive JSON like order data)
-// transparently at the HTTP layer -- no application code elsewhere needs to change.
-app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res) => {
