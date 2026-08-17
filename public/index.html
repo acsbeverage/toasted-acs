@@ -640,6 +640,19 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     </div>
   </div>
 </div>
+<div class="modal-bg" id="modal-custom-price">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title">Set custom price</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:14px" id="custom-price-product-name"></p>
+    <label class="flabel">Price per bottle</label>
+    <input type="number" id="custom-price-input" class="finput" min="0" step="0.01" style="margin-top:4px"/>
+    <p style="font-size:11px;color:var(--text3);margin-top:8px">This overrides the selected tier for this line only. Changing the tier dropdown afterward will clear this custom price.</p>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-custom-price')">Cancel</button>
+      <button class="btn btn-success" onclick="applyCustomPrice()"><i class="ti ti-check"></i> Apply</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-reprint-labels">
   <div class="modal" style="max-width:420px">
     <div class="modal-title">Reprint shipping labels</div>
@@ -2598,7 +2611,27 @@ function updateField(idx,field,val){
   }
   syncFees();renderLineItems();
 }
-function updateItemTier(idx,tier){currentOrder.items[idx].tier=tier;renderLineItems()}
+function updateItemTier(idx,tier){const item=currentOrder.items[idx];item.tier=tier;delete item._manual;delete item.rate;renderLineItems()}
+function openCustomPriceModal(context,idx){
+  const item=context==='new'?currentOrder.items[idx]:window._editItems[idx];
+  if(!item)return;
+  const p=prodBySku(item.sku);if(!p)return;
+  window._customPriceTarget={context,idx};
+  document.getElementById('custom-price-product-name').textContent=p.name;
+  document.getElementById('custom-price-input').value=itemUnitPrice(item,p).toFixed(2);
+  document.getElementById('modal-custom-price').classList.add('open');
+}
+function applyCustomPrice(){
+  const target=window._customPriceTarget;if(!target)return;
+  const price=parseFloat(document.getElementById('custom-price-input').value);
+  if(isNaN(price)||price<0){toast('Enter a valid price');return}
+  const item=target.context==='new'?currentOrder.items[target.idx]:window._editItems[target.idx];
+  if(!item){closeModal('modal-custom-price');return}
+  item.rate=price;item._manual=true;
+  closeModal('modal-custom-price');
+  if(target.context==='new')renderLineItems();else renderEditItems();
+  toast('Custom price applied');
+}
 function updateItemDiscount(idx,val){
   let pct=parseFloat(val)||0;
   pct=Math.min(Math.max(pct,0),100);
@@ -2668,7 +2701,8 @@ function renderLineItems(){
       <td><select class="inline-sel" onchange="updateItemTier(${idx},this.value)">${buildTierOptions(p,item,false,currentOrder.acct)}</select></td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">
         <div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div>
-        <div style="font-size:11px;color:var(--text3)">$${price.toFixed(2)}/btl</div>
+        <div style="font-size:11px;color:var(--text3)">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>
+        ${isAdmin?`<button onclick="openCustomPriceModal('new',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}
       </td>
       <td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateField(${idx},'cases',this.value)"/></td>
       <td><div style="display:flex;align-items:center;gap:4px"><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateField(${idx},'bottles',this.value)"/><span style="font-size:10px;color:var(--text3)">/${maxLoose}</span></div></td>
@@ -4227,7 +4261,7 @@ function updateEditField(idx,field,val){
   window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
   renderEditItems();
 }
-function updateEditTier(idx,tier){window._editItems[idx].tier=tier;renderEditItems()}
+function updateEditTier(idx,tier){const item=window._editItems[idx];item.tier=tier;delete item._manual;delete item.rate;renderEditItems()}
 function updateEditDiscount(idx,val){
   let pct=parseFloat(val)||0;
   pct=Math.min(Math.max(pct,0),100);
@@ -4307,7 +4341,7 @@ function renderEditItems(){
     }
     const p=prodBySku(item.sku);if(!p)return'';const price=itemUnitPrice(item,p);const maxLoose=p.btl;
     const nameCell=`<td style="font-weight:500;color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')" title="View pricing for ${p.name.replace(/"/g,'&quot;')}">${p.name}</td>`;
-    return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl</div></td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+    return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>${isAdminUser?`<button onclick="openCustomPriceModal('edit',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}</td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
