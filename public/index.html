@@ -6599,10 +6599,10 @@ function _buildInvoicePDF(o,callback){
   const col2=ML+235;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
   doc.text('BILL TO',col2,y+8);
-  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
+  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(40,40,40);
   doc.text(acct?acct.name:'--',col2,y+18);
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  let byBT=y+28;
+  let byBT=y+33;
   if(acct&&acct.shipStreet){doc.text(acct.shipStreet,col2,byBT);byBT+=10;}
   const cityLine=[acct&&acct.shipCity,acct&&acct.shipState,acct&&acct.shipZip].filter(Boolean).join(', ');
   if(cityLine){doc.text(cityLine,col2,byBT);byBT+=10;}
@@ -6613,10 +6613,10 @@ function _buildInvoicePDF(o,callback){
   const col3=ML+235+140;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
   doc.text('SHIP TO',col3,y+8);
-  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(40,40,40);
+  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(40,40,40);
   doc.text(acct?acct.name:'--',col3,y+18);
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  let bySH=y+28;
+  let bySH=y+33;
   if(acct&&acct.shipStreet){doc.text(acct.shipStreet,col3,bySH);bySH+=10;}
   if(cityLine){doc.text(cityLine,col3,bySH);bySH+=10;}
 
@@ -11104,6 +11104,7 @@ function _renderInvoiceHTML(orderId, b64){
       .divider { border: none; border-top: 1.5px solid #222; margin: 12px 0; }
       .addr-block h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px; }
       .addr-block p { font-size: 12px; line-height: 1.5; }
+      .addr-block p strong { font-size: 15px; display: block; margin-bottom: 2px; }
       table.items { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
       table.items thead th { border-bottom: 1.5px solid #222; padding: 6px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #555; font-weight: 700; }
       .qty-group th { border: 1px solid #ccc; border-radius: 3px; }
