@@ -4,9 +4,14 @@ const { query, getOne } = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────
-// Set these on Render (Environment tab), never in code or in the browser:
-//   QBO_CLIENT_ID       -- from your Intuit Developer app
-//   QBO_CLIENT_SECRET   -- from your Intuit Developer app
+// Set these on Render (Environment tab), never in code or in the browser.
+// Intuit issues SEPARATE, non-interchangeable Client ID/Secret pairs for Sandbox vs
+// Production (two different tabs on the app's "Keys & OAuth" page in the developer portal) --
+// using Sandbox credentials against the Production API (or vice versa) is rejected with 403.
+//   QBO_CLIENT_ID_SANDBOX / QBO_CLIENT_SECRET_SANDBOX       -- from the app's Development keys
+//   QBO_CLIENT_ID_PRODUCTION / QBO_CLIENT_SECRET_PRODUCTION -- from the app's Production keys
+//   QBO_CLIENT_ID / QBO_CLIENT_SECRET -- fallback used for either environment if the
+//                                        environment-specific vars above aren't set
 //   QBO_REDIRECT_URI    -- e.g. https://toasted-acs.onrender.com/api/qbo/callback
 //                          (must exactly match what's registered in the Intuit app's Redirect URIs)
 
@@ -18,6 +23,13 @@ function apiBase(environment) {
   return environment === 'production'
     ? 'https://quickbooks.api.intuit.com'
     : 'https://sandbox-quickbooks.api.intuit.com';
+}
+function clientCreds(environment) {
+  const suffix = environment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+  return {
+    id: process.env[`QBO_CLIENT_ID_${suffix}`] || process.env.QBO_CLIENT_ID,
+    secret: process.env[`QBO_CLIENT_SECRET_${suffix}`] || process.env.QBO_CLIENT_SECRET,
+  };
 }
 
 // ─── CONNECTION STORAGE (single row) ─────────────────────────────────────
@@ -50,7 +62,8 @@ async function ensureFreshToken() {
   if (expiresAt - Date.now() > 60000) return conn; // still valid for at least another minute
 
   // Refresh
-  const basicAuth = Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString('base64');
+  const creds = clientCreds(conn.environment);
+  const basicAuth = Buffer.from(`${creds.id}:${creds.secret}`).toString('base64');
   const res = await fetch(OAUTH_TOKEN_URL, {
     method: 'POST',
     headers: {
@@ -87,10 +100,18 @@ async function qboApi(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text();
+  let data = {};
+  try { data = JSON.parse(rawText); } catch (e) { /* not JSON -- fall through, rawText still logged below */ }
   if (!res.ok) {
-    const msg = data.Fault?.Error?.[0]?.Message || data.Fault?.Error?.[0]?.Detail || `QBO API error ${res.status}`;
-    throw new Error(msg);
+    const msg = data.Fault?.Error?.[0]?.Message || data.Fault?.Error?.[0]?.Detail;
+    if (!msg) {
+      // The error didn't match QBO's usual Fault shape (common for 401/403s that come from
+      // an auth/gateway layer before reaching the accounting API) -- log the raw body so the
+      // real reason is visible in server logs instead of being silently lost.
+      console.error(`QBO API error ${res.status} on ${method} ${path}:`, rawText.slice(0, 1000));
+    }
+    throw new Error(msg || `QBO API error ${res.status} on ${method} ${path.split('?')[0]}`);
   }
   return data;
 }
@@ -102,11 +123,12 @@ async function qboQuery(realmId, sql) {
 // ─── OAUTH: START ─────────────────────────────────────────────────────────
 router.post('/auth-url', requireAdmin, async (req, res) => {
   try {
-    if (!process.env.QBO_CLIENT_ID) return res.status(500).json({ ok: false, message: 'QBO_CLIENT_ID not configured on the server' });
     const environment = req.body.environment === 'production' ? 'production' : 'sandbox';
+    const creds = clientCreds(environment);
+    if (!creds.id) return res.status(500).json({ ok: false, message: `QBO_CLIENT_ID_${environment.toUpperCase()} (or QBO_CLIENT_ID) not configured on the server` });
     const state = Buffer.from(JSON.stringify({ environment, t: Date.now() })).toString('base64url');
     const params = new URLSearchParams({
-      client_id: process.env.QBO_CLIENT_ID,
+      client_id: creds.id,
       redirect_uri: process.env.QBO_REDIRECT_URI,
       response_type: 'code',
       scope: 'com.intuit.quickbooks.accounting',
@@ -140,7 +162,8 @@ router.get('/callback', async (req, res) => {
     let environment = 'sandbox';
     try { environment = JSON.parse(Buffer.from(state, 'base64url').toString()).environment || 'sandbox'; } catch (e) {}
 
-    const basicAuth = Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString('base64');
+    const creds = clientCreds(environment);
+    const basicAuth = Buffer.from(`${creds.id}:${creds.secret}`).toString('base64');
     const tokenRes = await fetch(OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: {
@@ -202,7 +225,8 @@ router.post('/disconnect', requireAdmin, async (req, res) => {
     const conn = await getConnection();
     if (conn && conn.access_token) {
       try {
-        const basicAuth = Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString('base64');
+        const creds = clientCreds(conn.environment);
+        const basicAuth = Buffer.from(`${creds.id}:${creds.secret}`).toString('base64');
         await fetch(OAUTH_REVOKE_URL, {
           method: 'POST',
           headers: { 'Authorization': `Basic ${basicAuth}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
