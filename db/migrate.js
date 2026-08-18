@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { query } = require('./index');
+const { query, getOne } = require('./index');
 
 async function migrate() {
   console.log('Running migrations...');
@@ -312,6 +312,50 @@ async function migrate() {
     uploaded_at DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
+
+  await query(`CREATE TABLE IF NOT EXISTS report_schedules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    date_range TEXT DEFAULT 'rolling30',
+    custom_from DATE,
+    custom_to DATE,
+    freq TEXT DEFAULT 'weekly',
+    day_of_week INTEGER DEFAULT 1,
+    day_of_month INTEGER DEFAULT 1,
+    send_time TEXT DEFAULT '08:00',
+    recipients JSONB DEFAULT '[]',
+    producers JSONB DEFAULT '[]',
+    active BOOLEAN DEFAULT TRUE,
+    last_sent DATE,
+    next_send DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
+  // One-time migration -- import any schedules already saved under the old approach (a JSON
+  // blob stored inside a shared_docs row) into the new, properly structured table, so nothing
+  // already configured gets lost when moving to real backend automation.
+  const oldSchedDoc = await getOne(`SELECT description FROM shared_docs WHERE id='report_schedules'`);
+  if (oldSchedDoc && oldSchedDoc.description) {
+    try {
+      const oldSchedules = JSON.parse(oldSchedDoc.description);
+      for (const s of oldSchedules) {
+        const exists = await getOne('SELECT id FROM report_schedules WHERE id=$1', [s.id]);
+        if (exists) continue;
+        await query(
+          `INSERT INTO report_schedules (id,name,type,date_range,custom_from,custom_to,freq,day_of_week,day_of_month,send_time,recipients,producers,active,last_sent,next_send)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [s.id, s.name, s.type, s.dateRange || 'rolling30', s.customFrom || null, s.customTo || null,
+           s.freq || 'weekly', s.dayOfWeek ?? 1, s.dayOfMonth ?? 1, s.time || '08:00',
+           JSON.stringify(s.recipients || []), JSON.stringify(s.producers || []),
+           s.active !== false, s.lastSent || null, s.nextSend || null]
+        );
+      }
+      console.log(`Migrated ${oldSchedules.length} schedule(s) from the old storage format`);
+    } catch (e) {
+      console.error('Schedule migration skipped (could not parse old data):', e.message);
+    }
+  }
 
   console.log('All tables created successfully');
 }
