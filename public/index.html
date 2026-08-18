@@ -1194,13 +1194,13 @@ function deleteTastingFromDB(tastingId){
   }).catch(e=>{console.error('Delete tasting error:',e.message);toast('Could not delete tasting -- check your connection');});
 }
 
-function saveProductToDB(sku){
+function saveProductToDB(sku,newSku){
   if(!TOASTED_BACKEND_URL||!window._authToken)return Promise.reject(new Error('Not connected'));
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return Promise.reject(new Error('Product not found'));
   return fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||'',restricted:!!p.restricted})
+    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||'',restricted:!!p.restricted,newSku})
   }).then(r=>r.json()).then(d=>{
     if(!d.ok)throw new Error(d.error||'Save failed');
     return d;
@@ -12339,7 +12339,8 @@ function renderProductForm(p,isNew){
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px;background:#fffbe8;border-radius:var(--radius)"><input type="checkbox" id="pf-restricted" ${p.restricted?'checked':''} style="width:16px;height:16px"/><label for="pf-restricted" style="font-size:13px;cursor:pointer">Restricted -- only visible to Admin and users with "Full pricing visibility"</label></div>
 
       <label class="flabel">SKU / Code</label>
-      <input id="pf-sku" type="text" class="finput" value="${p.sku||''}" placeholder="Unique SKU" ${!isNew?'readonly style="background:var(--bg3);margin-bottom:12px"':'style="margin-bottom:12px"'}/>
+      <input id="pf-sku" type="text" class="finput" value="${p.sku||''}" placeholder="Unique SKU" style="margin-bottom:${isNew?'12px':'4px'}"/>
+      ${!isNew?`<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Changing this renames the SKU everywhere, including on past orders -- use with care.</div>`:''}
 
       <label class="flabel">Internal Code</label>
       <input id="pf-code" type="text" class="finput" value="${d.code||''}" placeholder="e.g. 845363" style="margin-bottom:12px"/>
@@ -12480,7 +12481,13 @@ function saveProduct(){
   } else {
     const p=PRODUCTS.find(x=>x.sku===_editingProductSku);
     if(!p)return;
-    const prevState={name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image,restricted:p.restricted,_details:p._details};
+    const oldSku=_editingProductSku;
+    const skuChanged=sku!==oldSku;
+    if(skuChanged){
+      if(PRODUCTS.find(x=>x.sku===sku)){toast('SKU "'+sku+'" is already in use by another product');return;}
+      if(!confirm('Change this product\'s SKU from "'+oldSku+'" to "'+sku+'"?\n\nThis updates every past order that references it too. This can\'t be easily undone.')){return;}
+    }
+    const prevState={name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image,restricted:p.restricted,_details:p._details,sku:p.sku};
     p.name=name;
     p.producer=document.getElementById('pf-producer').value.trim();
     p.cat=document.getElementById('pf-cat').value;
@@ -12488,7 +12495,14 @@ function saveProduct(){
     p.image=window._pfImageData||'';
     p.restricted=document.getElementById('pf-restricted').checked;
     p._details=details;
-    saveProductToDB(p.sku).then(()=>{
+    saveProductToDB(oldSku,skuChanged?sku:undefined).then(()=>{
+      if(skuChanged){
+        p.sku=sku;
+        _editingProductSku=sku;
+        // Keep the in-memory ORDERS array consistent with the backend's cascaded rename,
+        // so this session's line-item lookups keep resolving without needing a full reload.
+        ORDERS.forEach(o=>o.items.forEach(it=>{if(it.sku===oldSku)it.sku=sku;}));
+      }
       toast('Product saved -- '+name);
     }).catch(e=>{
       Object.assign(p,prevState); // roll back the optimistic edit
