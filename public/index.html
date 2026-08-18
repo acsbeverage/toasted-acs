@@ -10338,9 +10338,9 @@ function exportRepCommission(repId){
 }
 
 // -- SCHEDULED REPORTS ---------------------------------------------------------
-// Each schedule: {id, name, type:'sales'|'inventory', freq:'weekly'|'biweekly'|'monthly',
+// Each schedule: {id, name, type:'RA2'|'FINTECH'|'RA5'|'RA40'|'RB1'|'RB2'|'RC12'|'RI2', freq:'weekly'|'biweekly'|'monthly',
 //   dayOfWeek:0-6 (weekly/biweekly), dayOfMonth:1-31 (monthly), time:'HH:MM',
-//   recipients:[{email,label}], producers:['all'|producerName] (sales only),
+//   recipients:[{email,label}], producers:['all'|producerName] (RA5/RB1/RB2 only),
 //   dateRange:'rolling30'|'rolling7'|'mtd'|'ytd'|'all', active:true|false,
 //   lastSent:null|dateStr, nextSend:dateStr, createdAt:dateStr}
 let SCHEDULES = [];
@@ -10533,14 +10533,14 @@ function renderScheduledReports(){
 }
 
 function renderSchedRows(schedules){
-  const typeLabel={sales:'Sales & Depletions',inventory:'Inventory'};
-  const typeIcon={sales:'ti-chart-bar',inventory:'ti-bottle'};
+  const typeLabel={RA2:'RA2 - Invoice Line Item',FINTECH:'Fintech Report',RA5:'RA5 - Depletion by Producer',RA40:'RA40 - CRV',RB1:'RB1 - Inventory by Supplier',RB2:'RB2 - Inventory by Producer',RC12:'RC12 - Samples',RI2:'RI2 - Open/Past Due'};
+  const typeIcon={RA2:'ti-file-invoice',FINTECH:'ti-credit-card',RA5:'ti-chart-bar',RA40:'ti-recycle',RB1:'ti-bottle',RB2:'ti-bottle',RC12:'ti-flask',RI2:'ti-clock-dollar'};
   return`<thead><tr>
     <th>Schedule name</th><th>Type</th><th>Frequency</th><th>Date range</th><th>Recipients</th><th>Next send</th><th>Last sent</th><th></th>
   </tr></thead><tbody>`+
   schedules.map(s=>`<tr>
     <td><div style="font-weight:600">${s.name}</div></td>
-    <td><span class="badge ${s.type==='sales'?'badge-spirits':'badge-wine'}"><i class="ti ${typeIcon[s.type]}" style="font-size:11px;margin-right:3px"></i>${typeLabel[s.type]}</span></td>
+    <td><span class="badge ${['RA5','RB1','RB2'].includes(s.type)?'badge-spirits':'badge-wine'}"><i class="ti ${typeIcon[s.type]||'ti-file'}" style="font-size:11px;margin-right:3px"></i>${typeLabel[s.type]||s.type}</span></td>
     <td style="font-size:12px;color:var(--text2)">${freqLabel(s)}</td>
     <td style="font-size:12px;color:var(--text2)">${s.dateRange==='custom'?(s.customFrom||'?')+' -> '+(s.customTo||'?'):dateRangeLabel(s.dateRange)}</td>
     <td>
@@ -10607,7 +10607,7 @@ function editSchedule(id){openSchedModal(id);}
 function onSchedTypeChange(){
   const t=document.getElementById('sched-type').value;
   const pw=document.getElementById('sched-producers-wrap');
-  if(pw)pw.style.display=t==='sales'?'':'none';
+  if(pw)pw.style.display=['RA5','RB1','RB2'].includes(t)?'':'none';
 }
 function onSchedFreqChange(){
   const f=document.getElementById('sched-freq').value;
@@ -10736,7 +10736,7 @@ function runScheduleNow(id){
   const from=s.dateRange==='custom'?(s.customFrom||_f):_f;
   const to=s.dateRange==='custom'?(s.customTo||_t):_t;
 
-  if(s.type==='sales'){
+  if(s.type==='RA5'){
     // Group by producer, send one email per recipient filtered to their producers
     const orders=ORDERS.filter(o=>o.status==='delivered')
       .filter(o=>(!from||o.date>=from)&&(!to||o.date<=to));
@@ -10784,7 +10784,7 @@ function runScheduleNow(id){
     s.nextSend=calcNextSend(s.freq,s.dayOfWeek,s.dayOfMonth,s.time);
     toast(`Sending to ${s.recipients.length} recipient${s.recipients.length!==1?'s':''}...`);
 
-  } else {
+  } else if(s.type==='RB1'||s.type==='RB2'){
     // Inventory email
     const lowItems=PRODUCTS.filter(p=>p.stock===0||p.stock<=p.reorder).sort((a,b)=>a.stock-b.stock);
     const allItems=PRODUCTS.filter(p=>s.producers.length?s.producers.includes(p.producer):true)
@@ -10815,6 +10815,12 @@ function runScheduleNow(id){
     s.lastSent=today();
     s.nextSend=calcNextSend(s.freq,s.dayOfWeek,s.dayOfMonth,s.time);
     toast(`Sending inventory report to ${s.recipients.length} recipient${s.recipients.length!==1?'s':''}...`);
+  } else {
+    // These report types don't have matching email-body logic built yet -- say so clearly
+    // rather than silently falling through to the wrong report (the previous behavior, and
+    // almost certainly why "Send now" looked like nothing happened).
+    toast(`Automatic sending isn't set up yet for ${s.type} -- run this report from the Reports tab and send it manually for now.`);
+    return;
   }
 
   renderScheduledReports();
