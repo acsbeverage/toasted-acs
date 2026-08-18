@@ -67,6 +67,37 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/mark-historical-qbo-sent', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-qbohistmark') return res.status(403).json({ok:false});
+  const execute = req.query.execute === 'true';
+  try {
+    const { query, getAll } = require('./db');
+    const cutoff = '2026-08-01';
+    const preview = await getAll(
+      "SELECT id, acct_id, date, status FROM orders WHERE status='delivered' AND date <= $1 AND qbo_synced_at IS NULL ORDER BY date",
+      [cutoff]
+    );
+
+    if (!execute) {
+      return res.json({ ok: true, dryRun: true,
+        cutoffDate: cutoff,
+        matchingCount: preview.length,
+        sample: preview.slice(0, 15),
+        note: 'Marks these orders qbo_synced_at=NOW() so Toasted treats them as already sent (no qbo_invoice_id set, since the real QB invoice number from before Toasted went live is unknown). Re-run with &execute=true to apply.' });
+    }
+
+    const ids = preview.map(o => o.id);
+    let updated = 0;
+    if (ids.length) {
+      const result = await query("UPDATE orders SET qbo_synced_at=NOW() WHERE id = ANY($1)", [ids]);
+      updated = result.rowCount;
+    }
+    res.json({ ok: true, executed: true, updated });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/diagnose-qbo-config', async (req, res) => {
   if(req.query.secret !== 'toasted2026-qboconfig') return res.status(403).json({ok:false});
   const mask = (v) => v ? (v.length > 6 ? v.slice(0,4)+'...'+v.slice(-4) : '(set, short)') : '(NOT SET)';
