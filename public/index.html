@@ -434,6 +434,11 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   <div class="qv-bg" id="modal-quickview" onmousedown="if(event.target===this)closeQuickView()">
     <div class="qv-modal" id="qv-body"></div>
   </div>
+  <button id="portal-cart-btn" onclick="document.getElementById('portal-checkout-section').scrollIntoView({behavior:'smooth',block:'start'})" style="display:none;position:fixed;bottom:24px;right:24px;z-index:200;background:#6B2737;color:#fff;border:none;border-radius:30px;padding:13px 22px 13px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(20,10,10,0.3);align-items:center;gap:10px">
+    <i class="ti ti-shopping-cart" style="font-size:18px"></i>
+    <span id="portal-cart-btn-count"></span>
+    <span id="portal-cart-btn-total" style="color:#F0D5C8"></span>
+  </button>
   <div style="text-align:center;padding:20px 16px 32px;font-size:11px;color:#999;line-height:1.7">
     &copy; <span id="footer-year-portal"></span> ACS Beverage Co. LLC. All rights reserved.
     &nbsp;&middot;&nbsp;
@@ -1658,6 +1663,11 @@ function renderPortalNewOrder(){
     </div>`:''}
 
     <div class="portal-card">
+      <div class="portal-card-title">Know what you want?</div>
+      <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="portal-prod-search" placeholder="Search by product name or SKU to add it directly..." oninput="onProdSearch(this.value)" onblur="setTimeout(closeProdDD,200)"/><div class="dropdown-box" id="prod-dd"></div></div>
+    </div>
+
+    <div class="portal-card">
       <div class="portal-card-title">Shop products</div>
       <div class="shop-cat-row" id="shop-cat-row">
         ${['All','Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'].map(c=>`<button class="shop-cat-pill${c==='All'?' active':''}" data-cat="${c==='All'?'':c}" onclick="filterShopGrid(this)">${c}</button>`).join('')}
@@ -1665,10 +1675,10 @@ function renderPortalNewOrder(){
       <div style="margin-bottom:16px">
         <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="shop-search" placeholder="Search products..." oninput="filterShopGrid()"/></div>
       </div>
-      <div class="shop-grid" id="shop-grid"></div>
+      <div id="shop-grid-sections"></div>
     </div>
 
-    <div class="portal-card">
+    <div class="portal-card" id="portal-checkout-section">
       <div class="portal-card-title">Place an Order — ${acct.name}</div>
 
       <div style="background:#FFF8E8;border:1px solid #F0D080;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#7a5800;display:flex;align-items:center;gap:8px">
@@ -1683,11 +1693,6 @@ function renderPortalNewOrder(){
         <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">PO number (optional)</label>
           <input type="text" class="finput" id="pcust-po" placeholder="PO-1234" onchange="currentOrder.po=this.value" style="width:100%"/>
         </div>
-      </div>
-
-      <div style="margin-bottom:16px">
-        <label style="font-size:12px;color:#888;display:block;margin-bottom:6px">Search &amp; add products</label>
-        <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="portal-prod-search" placeholder="Search by product name or SKU..." oninput="onProdSearch(this.value)" onblur="setTimeout(closeProdDD,200)"/><div class="dropdown-box" id="prod-dd"></div></div>
       </div>
 
       <div id="line-items-wrap" style="margin-bottom:16px"></div>
@@ -1751,7 +1756,23 @@ function updatePortalMinimumStatus(){
   }
 }
 
+const SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+const SHOP_SECTION_CAP=8;
 let _shopActiveCat='';
+function shopCardHtml(p){
+  const price=itemPrice(p,'frontline');
+  return`<div class="shop-card" onclick="openQuickView('${p.sku.replace(/'/g,"\\'")}')">
+    <div class="shop-card-img-wrap">
+      ${p.image?`<img src="${p.image}" alt="${p.name}"/>`:`<i class="ti ti-bottle"></i>`}
+      <button class="shop-card-add" onclick="event.stopPropagation();shopQuickAdd('${p.sku.replace(/'/g,"\\'")}')" title="Add 1 case"><i class="ti ti-plus"></i></button>
+    </div>
+    <div class="shop-card-body">
+      <div class="shop-card-producer">${p.producer||''}</div>
+      <div class="shop-card-name">${p.name}</div>
+      <div class="shop-card-price">${price>0?fmt(price*p.btl):'--'} <span class="per">/cs</span></div>
+    </div>
+  </div>`;
+}
 function filterShopGrid(pillEl){
   if(pillEl){
     document.querySelectorAll('.shop-cat-pill').forEach(b=>b.classList.remove('active'));
@@ -1759,30 +1780,33 @@ function filterShopGrid(pillEl){
     _shopActiveCat=pillEl.dataset.cat;
   }
   const q=(document.getElementById('shop-search')?.value||'').trim().toLowerCase();
-  const grid=document.getElementById('shop-grid');if(!grid)return;
-  const prods=mainInventory().filter(p=>
-    (!_shopActiveCat||p.cat===_shopActiveCat)&&
-    (!q||p.name.toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q)||p.sku.toLowerCase().includes(q))
-  ).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const wrap=document.getElementById('shop-grid-sections');if(!wrap)return;
+  const all=mainInventory();
+  const matchesQ=p=>!q||p.name.toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q)||p.sku.toLowerCase().includes(q);
 
-  if(!prods.length){
-    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:36px;color:#aaa;font-size:13px">No products match -- try a different search or category</div>';
+  // Browsing with no category or search active -- show organized sections by department,
+  // each capped with a "View all" link, rather than one undifferentiated wall of products.
+  if(!_shopActiveCat&&!q){
+    const sections=SHOP_CATEGORIES.map(cat=>{
+      const prods=all.filter(p=>p.cat===cat).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+      if(!prods.length)return'';
+      return`<div style="margin-bottom:26px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:#221d18">${cat}</div>
+          ${prods.length>SHOP_SECTION_CAP?`<button onclick="filterShopGrid(document.querySelector('.shop-cat-pill[data-cat=\\'${cat.replace(/'/g,"\\\\'")}\\']'))" style="background:none;border:none;color:#D4967D;font-size:12px;font-weight:600;cursor:pointer">View all ${prods.length} &rarr;</button>`:''}
+        </div>
+        <div class="shop-grid">${prods.slice(0,SHOP_SECTION_CAP).map(shopCardHtml).join('')}</div>
+      </div>`;
+    }).join('');
+    wrap.innerHTML=sections||'<div style="text-align:center;padding:36px;color:#aaa;font-size:13px">No products available yet</div>';
     return;
   }
-  grid.innerHTML=prods.map(p=>{
-    const price=itemPrice(p,'frontline');
-    return`<div class="shop-card" onclick="openQuickView('${p.sku.replace(/'/g,"\\'")}')">
-      <div class="shop-card-img-wrap">
-        ${p.image?`<img src="${p.image}" alt="${p.name}"/>`:`<i class="ti ti-bottle"></i>`}
-        <button class="shop-card-add" onclick="event.stopPropagation();shopQuickAdd('${p.sku.replace(/'/g,"\\'")}')" title="Add 1 case"><i class="ti ti-plus"></i></button>
-      </div>
-      <div class="shop-card-body">
-        <div class="shop-card-producer">${p.producer||''}</div>
-        <div class="shop-card-name">${p.name}</div>
-        <div class="shop-card-price">${price>0?fmt(price*p.btl):'--'} <span class="per">/cs</span></div>
-      </div>
-    </div>`;
-  }).join('');
+
+  // A category or search is active -- show one flat, complete grid of matches
+  const prods=all.filter(p=>(!_shopActiveCat||p.cat===_shopActiveCat)&&matchesQ(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  wrap.innerHTML=prods.length
+    ? `<div class="shop-grid">${prods.map(shopCardHtml).join('')}</div>`
+    : '<div style="text-align:center;padding:36px;color:#aaa;font-size:13px">No products match -- try a different search or category</div>';
 }
 
 // Adds 1 full case directly from the grid card's quick-add button, without opening quick-view
@@ -2844,11 +2868,23 @@ function updateItemNotes(idx,val){
   currentOrder.items[idx].notes=val.trim();
 }
 
+// Updates the Portal's floating cart button. Safe to call from anywhere, including the
+// shared renderLineItems -- no-ops entirely if the button isn't on the page (main app context).
+function updatePortalCartButton(){
+  const btn=document.getElementById('portal-cart-btn');if(!btn)return;
+  const prodItems=currentOrder.items.filter(x=>!x._fee);
+  if(!prodItems.length){btn.style.display='none';return}
+  const bottles=prodItems.reduce((s,x)=>s+itemTotalBottles(x),0);
+  const total=currentOrder.items.reduce((s,x)=>s+itemLineTotal(x),0);
+  document.getElementById('portal-cart-btn-count').textContent=bottles+' bottle'+(bottles!==1?'s':'');
+  document.getElementById('portal-cart-btn-total').textContent=fmt(total);
+  btn.style.display='inline-flex';
+}
 function renderLineItems(){
   const wrap=document.getElementById('line-items-wrap');if(!wrap)return;
   const prodItems=currentOrder.items.filter(x=>!x._fee);
   const cnt=document.getElementById('item-count');if(cnt)cnt.textContent=prodItems.length+' item'+(prodItems.length!==1?'s':'');
-  if(!prodItems.length&&!currentOrder.items.find(x=>x._fee)){wrap.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div>';renderTotals();return}
+  if(!prodItems.length&&!currentOrder.items.find(x=>x._fee)){wrap.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div>';renderTotals();updatePortalCartButton();return}
   const isAdmin=currentUser&&currentUser.role==='admin';
 
   // -- DESKTOP TABLE VIEW --------------------------------------------------
@@ -2995,6 +3031,7 @@ function renderLineItems(){
 
   wrap.innerHTML=`<div id="line-items-table-view">${tableHtml}</div><div id="line-items-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`;
   renderTotals();
+  updatePortalCartButton();
 }
 function waiveDelivery(){
   currentOrder.waiveDelivery=true;
