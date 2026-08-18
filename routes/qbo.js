@@ -12,8 +12,14 @@ const { requireAdmin } = require('../middleware/auth');
 //   QBO_CLIENT_ID_PRODUCTION / QBO_CLIENT_SECRET_PRODUCTION -- from the app's Production keys
 //   QBO_CLIENT_ID / QBO_CLIENT_SECRET -- fallback used for either environment if the
 //                                        environment-specific vars above aren't set
-//   QBO_REDIRECT_URI    -- e.g. https://toasted-acs.onrender.com/api/qbo/callback
-//                          (must exactly match what's registered in the Intuit app's Redirect URIs)
+//
+// Intuit also requires each redirect URI to be globally unique across the whole app -- the
+// same exact URI can't be registered under both the Sandbox and Production tabs. So Sandbox
+// and Production each need their own callback path registered in the Intuit app's Redirect
+// URIs (this file exposes both /api/qbo/callback and /api/qbo/callback-production):
+//   QBO_REDIRECT_URI_SANDBOX    -- e.g. https://toasted-acs.onrender.com/api/qbo/callback
+//   QBO_REDIRECT_URI_PRODUCTION -- e.g. https://toasted-acs.onrender.com/api/qbo/callback-production
+//   QBO_REDIRECT_URI -- fallback used for either environment if the ones above aren't set
 
 const OAUTH_AUTHORIZE_URL = 'https://appcenter.intuit.com/connect/oauth2';
 const OAUTH_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
@@ -30,6 +36,13 @@ function clientCreds(environment) {
     id: process.env[`QBO_CLIENT_ID_${suffix}`] || process.env.QBO_CLIENT_ID,
     secret: process.env[`QBO_CLIENT_SECRET_${suffix}`] || process.env.QBO_CLIENT_SECRET,
   };
+}
+function redirectUri(environment) {
+  // Intuit requires each redirect URI to be globally unique across the whole app -- the same
+  // exact URI can't be registered under both the Sandbox and Production tabs. Falls back to a
+  // single shared QBO_REDIRECT_URI if the environment-specific one isn't set.
+  const suffix = environment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+  return process.env[`QBO_REDIRECT_URI_${suffix}`] || process.env.QBO_REDIRECT_URI;
 }
 
 // ─── CONNECTION STORAGE (single row) ─────────────────────────────────────
@@ -129,7 +142,7 @@ router.post('/auth-url', requireAdmin, async (req, res) => {
     const state = Buffer.from(JSON.stringify({ environment, t: Date.now() })).toString('base64url');
     const params = new URLSearchParams({
       client_id: creds.id,
-      redirect_uri: process.env.QBO_REDIRECT_URI,
+      redirect_uri: redirectUri(environment),
       response_type: 'code',
       scope: 'com.intuit.quickbooks.accounting',
       state,
@@ -141,7 +154,10 @@ router.post('/auth-url', requireAdmin, async (req, res) => {
 });
 
 // ─── OAUTH: CALLBACK (Intuit redirects the browser here directly) ────────
-router.get('/callback', async (req, res) => {
+// Two separate routes, one per environment, since Intuit requires each redirect URI to be
+// globally unique across the app -- the same URI can't be registered under both the Sandbox
+// and Production tabs. Both routes share the same handler logic below.
+async function handleOAuthCallback(req, res) {
   const respondToPopup = (success, payload) => {
     const msg = success
       ? { type: 'QBO_OAUTH_SUCCESS', companyName: payload.companyName, realmId: payload.realmId }
@@ -174,7 +190,7 @@ router.get('/callback', async (req, res) => {
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: process.env.QBO_REDIRECT_URI,
+        redirect_uri: redirectUri(environment),
       }),
     });
     const tokenData = await tokenRes.json();
@@ -206,7 +222,9 @@ router.get('/callback', async (req, res) => {
     console.error('QBO callback error:', err.message);
     respondToPopup(false, { message: err.message });
   }
-});
+}
+router.get('/callback', handleOAuthCallback);
+router.get('/callback-production', handleOAuthCallback);
 
 // ─── STATUS ───────────────────────────────────────────────────────────────
 router.get('/status', requireAdmin, async (req, res) => {
