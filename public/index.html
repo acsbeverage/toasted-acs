@@ -785,6 +785,19 @@ let currentTasting={id:null,acct:null,date:'',notes:'',items:[]};
 // -- HELPERS -------------------------------------------------------------------
 const today=()=>new Date().toISOString().split('T')[0];
 const plusDays=(d,n)=>{const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().split('T')[0]};
+// Next valid delivery date: the next calendar day that isn't a Saturday, Sunday, or Monday
+// (deliveries never happen those days), starting from the day after the order date. Builds
+// the date from its Y/M/D components in local time rather than parsing the string directly --
+// new Date("YYYY-MM-DD") parses as UTC midnight, which getDay() then reads back in local time
+// and can shift the apparent day of week backward by one for any US timezone.
+const nextValidDeliveryDate=(fromDateStr)=>{
+  const [y,m,d]=fromDateStr.split('-').map(Number);
+  const dt=new Date(y,m-1,d);
+  dt.setDate(dt.getDate()+1);
+  while([0,1,6].includes(dt.getDay()))dt.setDate(dt.getDate()+1); // 0=Sun, 1=Mon, 6=Sat
+  const yy=dt.getFullYear(),mm=String(dt.getMonth()+1).padStart(2,'0'),dd=String(dt.getDate()).padStart(2,'0');
+  return `${yy}-${mm}-${dd}`;
+};
 const tierName=id=>{const t=TIERS.find(x=>x.id===id);return t?t.name:id};
 const myAccounts=()=>currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id);
 const itemTotalBottles=item=>{const p=PRODUCTS.find(y=>y.sku===item.sku);return(item.cases||0)*((p&&p.btl)||12)+(item.bottles||0);};
@@ -1563,7 +1576,7 @@ function portalAddRecentItem(sku){
 
 function renderPortalNewOrder(){
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
-  currentOrder={acct:acct.id,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
+  currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
   const isMobileView=window.matchMedia('(max-width:768px)').matches;
   const recentItems=isMobileView?portalFrequentItems(acct.id,4):portalRecentItems(acct.id,8);
 
@@ -1593,7 +1606,7 @@ function renderPortalNewOrder(){
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
         <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Requested delivery date</label>
-          <input type="date" class="finput" id="pcust-del" value="${plusDays(today(),3)}" onchange="currentOrder.delivery=this.value" style="width:100%"/>
+          <input type="date" class="finput" id="pcust-del" value="${nextValidDeliveryDate(today())}" onchange="currentOrder.delivery=this.value" style="width:100%"/>
         </div>
         <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">PO number (optional)</label>
           <input type="text" class="finput" id="pcust-po" placeholder="PO-1234" onchange="currentOrder.po=this.value" style="width:100%"/>
@@ -2421,7 +2434,7 @@ function renderAdminDashboard(){
 
 // -- NEW ORDER -----------------------------------------------------------------
 function renderNewOrder(){
-  currentOrder={acct:null,items:[],date:today(),delivery:plusDays(today(),3),po:'',notes:'',orderType:'standard'};
+  currentOrder={acct:null,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
   document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">New order -- number assigned on submit</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
@@ -2445,7 +2458,7 @@ function renderNewOrder(){
         </div>
       </div>
       <div style="justify-self:start"><label class="flabel">Order date</label><input type="date" class="finput-pill" id="o-date" value="${today()}" onchange="currentOrder.date=this.value"/></div>
-      <div style="justify-self:start"><label class="flabel">Delivery date</label><input type="date" class="finput-pill" id="o-del" value="${plusDays(today(),3)}" onchange="currentOrder.delivery=this.value"/></div>
+      <div style="justify-self:start"><label class="flabel">Delivery date</label><input type="date" class="finput-pill" id="o-del" value="${nextValidDeliveryDate(today())}" onchange="currentOrder.delivery=this.value"/></div>
       <div style="justify-self:start"><label class="flabel">PO number (optional)</label><input type="text" class="finput-pill" id="o-po" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
     </div>
     <div id="acct-info" style="display:none;margin-top:12px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);font-size:12px;color:var(--text2);border:1px solid var(--border)"></div>
