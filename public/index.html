@@ -1292,7 +1292,12 @@ async function loadAllDataFromBackend(){
     if(docsRes.ok&&docsRes.docs){
       SHARED_DOCS=docsRes.docs;
       console.log('Loaded',SHARED_DOCS.length,'docs from database');
-      loadSchedulesFromDocs();
+    }
+    // Load report schedules
+    const schedRes=await fetch(TOASTED_BACKEND_URL+'/api/report-schedules',{headers}).then(r=>r.json());
+    if(schedRes.ok&&schedRes.schedules){
+      SCHEDULES=schedRes.schedules;
+      console.log('Loaded',SCHEDULES.length,'report schedules from database');
     }
     updateBadges();
   } catch(err){
@@ -10680,56 +10685,47 @@ function saveSchedule(){
     producers:selectedProducers,
     active:true,
     lastSent:null,
-    createdAt:today(),
   };
-  sched.nextSend=calcNextSend(sched.freq,sched.dayOfWeek,sched.dayOfMonth,sched.time);
 
   if(editingScheduleId){
     const idx=SCHEDULES.findIndex(x=>x.id===editingScheduleId);
-    if(idx>=0){sched.lastSent=SCHEDULES[idx].lastSent;SCHEDULES[idx]=sched;}
-  } else {
-    SCHEDULES.push(sched);
+    if(idx>=0)sched.lastSent=SCHEDULES[idx].lastSent;
   }
-  // Save to database via a report_schedules key in shared_docs as JSON
-  saveSchedulesToDB();
-  closeModal('modal-sched');
-  toast((editingScheduleId?'Schedule updated':'Schedule created')+' -- '+name);
-  updateSchedPill();
-  renderScheduledReports();
+
+  saveScheduleToBackend(sched).then(d=>{
+    sched.nextSend=d.nextSend;
+    const idx=SCHEDULES.findIndex(x=>x.id===sched.id);
+    if(idx>=0)SCHEDULES[idx]=sched;else SCHEDULES.push(sched);
+    closeModal('modal-sched');
+    toast((editingScheduleId?'Schedule updated':'Schedule created')+' -- '+name);
+    updateSchedPill();
+    renderScheduledReports();
+  }).catch(e=>{
+    toast('Could not save schedule -- '+e.message);
+  });
 }
 
-function saveSchedulesToDB(){
-  if(!TOASTED_BACKEND_URL||!window._authToken) return;
-  // Store schedules as a special shared doc entry
-  const payload={
-    id:'report_schedules',
-    name:'__report_schedules__',
-    category:'system',
-    description:JSON.stringify(SCHEDULES),
-    filename:'schedules.json',
-    dataUrl:'',
-    sizeLabel:'',
-    uploadedBy:'system'
-  };
-  fetch(TOASTED_BACKEND_URL+'/api/docs',{
+function saveScheduleToBackend(sched){
+  if(!TOASTED_BACKEND_URL||!window._authToken)return Promise.reject(new Error('Not connected'));
+  return fetch(TOASTED_BACKEND_URL+'/api/report-schedules',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify(payload)
-  }).catch(e=>console.error('Save schedules error:',e));
-}
-
-function loadSchedulesFromDocs(){
-  const schedDoc=SHARED_DOCS.find(d=>d.id==='report_schedules');
-  if(schedDoc&&schedDoc.description){
-    try{SCHEDULES=JSON.parse(schedDoc.description);}catch(e){}
-  }
+    body:JSON.stringify(sched)
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok)throw new Error(d.error||'Save failed');
+    return d;
+  });
 }
 
 function toggleSchedule(id){
   const s=SCHEDULES.find(x=>x.id===id);if(!s)return;
   s.active=!s.active;
   if(s.active)s.nextSend=calcNextSend(s.freq,s.dayOfWeek,s.dayOfMonth,s.time);
-  saveSchedulesToDB();
+  fetch(TOASTED_BACKEND_URL+'/api/report-schedules/'+id,{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({active:s.active})
+  }).catch(e=>console.error('Toggle schedule error:',e));
   toast(s.name+(s.active?' resumed':' paused'));
   updateSchedPill();renderScheduledReports();
 }
@@ -10738,104 +10734,28 @@ function deleteSchedule(id){
   const s=SCHEDULES.find(x=>x.id===id);
   if(!s||!confirm(`Delete "${s.name}"?`))return;
   SCHEDULES=SCHEDULES.filter(x=>x.id!==id);
-  saveSchedulesToDB();
+  fetch(TOASTED_BACKEND_URL+'/api/report-schedules/'+id,{
+    method:'DELETE',
+    headers:{'Authorization':'Bearer '+window._authToken}
+  }).catch(e=>console.error('Delete schedule error:',e));
   toast('Schedule deleted');updateSchedPill();renderScheduledReports();
 }
 
 function runScheduleNow(id){
   const s=SCHEDULES.find(x=>x.id===id);if(!s)return;
-  const {from:_f,to:_t}=getDateRangeForSchedule(s.dateRange);
-  const from=s.dateRange==='custom'?(s.customFrom||_f):_f;
-  const to=s.dateRange==='custom'?(s.customTo||_t):_t;
-
-  if(s.type==='RA5'){
-    // Group by producer, send one email per recipient filtered to their producers
-    const orders=ORDERS.filter(o=>o.status==='delivered')
-      .filter(o=>(!from||o.date>=from)&&(!to||o.date<=to));
-
-    // Build depletion data per producer
-    const prodMap={};
-    orders.forEach(o=>{
-      o.items.forEach(item=>{
-        const p=prodBySku(item.sku);if(!p)return;
-        if(s.producers.length&&!s.producers.includes(p.producer))return;
-        if(!prodMap[p.producer])prodMap[p.producer]={cases:0,bottles:0,items:{}};
-        const btl=itemTotalBottles(item);
-        prodMap[p.producer].cases+=item.cases;
-        prodMap[p.producer].bottles+=btl;
-        if(!prodMap[p.producer].items[p.sku])prodMap[p.producer].items[p.sku]={name:p.name,sku:p.sku,cases:0,bottles:0};
-        prodMap[p.producer].items[p.sku].cases+=item.cases;
-        prodMap[p.producer].items[p.sku].bottles+=btl;
-      });
-    });
-
-    const dateLabel=dateRangeLabel(s.dateRange);
-    const producers=Object.keys(prodMap).sort();
-
-    if(!producers.length){toast('No sales data for the selected range/producers');return;}
-
-    // Open one mailto per recipient - staggered to avoid popup blockers
-    s.recipients.forEach((rec,ri)=>{
-      setTimeout(()=>{
-        // Build email body covering all selected producers for this recipient
-        let body=`Hi ${rec.label||rec.email},\n\nPlease find below the depletion report from ${COMPANY.name}.\nPeriod: ${dateLabel}\n\n`;
-        producers.forEach(pr=>{
-          const pd=prodMap[pr];
-          body+=`--------------------------------\n${pr.toUpperCase()}\nTotal: ${pd.cases} cases · ${pd.bottles} bottles\n\n`;
-          Object.values(pd.items).sort((a,b)=>b.bottles-a.bottles).forEach(item=>{
-            body+=`  ${item.sku}  ${item.name}\n  Cases: ${item.cases}  |  Bottles: ${item.bottles}\n\n`;
-          });
-        });
-        body+=`--------------------------------\nBest regards,\n${COMPANY.name}\n${COMPANY.email}\n${COMPANY.website}`;
-        const subj=encodeURIComponent(`Depletion Report -- ${dateLabel} -- ${COMPANY.name}`);
-        openMailto(`mailto:${rec.email}?subject=${subj}&body=${encodeURIComponent(body)}`);
-      },ri*600);
-    });
-
+  toast(`Sending "${s.name}"...`);
+  fetch(TOASTED_BACKEND_URL+'/api/report-schedules/'+id+'/run',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken}
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){toast('Could not send -- '+(d.error||'unknown error'));return;}
     s.lastSent=today();
     s.nextSend=calcNextSend(s.freq,s.dayOfWeek,s.dayOfMonth,s.time);
-    toast(`Sending to ${s.recipients.length} recipient${s.recipients.length!==1?'s':''}...`);
-
-  } else if(s.type==='RB1'||s.type==='RB2'){
-    // Inventory email
-    const lowItems=PRODUCTS.filter(p=>p.stock===0||p.stock<=p.reorder).sort((a,b)=>a.stock-b.stock);
-    const allItems=PRODUCTS.filter(p=>s.producers.length?s.producers.includes(p.producer):true)
-      .sort((a,b)=>a.producer.localeCompare(b.producer)||a.name.localeCompare(b.name));
-
-    s.recipients.forEach((rec,ri)=>{
-      setTimeout(()=>{
-        let body=`Hi ${rec.label||rec.email},\n\nHere is the current inventory report from ${COMPANY.name}.\nGenerated: ${today()}\n\n`;
-        if(lowItems.length){
-          body+=`! ATTENTION -- ${lowItems.filter(p=>p.stock===0).length} out of stock · ${lowItems.filter(p=>p.stock>0&&p.stock<=p.reorder).length} low stock\n\n`;
-          body+=`OUT OF STOCK\n`;
-          lowItems.filter(p=>p.stock===0).forEach(p=>{body+=`  ${p.sku}  ${p.name}  [${p.producer}]\n`;});
-          body+=`\nLOW STOCK\n`;
-          lowItems.filter(p=>p.stock>0&&p.stock<=p.reorder).forEach(p=>{body+=`  ${p.sku}  ${p.name}  [${p.producer}]  On hand: ${p.stock} cs  Reorder: ${p.reorder} cs\n`;});
-          body+=`\n`;
-        }
-        body+=`--------------------------------\nFULL INVENTORY (${allItems.length} products)\n\n`;
-        allItems.forEach(p=>{
-          const status=p.stock===0?'OUT':p.stock<=p.reorder?'LOW':'OK';
-          body+=`[${status}]  ${p.sku}  ${p.name}  --  ${p.stock} cs on hand\n`;
-        });
-        body+=`\nBest regards,\n${COMPANY.name}\n${COMPANY.email}`;
-        const subj=encodeURIComponent(`Inventory Report -- ${today()} -- ${COMPANY.name}`);
-        openMailto(`mailto:${rec.email}?subject=${subj}&body=${encodeURIComponent(body)}`);
-      },ri*600);
-    });
-
-    s.lastSent=today();
-    s.nextSend=calcNextSend(s.freq,s.dayOfWeek,s.dayOfMonth,s.time);
-    toast(`Sending inventory report to ${s.recipients.length} recipient${s.recipients.length!==1?'s':''}...`);
-  } else {
-    // These report types don't have matching email-body logic built yet -- say so clearly
-    // rather than silently falling through to the wrong report (the previous behavior, and
-    // almost certainly why "Send now" looked like nothing happened).
-    toast(`Automatic sending isn't set up yet for ${s.type} -- run this report from the Reports tab and send it manually for now.`);
-    return;
-  }
-
-  renderScheduledReports();
+    toast(`Sent to ${d.recipientCount} recipient${d.recipientCount!==1?'s':''} -- ${d.rowCount} row${d.rowCount!==1?'s':''}`);
+    renderScheduledReports();
+  }).catch(e=>{
+    toast('Could not send -- check your connection');
+  });
 }
 
 // -- ACCOUNTS RECEIVABLE -------------------------------------------------------
