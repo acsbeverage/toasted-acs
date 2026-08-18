@@ -15,9 +15,9 @@ function plusDays(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 function resolveDateRange(sched) {
-  if (sched.date_range === 'custom') return { from: sched.custom_from, to: sched.custom_to };
+  if (sched.dateRange === 'custom') return { from: sched.customFrom, to: sched.customTo };
   const today = todayStr();
-  switch (sched.date_range) {
+  switch (sched.dateRange) {
     case 'rolling7': return { from: plusDays(today, -7), to: today };
     case 'rolling30': return { from: plusDays(today, -30), to: today };
     case 'mtd': return { from: today.slice(0, 8) + '01', to: today };
