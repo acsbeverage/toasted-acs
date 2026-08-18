@@ -444,7 +444,8 @@ router.patch('/products/:sku/stock', requireAdmin, async (req, res) => {
 
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
-    const { name, producer, cat, btl, prices, da, stock, _details, image, warehouse, restricted } = req.body;
+    const { name, producer, cat, btl, prices, da, stock, _details, image, warehouse, restricted, newSku } = req.body;
+    const currentSku = req.params.sku;
     await query(`UPDATE products SET
       name=COALESCE($1,name), producer=COALESCE($2,producer), cat=COALESCE($3,cat), btl=COALESCE($4,btl),
       price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
@@ -461,12 +462,23 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
        _details?.active||'Yes',_details?.core||'No',
        _details?.redemptionEntry||'',_details?.bottleSize||'',_details?.upc||'',
        image||'',
-       req.params.sku,
+       currentSku,
        _details?.vintage||'',
        prices?.__comm_frontline ?? null, prices?.__comm_mix12 ?? null,
        prices?.__comm_acs3 ?? null, prices?.__comm_brand3 ?? null, prices?.__comm_brand5 ?? null,
        warehouse||null, !!restricted]);
-    res.json({ ok: true });
+
+    // SKU rename -- product_tier_prices cascades automatically via the foreign key (see
+    // migrate.js), but order_items.sku has no formal constraint, so it needs updating by hand
+    // or historical orders referencing the old SKU would silently stop resolving to a product.
+    if (newSku && newSku !== currentSku) {
+      const conflict = await getOne('SELECT sku FROM products WHERE sku=$1', [newSku]);
+      if (conflict) return res.status(400).json({ ok: false, error: `SKU "${newSku}" is already in use by another product` });
+      await query('UPDATE order_items SET sku=$1 WHERE sku=$2', [newSku, currentSku]);
+      await query('UPDATE products SET sku=$1 WHERE sku=$2', [newSku, currentSku]);
+    }
+
+    res.json({ ok: true, sku: newSku || currentSku });
   } catch (err) {
     console.error('Update product error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
