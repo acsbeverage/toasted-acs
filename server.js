@@ -67,6 +67,26 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/diagnose-qbo-config', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-qboconfig') return res.status(403).json({ok:false});
+  const mask = (v) => v ? (v.length > 6 ? v.slice(0,4)+'...'+v.slice(-4) : '(set, short)') : '(NOT SET)';
+  const report = {};
+  for (const env of ['sandbox', 'production']) {
+    const suffix = env.toUpperCase();
+    const clientId = process.env[`QBO_CLIENT_ID_${suffix}`] || process.env.QBO_CLIENT_ID;
+    const clientSecret = process.env[`QBO_CLIENT_SECRET_${suffix}`] || process.env.QBO_CLIENT_SECRET;
+    const redirect = process.env[`QBO_REDIRECT_URI_${suffix}`] || process.env.QBO_REDIRECT_URI;
+    report[env] = {
+      clientIdSource: process.env[`QBO_CLIENT_ID_${suffix}`] ? `QBO_CLIENT_ID_${suffix} (env-specific)` : (process.env.QBO_CLIENT_ID ? 'QBO_CLIENT_ID (shared fallback)' : 'NOT SET AT ALL'),
+      clientId: mask(clientId),
+      clientSecretSource: process.env[`QBO_CLIENT_SECRET_${suffix}`] ? `QBO_CLIENT_SECRET_${suffix} (env-specific)` : (process.env.QBO_CLIENT_SECRET ? 'QBO_CLIENT_SECRET (shared fallback)' : 'NOT SET AT ALL'),
+      redirectUriSource: process.env[`QBO_REDIRECT_URI_${suffix}`] ? `QBO_REDIRECT_URI_${suffix} (env-specific)` : (process.env.QBO_REDIRECT_URI ? 'QBO_REDIRECT_URI (shared fallback)' : 'NOT SET AT ALL'),
+      redirectUri: redirect || '(NOT SET)',
+    };
+  }
+  res.json({ ok: true, report });
+});
+
 app.get('/api/seed-now', async (req, res) => {
   if (req.query.secret !== 'toasted2026') {
     return res.status(403).json({ ok: false, error: 'Forbidden' });
