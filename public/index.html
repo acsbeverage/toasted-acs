@@ -223,6 +223,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   #unconf-cards-view{display:block!important}
   #hist-table-view{display:none!important}
   #hist-cards-view{display:block!important}
+  #inv-table-view{display:none!important}
+  #inv-cards-view{display:block!important}
   /* Account Detail: stack the fixed-width sidebar instead of forcing horizontal scroll */
   .acct-detail-grid{grid-template-columns:1fr!important}
   #acct-purchase-table-view{display:none!important}
@@ -256,6 +258,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   #edit-items-cards-view{display:none!important}
   #unconf-cards-view{display:none!important}
   #hist-cards-view{display:none!important}
+  #inv-cards-view{display:none!important}
 }
 .portal-nav-btn{background:none;border:none;border-bottom:3px solid transparent;padding:14px 20px;font-size:14px;font-weight:500;color:#666;cursor:pointer;white-space:nowrap;transition:all 0.15s}
 .portal-nav-btn.active{color:#D4967D;border-bottom-color:#D4967D;font-weight:700}
@@ -4573,8 +4576,8 @@ function renderInventory(){
   document.getElementById('topbar-right').innerHTML=isAdmin?`<button class="btn btn-dark btn-sm" onclick="openReceive()"><i class="ti ti-adjustments"></i> Adjust inventory</button>`:'';
   document.getElementById('main-content').innerHTML=`
   ${low.length&&isAdmin?`<div class="card" style="margin-bottom:16px;border-color:var(--red-border)"><div class="card-header" style="background:var(--red-bg)"><span class="card-title" style="color:var(--red)"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>${low.length} product${low.length!==1?'s':''} needing attention</span></div>
-  <table class="tbl"><thead><tr><th>Product</th><th>SKU</th><th>Pack</th><th>In stock</th><th>Reorder point</th><th>Status</th><th></th></tr></thead>
-  <tbody>${low.slice(0,8).map(p=>`<tr><td style="font-weight:500">${p.name}</td><td style="font-size:12px;color:var(--text2)">${p.sku}</td><td style="color:var(--text2)">${p.btl}pk</td><td>${p.stock}</td><td>${p.reorder}</td><td>${stockBadge(p)}</td><td><button class="btn btn-sm btn-dark" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-adjustments"></i> Adjust</button></td></tr>`).join('')}</tbody></table></div>`:''}
+  <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>SKU</th><th>Pack</th><th>In stock</th><th>Reorder point</th><th>Status</th><th></th></tr></thead>
+  <tbody>${low.slice(0,8).map(p=>`<tr><td style="font-weight:500">${p.name}</td><td style="font-size:12px;color:var(--text2)">${p.sku}</td><td style="color:var(--text2)">${p.btl}pk</td><td>${p.stock}</td><td>${p.reorder}</td><td>${stockBadge(p)}</td><td><button class="btn btn-sm btn-dark" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-adjustments"></i> Adjust</button></td></tr>`).join('')}</tbody></table></div></div>`:''}
   <div class="card">
     <div class="card-header"><span class="card-title">${inv.length} products</span>
       <div style="display:flex;gap:8px">
@@ -4584,12 +4587,13 @@ function renderInventory(){
         <select class="finput" id="inv-prod" onchange="filterInv(document.getElementById('inv-search').value)" style="width:160px;padding:7px 9px"><option value="">All producers</option>${[...new Set(inv.map(p=>p.producer))].sort().map(pr=>`<option>${pr}</option>`).join('')}</select>
       </div>
     </div>
-    <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Cat</th><th>Pack</th><th>Stock</th><th>Cases</th><th>Reorder</th><th>Status</th>${isAdmin?'<th></th>':''}</tr></thead>
-    <tbody id="inv-body"></tbody></table>
+    <div id="inv-table-view"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Cat</th><th>Pack</th><th>Stock</th><th>Cases</th><th>Reorder</th><th>Status</th>${isAdmin?'<th></th>':''}</tr></thead>
+    <tbody id="inv-body"></tbody></table></div>
+    <div id="inv-cards-view" style="display:none;padding:14px"></div>
     <div id="inv-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
   </div>
   ${isAdmin&&RECEIVE_LOG.length?`<div class="card"><div class="card-header"><span class="card-title">Inventory adjustment log</span></div>
-  <table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Reason</th><th>Adjustment</th><th>Notes</th><th>By</th></tr></thead>
+  <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Reason</th><th>Adjustment</th><th>Notes</th><th>By</th></tr></thead>
   <tbody>${RECEIVE_LOG.slice().reverse().slice(0,20).map(r=>{
     const sign=r.sign!==undefined?r.sign:1;
     const qtyParts=[r.cases?r.cases+' cs':'',r.bottles?r.bottles+' btl':''].filter(Boolean).join(' + ')||(r.cases||0)+' cs';
@@ -4597,7 +4601,7 @@ function renderInventory(){
     const signChar=sign>0?'+':'-';
     return`<tr><td style="color:var(--text2)">${r.date}</td><td style="font-weight:500">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.sku}</td><td><span class="tier-pill" style="font-size:11px">${r.reason||'--'}</span></td><td style="font-weight:600;color:${color}">${signChar}${qtyParts}</td><td style="color:var(--text2);font-size:12px">${r.notes||'--'}</td><td style="color:var(--text2);font-size:12px">${r.by||'--'}</td></tr>`;
   }).join('')}</tbody>
-  </table></div>`:''}`;
+  </table></div></div>`:''}`;
   renderInvBody(inv);
 }
 function filterInv(q){
@@ -4651,6 +4655,28 @@ function renderInvBody(prods){
   const start=(window._invPage-1)*PRODUCT_LIST_PAGE_SIZE;
   const pageProds=prods.slice(start,start+PRODUCT_LIST_PAGE_SIZE);
   b.innerHTML=pageProds.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500;max-width:200px">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td>${isAdmin?`<td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button></td>`:''}</tr>`).join('');
+  const cardsView=document.getElementById('inv-cards-view');
+  if(cardsView){
+    cardsView.innerHTML=pageProds.map(p=>`
+      <div class="order-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-weight:700;font-size:14px">${p.name}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">${p.sku} &middot; ${p.producer} &middot; ${p.btl}pk</div>
+          </div>
+          ${catBadge(p.cat)}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          ${stockBar(p)}
+          <div style="font-size:13px;font-weight:600">${p.stock} in stock</div>
+          <div style="font-size:12px;color:var(--text2)">Reorder at ${p.reorder}</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+          ${stockBadge(p)}
+          ${isAdmin?`<button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i> Adjust</button>`:''}
+        </div>
+      </div>`).join('');
+  }
   const pag=document.getElementById('inv-pagination');
   if(pag){
     pag.innerHTML=totalPages<=1?'':`
