@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Toasted — ACS Beverage Distribution</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -272,6 +275,55 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .portal-stat{display:flex;flex-direction:column;gap:4px}
 .portal-stat .val{font-size:24px;font-weight:800;color:#222}
 .portal-stat .lbl{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:0.5px}
+
+/* ===== Portal Shop ===== */
+.shop-cat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.shop-cat-pill{background:#fff;border:1px solid #e5e5e5;color:#555;padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s}
+.shop-cat-pill:hover{border-color:#D4967D;color:#D4967D}
+.shop-cat-pill.active{background:#6B2737;border-color:#6B2737;color:#fff}
+.shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.shop-card{background:#fff;border:1px solid #e9e5df;border-radius:14px;overflow:hidden;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;position:relative;display:flex;flex-direction:column}
+.shop-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(20,15,10,0.1)}
+.shop-card-img-wrap{aspect-ratio:1/1;background:radial-gradient(ellipse at 50% 35%,#FBF7F0 0%,#F1E9DD 100%);display:flex;align-items:center;justify-content:center;padding:14px;position:relative}
+.shop-card-img-wrap img{max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 6px 10px rgba(60,40,20,0.16))}
+.shop-card-img-wrap .ti-bottle{font-size:38px;color:#d8cfc0}
+.shop-card-add{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:#6B2737;color:#fff;border:none;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);transition:background 0.15s}
+.shop-card-add:hover{background:#D4967D}
+.shop-card-body{padding:11px 12px 13px}
+.shop-card-producer{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#a89a85;margin-bottom:3px}
+.shop-card-name{font-family:'Fraunces',serif;font-size:14px;font-weight:600;color:#221d18;line-height:1.28;margin-bottom:8px;min-height:36px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.shop-card-price{font-size:13px;font-weight:700;color:#6B2737}
+.shop-card-price .per{font-weight:500;color:#999;font-size:11px}
+
+/* Quick-view modal */
+.qv-bg{display:none;position:fixed;inset:0;background:rgba(20,15,10,0.55);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.qv-bg.open{display:flex}
+.qv-modal{background:#fff;border-radius:18px;max-width:760px;width:100%;max-height:90vh;overflow-y:auto;position:relative;display:grid;grid-template-columns:1fr 1fr}
+.qv-close{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid #eee;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:#666;z-index:2}
+.qv-img-wrap{background:radial-gradient(ellipse at 50% 35%,#FBF7F0 0%,#F1E9DD 100%);display:flex;align-items:center;justify-content:center;padding:36px}
+.qv-img-wrap img{max-width:100%;max-height:340px;object-fit:contain;filter:drop-shadow(0 14px 20px rgba(60,40,20,0.18))}
+.qv-img-wrap .ti-bottle{font-size:80px;color:#d8cfc0}
+.qv-details{padding:30px 30px 26px;display:flex;flex-direction:column}
+.qv-producer{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#a89a85;margin-bottom:6px}
+.qv-name{font-family:'Fraunces',serif;font-size:24px;font-weight:600;color:#221d18;line-height:1.2;margin-bottom:10px}
+.qv-meta{font-size:12px;color:#888;margin-bottom:20px}
+.qv-stepper-row{display:flex;gap:18px;margin-bottom:20px}
+.qv-stepper-group{flex:1}
+.qv-stepper-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:6px}
+.qv-stepper{display:flex;align-items:center;border:1px solid #e0dad0;border-radius:10px;overflow:hidden}
+.qv-stepper button{width:38px;height:40px;background:#FBF7F0;border:none;font-size:16px;color:#6B2737;cursor:pointer;flex-shrink:0}
+.qv-stepper button:hover{background:#F1E5D5}
+.qv-stepper input{flex:1;width:100%;border:none;text-align:center;font-size:15px;font-weight:700;color:#221d18;padding:0 4px}
+.qv-stepper input:focus{outline:none}
+.qv-price-row{font-size:13px;color:#666;margin-bottom:22px}
+.qv-price-row strong{color:#221d18}
+.qv-add-btn{background:#6B2737;color:#fff;border:none;padding:13px 20px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:auto;transition:background 0.15s}
+.qv-add-btn:hover{background:#D4967D}
+@media(max-width:640px){
+  .qv-modal{grid-template-columns:1fr;max-height:94vh}
+  .qv-img-wrap{padding:24px}
+  .qv-img-wrap img{max-height:200px}
+}
 .portal-badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
 .portal-badge.unconfirmed{background:#FFF8E8;color:#8a6a00}
 .portal-badge.confirmed{background:#E8F0FF;color:#2a4a9a}
@@ -379,6 +431,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 
   <!-- Portal Content -->
   <div id="portal-content" style="max-width:900px;margin:0 auto;padding:24px 16px"></div>
+  <div class="qv-bg" id="modal-quickview" onmousedown="if(event.target===this)closeQuickView()">
+    <div class="qv-modal" id="qv-body"></div>
+  </div>
   <div style="text-align:center;padding:20px 16px 32px;font-size:11px;color:#999;line-height:1.7">
     &copy; <span id="footer-year-portal"></span> ACS Beverage Co. LLC. All rights reserved.
     &nbsp;&middot;&nbsp;
@@ -1603,6 +1658,17 @@ function renderPortalNewOrder(){
     </div>`:''}
 
     <div class="portal-card">
+      <div class="portal-card-title">Shop products</div>
+      <div class="shop-cat-row" id="shop-cat-row">
+        ${['All','Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'].map(c=>`<button class="shop-cat-pill${c==='All'?' active':''}" data-cat="${c==='All'?'':c}" onclick="filterShopGrid(this)">${c}</button>`).join('')}
+      </div>
+      <div style="margin-bottom:16px">
+        <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="shop-search" placeholder="Search products..." oninput="filterShopGrid()"/></div>
+      </div>
+      <div class="shop-grid" id="shop-grid"></div>
+    </div>
+
+    <div class="portal-card">
       <div class="portal-card-title">Place an Order — ${acct.name}</div>
 
       <div style="background:#FFF8E8;border:1px solid #F0D080;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#7a5800;display:flex;align-items:center;gap:8px">
@@ -1650,6 +1716,7 @@ function renderPortalNewOrder(){
   syncFees();
   renderLineItems();
   updatePortalMinimumStatus();
+  filterShopGrid();
 }
 
 function updatePortalMinimumStatus(){
@@ -1684,6 +1751,118 @@ function updatePortalMinimumStatus(){
   }
 }
 
+let _shopActiveCat='';
+function filterShopGrid(pillEl){
+  if(pillEl){
+    document.querySelectorAll('.shop-cat-pill').forEach(b=>b.classList.remove('active'));
+    pillEl.classList.add('active');
+    _shopActiveCat=pillEl.dataset.cat;
+  }
+  const q=(document.getElementById('shop-search')?.value||'').trim().toLowerCase();
+  const grid=document.getElementById('shop-grid');if(!grid)return;
+  const prods=mainInventory().filter(p=>
+    (!_shopActiveCat||p.cat===_shopActiveCat)&&
+    (!q||p.name.toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q)||p.sku.toLowerCase().includes(q))
+  ).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+
+  if(!prods.length){
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:36px;color:#aaa;font-size:13px">No products match -- try a different search or category</div>';
+    return;
+  }
+  grid.innerHTML=prods.map(p=>{
+    const price=itemPrice(p,'frontline');
+    return`<div class="shop-card" onclick="openQuickView('${p.sku.replace(/'/g,"\\'")}')">
+      <div class="shop-card-img-wrap">
+        ${p.image?`<img src="${p.image}" alt="${p.name}"/>`:`<i class="ti ti-bottle"></i>`}
+        <button class="shop-card-add" onclick="event.stopPropagation();shopQuickAdd('${p.sku.replace(/'/g,"\\'")}')" title="Add 1 case"><i class="ti ti-plus"></i></button>
+      </div>
+      <div class="shop-card-body">
+        <div class="shop-card-producer">${p.producer||''}</div>
+        <div class="shop-card-name">${p.name}</div>
+        <div class="shop-card-price">${price>0?fmt(price*p.btl):'--'} <span class="per">/cs</span></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Adds 1 full case directly from the grid card's quick-add button, without opening quick-view
+function shopQuickAdd(sku){
+  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
+  if(ex){ex.cases=(ex.cases||0)+1;}
+  else{
+    const freeItem=isSampleAcct(currentOrder.acct)?{discountPct:100}:{};
+    currentOrder.items.unshift({sku,cases:1,bottles:0,tier:'frontline',...freeItem});
+  }
+  syncFees();renderLineItems();
+  toast(p.name+' added to order');
+}
+
+window._qvSku=null;
+function openQuickView(sku){
+  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  window._qvSku=sku;
+  const price=itemPrice(p,'frontline');
+  const existing=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
+  document.getElementById('qv-body').innerHTML=`
+    <button class="qv-close" onclick="closeQuickView()"><i class="ti ti-x"></i></button>
+    <div class="qv-img-wrap">${p.image?`<img src="${p.image}" alt="${p.name}"/>`:`<i class="ti ti-bottle"></i>`}</div>
+    <div class="qv-details">
+      <div class="qv-producer">${p.producer||''}</div>
+      <div class="qv-name">${p.name}</div>
+      <div class="qv-meta">${p.sku} &middot; ${p.btl} per case${p.cat?' &middot; '+p.cat:''}</div>
+      <div class="qv-stepper-row">
+        <div class="qv-stepper-group">
+          <div class="qv-stepper-label">Cases</div>
+          <div class="qv-stepper">
+            <button onclick="qvStep('qv-cases',-1)">&minus;</button>
+            <input type="number" id="qv-cases" value="${existing?existing.cases||0:0}" min="0" onchange="qvClamp()"/>
+            <button onclick="qvStep('qv-cases',1)">+</button>
+          </div>
+        </div>
+        <div class="qv-stepper-group">
+          <div class="qv-stepper-label">Units</div>
+          <div class="qv-stepper">
+            <button onclick="qvStep('qv-units',-1)">&minus;</button>
+            <input type="number" id="qv-units" value="${existing?existing.bottles||0:0}" min="0" max="${p.btl-1}" onchange="qvClamp()"/>
+            <button onclick="qvStep('qv-units',1)">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="qv-price-row">
+        <strong>${price>0?fmt(price*p.btl):'--'}</strong> per case &middot; <strong>${price>0?fmt(price):'--'}</strong> per unit
+      </div>
+      <button class="qv-add-btn" onclick="addToCartFromQuickView()"><i class="ti ti-shopping-cart-plus"></i> Add to Order</button>
+    </div>`;
+  document.getElementById('modal-quickview').classList.add('open');
+}
+function closeQuickView(){document.getElementById('modal-quickview').classList.remove('open');}
+function qvStep(id,delta){
+  const el=document.getElementById(id);
+  el.value=Math.max(0,(parseInt(el.value)||0)+delta);
+  qvClamp();
+}
+function qvClamp(){
+  const p=PRODUCTS.find(x=>x.sku===window._qvSku);if(!p)return;
+  const unitsEl=document.getElementById('qv-units');
+  unitsEl.value=Math.max(0,Math.min(p.btl-1,parseInt(unitsEl.value)||0));
+  document.getElementById('qv-cases').value=Math.max(0,parseInt(document.getElementById('qv-cases').value)||0);
+}
+function addToCartFromQuickView(){
+  const sku=window._qvSku;const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  const cases=parseInt(document.getElementById('qv-cases').value)||0;
+  const bottles=parseInt(document.getElementById('qv-units').value)||0;
+  if(cases===0&&bottles===0){toast('Enter a quantity first');return}
+  const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
+  if(ex){ex.cases=cases;ex.bottles=bottles;}
+  else{
+    const freeItem=isSampleAcct(currentOrder.acct)?{discountPct:100}:{};
+    currentOrder.items.unshift({sku,cases,bottles,tier:'frontline',...freeItem});
+  }
+  syncFees();renderLineItems();
+  closeQuickView();
+  toast(p.name+' added to order');
+}
 function submitPortalOrder(){
   if(!currentOrder.items.filter(x=>!x._fee).length){
     alert('Please add at least one product.');return;
