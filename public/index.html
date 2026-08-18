@@ -128,6 +128,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .flabel{font-size:12px;font-weight:500;color:var(--text2);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.4px}
 .finput{width:100%;padding:8px 11px;font-size:13px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:inherit}
 .finput:focus{outline:none;border-color:var(--gold);background:#fff}
+.finput-pill{width:auto;min-width:150px;display:inline-block;padding:7px 14px;font-size:13px;border:1px solid var(--border2);border-radius:20px;background:var(--bg3);color:var(--text);font-family:inherit}
+.finput-pill:focus{outline:none;border-color:var(--gold);background:#fff}
 .form-grid{display:grid;gap:12px}
 .form-grid-2{grid-template-columns:1fr 1fr}
 .form-grid-3{grid-template-columns:1fr 1fr 1fr}
@@ -2442,9 +2444,9 @@ function renderNewOrder(){
           <div class="dropdown-box" id="o-acct-dd"></div>
         </div>
       </div>
-      <div><label class="flabel">Order date</label><input type="date" class="finput" id="o-date" value="${today()}" onchange="currentOrder.date=this.value"/></div>
-      <div><label class="flabel">Delivery date</label><input type="date" class="finput" id="o-del" value="${plusDays(today(),3)}" onchange="currentOrder.delivery=this.value"/></div>
-      <div><label class="flabel">PO number (optional)</label><input type="text" class="finput" id="o-po" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
+      <div style="justify-self:start"><label class="flabel">Order date</label><input type="date" class="finput-pill" id="o-date" value="${today()}" onchange="currentOrder.date=this.value"/></div>
+      <div style="justify-self:start"><label class="flabel">Delivery date</label><input type="date" class="finput-pill" id="o-del" value="${plusDays(today(),3)}" onchange="currentOrder.delivery=this.value"/></div>
+      <div style="justify-self:start"><label class="flabel">PO number (optional)</label><input type="text" class="finput-pill" id="o-po" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
     </div>
     <div id="acct-info" style="display:none;margin-top:12px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);font-size:12px;color:var(--text2);border:1px solid var(--border)"></div>
     <div id="acct-pastdue-banner"></div>
