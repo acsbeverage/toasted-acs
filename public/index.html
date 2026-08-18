@@ -6945,7 +6945,7 @@ function _buildInvoicePDF(o,callback){
   drawTableHeader();
 
   // == TABLE ROWS =============================================================
-  let subtotal=0,totalBtl=0,totalCases=0,rowIdx=0;
+  let subtotal=0,totalBtl=0,totalRawCases=0,totalRawBottles=0,rowIdx=0;
 
   function feeRow(code,desc,qty,unit,total,r,g,b){
     checkPageBreak(18);
@@ -6983,7 +6983,7 @@ function _buildInvoicePDF(o,callback){
     const lt=itemLineTotal(item);
     const discPct=Math.min(Math.max(parseFloat(item.discountPct)||0,0),100);
     subtotal+=lt;totalBtl+=lineBtl;
-    totalCases+=item.cases+(item.bottles>0?item.bottles/p.btl:0);
+    totalRawCases+=item.cases||0;totalRawBottles+=item.bottles||0;
 
     const rowH=26;
     checkPageBreak(rowH+2);
@@ -7035,10 +7035,10 @@ function _buildInvoicePDF(o,callback){
 
   // Left: summary
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  doc.text('Full Cases: '+Math.floor(totalCases)+'cs',ML,y);
-  if(totalCases%1>0) doc.text('Loose Bottles: '+Math.round(totalCases%1*12)+' btl',ML,y+11);
+  doc.text('Full Cases: '+totalRawCases+'cs',ML,y);
+  if(totalRawBottles>0) doc.text('Loose Bottles: '+totalRawBottles+' btl',ML,y+11);
   if(o.notes){
-    const notesY=totalCases%1>0?y+22:y+11;
+    const notesY=totalRawBottles>0?y+22:y+11;
     doc.setFontSize(7.5);
     doc.text('Notes: '+o.notes,ML,notesY,{maxWidth:CW*0.5});
   }
@@ -11303,7 +11303,7 @@ function _renderInvoiceHTML(orderId, b64){
 
   // Build line items HTML
   let rows = '', subtotal = 0;
-  let totalBtl = 0, totalCases = 0;
+  let totalBtl = 0, totalRawCases = 0, totalRawBottles = 0;
 
   o.items.forEach(item => {
     if(item.sku===DELIVERY_FEE_SKU){
@@ -11327,7 +11327,7 @@ function _renderInvoiceHTML(orderId, b64){
     const lt=itemLineTotal(item);
     const discPct=parseFloat(item.discountPct)||0;
     subtotal+=lt; totalBtl+=lineBtl;
-    totalCases+=item.cases+(item.bottles/p.btl);
+    totalRawCases+=item.cases||0; totalRawBottles+=item.bottles||0;
     rows+=`<tr>
       <td>${p.name}<br><span style="font-size:11px;color:#888">${p.sku} · ${tierName(item.tier)}</span></td>
       <td style="text-align:center;font-weight:600">${item.cases}</td>
@@ -11490,8 +11490,8 @@ function _renderInvoiceHTML(orderId, b64){
 
       <div class="totals-row">
         <div class="totals-summary">
-          <strong>Full Cases:</strong> ${Math.floor(totalCases)}cs<br>
-          ${totalCases%1>0?`<strong>Loose Bottles:</strong> ${Math.round(totalCases%1*12)} btl<br>`:''} 
+          <strong>Full Cases:</strong> ${totalRawCases}cs<br>
+          ${totalRawBottles>0?`<strong>Loose Bottles:</strong> ${totalRawBottles} btl<br>`:''} 
           ${o.notes?'<strong>Notes:</strong> '+o.notes:''}
         </div>
         <div class="totals-box">
