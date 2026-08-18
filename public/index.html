@@ -924,8 +924,11 @@ const itemLineTotal=item=>{
 };
 const orderTotal=o=>o.items.reduce((s,x)=>s+itemLineTotal(x),0);
 // ACS Logistics is a separate, admin-only inventory pool for warehousing clients' stock --
-// kept fully separate from ACS's own sellable inventory everywhere in the app.
-const mainInventory=()=>PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics');
+// kept fully separate from ACS's own sellable inventory everywhere in the app. Inactive
+// products are excluded here (browsing/ordering) for non-admin users, but NOT from the raw
+// PRODUCTS array itself -- calculations like orderTotal/itemLineTotal need every product,
+// including inactive ones, to correctly total historical orders that reference them.
+const mainInventory=()=>PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics').filter(p=>currentUser&&currentUser.role==='admin'?true:(p._details?.active||'Yes')!=='No');
 const logisticsInventory=()=>PRODUCTS.filter(p=>p.warehouse==='acs_logistics');
 // Shared sort logic for order lists (History, Unconfirmed, Deliveries) so "most recent first" means
 // the same thing everywhere, and every page offers the same sort choices.
