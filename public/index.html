@@ -12934,7 +12934,12 @@ function renderQBOSettings(){
   html+='<strong>How this works:</strong> Toasted pushes delivered invoices directly into your QuickBooks Online account as AR invoices via QuickBooks\' official OAuth2 API. Use Sandbox to test safely against fake QBO data before switching to Production.';
   html+='<div style="margin-top:6px"><a href="https://developer.intuit.com/app/developer/qbo/docs/get-started" target="_blank" style="color:#1A6B34;font-weight:600">Intuit Developer Docs</a> &nbsp;&middot;&nbsp; <a href="https://developer.intuit.com/app/developer/appdetails" target="_blank" style="color:#1A6B34;font-weight:600">Your QBO Apps</a></div></div>';
   html+='<div class="form-grid form-grid-2" style="gap:14px;margin-bottom:16px">';
-  html+='<div><label class="flabel">Environment</label><select class="finput" id="qbo-environment" onchange="QBO_STATE.environment=this.value"><option value="sandbox" '+(QBO_STATE.environment==='sandbox'?'selected':'')+'>Sandbox (testing)</option><option value="production" '+(QBO_STATE.environment==='production'?'selected':'')+'>Production</option></select></div>';
+  if(QBO_STATE.connected){
+    html+='<div><label class="flabel">Environment</label><div style="padding:8px 11px;background:var(--bg3);border-radius:var(--radius);font-size:13px;font-weight:600;color:var(--text)">'+(QBO_STATE.environment==='production'?'Production':'Sandbox (testing)')+'</div>';
+    html+='<div style="font-size:11px;color:var(--text3);margin-top:4px">This is fixed to whatever was selected when you connected. To switch, disconnect below and reconnect with the other environment picked.</div></div>';
+  } else {
+    html+='<div><label class="flabel">Environment</label><select class="finput" id="qbo-environment" onchange="QBO_STATE.environment=this.value"><option value="sandbox" '+(QBO_STATE.environment==='sandbox'?'selected':'')+'>Sandbox (testing)</option><option value="production" '+(QBO_STATE.environment==='production'?'selected':'')+'>Production</option></select></div>';
+  }
   html+='</div>';
   html+='<div style="display:flex;gap:8px;align-items:center;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap">';
   if(QBO_STATE.connected){
