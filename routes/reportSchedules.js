@@ -4,8 +4,8 @@ const sgMail = require('@sendgrid/mail');
 const { query, getOne, getAll } = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'accounting@acsbeverage.com';
-const FROM_NAME = 'ACS Beverage Co.';
+const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
+const FROM_NAME = process.env.FROM_NAME || 'Toasted -- ACS Beverage Co.';
 
 // ─── DATE RANGE HELPERS ───────────────────────────────────────────────────
 function todayStr() { return new Date().toISOString().slice(0, 10); }
@@ -135,7 +135,7 @@ async function sendScheduleNow(sched) {
   const to = sched.recipients.map(r => r.email).filter(Boolean);
   await sgMail.send({
     to, from: { email: FROM_EMAIL, name: FROM_NAME },
-    subject: `${reportName} -- ${todayStr()} -- ${FROM_NAME}`,
+    subject: `${reportName} -- ${todayStr()} -- ACS Beverage Co.`,
     html: `<div style="font-family:Arial,sans-serif;max-width:520px">
       <p>Hi,</p>
       <p>Please find the attached ${reportName} report, generated ${todayStr()}.</p>
