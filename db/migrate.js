@@ -175,6 +175,21 @@ async function migrate() {
   await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE`);
   await query(`ALTER TABLE product_tier_prices DROP CONSTRAINT IF EXISTS product_tier_prices_sku_tier_name_key`);
   await query(`CREATE INDEX IF NOT EXISTS idx_ptp_account ON product_tier_prices(account_id)`);
+
+  // Add ON UPDATE CASCADE to the sku foreign key so renaming a product's SKU (Manage Products
+  // -> Edit Product) automatically and safely updates every product_tier_prices row that
+  // references it, rather than Postgres rejecting the rename outright. Looks up the actual
+  // constraint name rather than assuming a specific auto-generated name.
+  const ptpFkResult = await query(`
+    SELECT tc.constraint_name FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+    WHERE tc.table_name = 'product_tier_prices' AND tc.constraint_type = 'FOREIGN KEY' AND kcu.column_name = 'sku'
+  `);
+  for (const row of ptpFkResult.rows) {
+    await query(`ALTER TABLE product_tier_prices DROP CONSTRAINT "${row.constraint_name}"`);
+  }
+  await query(`ALTER TABLE product_tier_prices ADD CONSTRAINT product_tier_prices_sku_fkey
+    FOREIGN KEY (sku) REFERENCES products(sku) ON DELETE CASCADE ON UPDATE CASCADE`);
   await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS account_ids TEXT[] DEFAULT '{}'`);
   await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS corp_groups TEXT[] DEFAULT '{}'`);
   await query(`UPDATE product_tier_prices SET account_ids = ARRAY[account_id] WHERE account_id IS NOT NULL AND (account_ids IS NULL OR account_ids = '{}')`);
