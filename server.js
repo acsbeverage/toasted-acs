@@ -21,11 +21,24 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+const cron = require('node-cron');
+const { router: reportSchedulesRouter, runDueSchedules } = require('./routes/reportSchedules');
+
 app.use('/api/auth',   require('./routes/auth'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/po',     require('./routes/purchaseOrders'));
 app.use('/api/qbo',    require('./routes/qbo'));
+app.use('/api/report-schedules', reportSchedulesRouter);
 app.use('/api',        require('./routes/data'));
+
+// Checks hourly for any scheduled report that's due and actually sends it -- this is what
+// makes "Scheduled Reports" genuinely automated rather than something someone has to
+// remember to trigger by hand. Runs on the hour rather than a longer interval so a schedule
+// set for a specific time of day fires reasonably close to it.
+cron.schedule('0 * * * *', () => {
+  console.log('Checking for due scheduled reports...');
+  runDueSchedules();
+});
 
 app.get('/health', (req, res) => res.json({
   status: 'ok',
