@@ -423,6 +423,25 @@ router.delete('/products/:sku', requireAdmin, async (req, res) => {
   }
 });
 
+// Dedicated, safe endpoint for stock adjustments (the "Adjust inventory" modal) -- uses
+// COALESCE so a minimal {stock, reorder} payload only ever touches those two fields, unlike
+// the full-product PATCH route above which expects every field and would otherwise wipe out
+// pricing/details when sent a partial payload.
+router.patch('/products/:sku/stock', requireAdmin, async (req, res) => {
+  try {
+    const { stock, reorder } = req.body;
+    const result = await query(
+      `UPDATE products SET stock=COALESCE($1,stock), reorder=COALESCE($2,reorder) WHERE sku=$3`,
+      [stock !== undefined ? stock : null, reorder !== undefined ? reorder : null, req.params.sku]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ ok: false, error: 'Product not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Update product stock error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
     const { name, producer, cat, btl, prices, da, stock, _details, image, warehouse, restricted } = req.body;
