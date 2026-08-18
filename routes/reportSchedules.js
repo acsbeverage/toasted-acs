@@ -54,48 +54,104 @@ function calcNextSend(freq, dayOfWeek, dayOfMonth, time) {
 
 // ─── REPORT DATA GENERATION (server-side, direct from the database) ──────
 // Each of these returns { headers: [...], rows: [[...], ...] } ready for the Excel writer.
+// Standard pricing tier display names -- account-specific custom pricing lanes use their own
+// tier name directly (falls through to the raw value), matching how the frontend does this.
+const TIER_LABELS = {
+  frontline: 'Frontline', mix12: '12 Btl Mix', acs3: '3 Case ACS',
+  brand3: '3 Case Brand Family', brand5: '5 Case Brand Family',
+};
+
 async function buildRA5(from, to, producers) {
+  // One row per order line item, matching the real RA5 export -- not an aggregated summary.
   const rows = await getAll(
-    `SELECT p.producer, p.sku, p.name, oi.cases, oi.bottles, p.btl
+    `SELECT p.name as wine_name, p.sku as wine_code, p.vintage, p.producer, p.cat, p.btl, p.bottle_size,
+            p.fob_price, p.comm_frontline,
+            p.da_frontline, p.da_mix12, p.da_acs3, p.da_brand3, p.da_brand5,
+            a.name as account_name, a.lic as abc_number, a.ship_street, a.ship_city, a.ship_state, a.ship_zip, a.id as account_id,
+            u.fname as rep_fname, u.lname as rep_lname,
+            o.id as invoice_number, o.po as po_number, o.date, o.is_sample, o.notes as order_notes,
+            oi.cases, oi.bottles, oi.rate, oi.tier, oi.notes as line_notes, oi.discount_pct,
+            (SELECT ptp.da_amount FROM product_tier_prices ptp
+             WHERE ptp.sku = oi.sku AND ptp.tier_name = oi.tier
+               AND (ptp.account_id = o.acct_id OR ptp.account_id IS NULL)
+             ORDER BY ptp.account_id NULLS LAST LIMIT 1) as custom_da
      FROM order_items oi
      JOIN orders o ON oi.order_id = o.id
      JOIN products p ON oi.sku = p.sku
+     LEFT JOIN accounts a ON o.acct_id = a.id
+     LEFT JOIN users u ON o.rep_id = u.id
      WHERE o.status='delivered' AND oi.is_fee=FALSE
        AND ($1::date IS NULL OR o.date >= $1) AND ($2::date IS NULL OR o.date <= $2)
        AND ($3::text[] IS NULL OR p.producer = ANY($3))
-     ORDER BY p.producer, p.name`,
+     ORDER BY p.name, o.date`,
     [from || null, to || null, (producers && producers.length) ? producers : null]
   );
-  const byProducer = {};
-  rows.forEach(r => {
-    if (!byProducer[r.producer]) byProducer[r.producer] = {};
-    if (!byProducer[r.producer][r.sku]) byProducer[r.producer][r.sku] = { name: r.name, cases: 0, bottles: 0 };
-    byProducer[r.producer][r.sku].cases += r.cases || 0;
-    byProducer[r.producer][r.sku].bottles += (r.cases || 0) * r.btl + (r.bottles || 0);
+
+  const STANDARD_DA_COL = {
+    frontline: 'da_frontline', mix12: 'da_mix12', acs3: 'da_acs3',
+    brand3: 'da_brand3', brand5: 'da_brand5',
+  };
+  const headers = [
+    'Wine Name', 'Wine Code', 'Vintage', 'Producer', 'Account', 'Sales Rep', 'Date',
+    'Quantity', 'Unit Price', 'Total', 'Notes', 'Invoice Number', 'PO Number',
+    'Warehouse', 'Sample Order', 'Bill Back Amount', 'Bill Back Total',
+    'Price Label', 'ABC Number',
+    'Shipping Street', 'Shipping City', 'Shipping State', 'Shipping Zip Code',
+    'FOB Price', 'Account ID', 'Bottle Size', 'Pack Size', 'Wine Category',
+  ];
+  const out = rows.map(r => {
+    const qty = (r.cases || 0) + (r.bottles || 0) / (r.btl || 1); // case-equivalent, matching the fractional format the real report uses
+    const unitPrice = parseFloat(r.rate || 0) * (r.btl || 1); // per-case price
+    const total = qty * unitPrice;
+    const priceLabel = TIER_LABELS[r.tier] || r.tier || '';
+    // DA (Bill Back): prefer a matching custom pricing lane's rate, otherwise fall back to
+    // the standard per-tier DA column on the product itself.
+    const daPerBottle = r.custom_da !== null && r.custom_da !== undefined
+      ? parseFloat(r.custom_da)
+      : parseFloat(r[STANDARD_DA_COL[r.tier]] || 0);
+    const billBackAmount = daPerBottle * (r.btl || 1); // per case, matching Unit Price's convention
+    const billBackTotal = billBackAmount * qty;
+    return [
+      r.wine_name, r.wine_code, r.vintage || '', r.producer,
+      r.account_name || '', r.rep_fname ? (r.rep_fname + ' ' + (r.rep_lname || '')) : '',
+      r.date ? r.date.toISOString().slice(0, 10) : '',
+      Number(qty.toFixed(4)), Number(unitPrice.toFixed(2)), Number(total.toFixed(2)),
+      r.line_notes || r.order_notes || '', r.invoice_number, r.po_number || '',
+      'ACS Warehouse', r.is_sample ? 'Yes' : 'No',
+      Number(billBackAmount.toFixed(2)), Number(billBackTotal.toFixed(2)),
+      priceLabel, r.abc_number || '',
+      r.ship_street || '', r.ship_city || '', r.ship_state || '', r.ship_zip || '',
+      parseFloat(r.fob_price || 0), r.account_id || '', r.bottle_size || '', r.btl, r.cat || '',
+    ];
   });
-  const out = [];
-  Object.keys(byProducer).sort().forEach(producer => {
-    Object.entries(byProducer[producer]).forEach(([sku, d]) => {
-      out.push([producer, sku, d.name, d.cases, d.bottles]);
-    });
-  });
-  return { headers: ['Producer', 'SKU', 'Product', 'Cases', 'Total Bottles'], rows: out };
+  return { headers, rows: out };
 }
 
 async function buildRBInventory(producers) {
   const rows = await getAll(
-    `SELECT sku, name, producer, stock, reorder, btl FROM products
+    `SELECT sku, name, vintage, cat, producer, stock, reorder, btl, fob_price,
+            price_frontline, comm_frontline, active, created_at
+     FROM products
      WHERE COALESCE(warehouse,'main')<>'acs_logistics'
        AND ($1::text[] IS NULL OR producer = ANY($1))
      ORDER BY producer, name`,
     [(producers && producers.length) ? producers : null]
   );
+  const headers = [
+    'Code', 'Name', 'Vintage', 'Product Type', 'Producer', 'Warehouse',
+    'On Hand', 'Available', 'Default Price', 'FOB Price', 'End Of Stock',
+    'Inventory: Created', 'Wine/Supplier Commission Rate (%)',
+  ];
   return {
-    headers: ['Producer', 'SKU', 'Product', 'Pack', 'Cases on Hand', 'Reorder Point', 'Status'],
+    headers,
     rows: rows.map(p => [
-      p.producer, p.sku, p.name, p.btl,
-      parseFloat(p.stock), p.reorder,
-      p.stock === 0 ? 'OUT' : p.stock <= p.reorder ? 'LOW' : 'OK',
+      p.sku, p.name, p.vintage || '', p.cat || '', p.producer, 'ACS Warehouse',
+      parseFloat(p.stock), parseFloat(p.stock),
+      Number((parseFloat(p.price_frontline || 0) * p.btl).toFixed(2)),
+      parseFloat(p.fob_price || 0),
+      p.active === 'No' ? 'Yes' : '',
+      p.created_at ? p.created_at.toISOString().slice(0, 10) : '',
+      p.comm_frontline !== null ? parseFloat(p.comm_frontline) : 0,
     ]),
   };
 }
