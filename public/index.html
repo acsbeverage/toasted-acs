@@ -1138,6 +1138,17 @@ function saveOrderStatusToDB(orderId, updates){
   }).catch(e=>{console.error('Save order error:',e.message);toast('Could not save order changes -- please try again');});
 }
 
+function saveProductStockToDB(sku, stock, reorder){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku)+'/stock',{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({stock,reorder})
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){console.error('Failed to save stock adjustment:',d.error);toast('Stock adjustment did not save -- please try again');}
+  }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');});
+}
+
 function deleteOrderFromDB(orderId){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
@@ -4939,6 +4950,7 @@ function doReceive(){
   const delta=sign*caseEquiv;
   p.stock=Math.max(0,p.stock+delta);
   if(rv!=='')p.reorder=parseInt(rv)||p.reorder;
+  saveProductStockToDB(p.sku,p.stock,p.reorder);
 
   RECEIVE_LOG.push({
     date:today(),sku,name:p.name,
