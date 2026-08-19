@@ -7728,6 +7728,8 @@ function doExportFintech(){
   const inclOrderId=document.getElementById('ex-ft-orderid')?.checked;
   const inclAcctId=document.getElementById('ex-ft-acctidcol')?.checked;
   const acctFilter=(document.getElementById('ex-ft-accts')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const providerFilter=document.getElementById('ex-ft-provider')?.value||'fintech';
+  const termsFilter=document.getElementById('ex-ft-terms')?.value||'';
   const isAdmin=currentUser&&currentUser.role==='admin';
 
   let orders=ORDERS; // ORDERS is already correctly scoped by the backend to this user
@@ -7738,6 +7740,14 @@ function doExportFintech(){
   if(onlyConfirmed)orders=orders.filter(o=>o.status==='confirmed'||o.status==='delivered');
   if(delStatus)orders=orders.filter(o=>o.status===delStatus);
   if(acctFilter.length)orders=orders.filter(o=>acctFilter.includes(o.acct));
+  if(providerFilter==='fintech')orders=orders.filter(o=>{
+    const acct=acctById(o.acct);
+    return acct&&(acct.paymentProvider||'').toLowerCase()==='fintech';
+  });
+  if(termsFilter)orders=orders.filter(o=>{
+    const acct=acctById(o.acct);
+    return acct&&acct.terms===termsFilter;
+  });
   if(!orders.length){toast('No orders match the selected criteria');return;}
 
   // Date formatting: MM/DD/YYYY
