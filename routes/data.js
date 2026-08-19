@@ -310,6 +310,7 @@ router.get('/products', requireAuth, async (req, res) => {
         vintage: r.vintage||'',
       },
       image: r.image_url||'',
+      tierNotes: r.tier_notes||{},
     }))});
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -402,7 +403,7 @@ router.patch('/pricing-tier-config/:id', requireAdmin, async (req, res) => {
   try {
     const { label, internalNote } = req.body;
     if (!label || !label.trim()) return res.status(400).json({ ok: false, error: 'Tier label is required' });
-    await query('UPDATE pricing_tier_config SET label=$1, internal_note=$2 WHERE id=$3', [label, internalNote || '', req.params.id]);
+    await query('UPDATE pricing_tier_config SET label=$1, internal_note=COALESCE($2,internal_note) WHERE id=$3', [label, internalNote !== undefined ? internalNote : null, req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -462,6 +463,26 @@ router.patch('/products/:sku/stock', requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('Update product stock error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Dedicated, safe endpoint for a single pricing tier's internal note on one product. Merges
+// just that one key into tier_notes via jsonb_set, so this product's other tier notes (and
+// every other product's notes entirely) are left untouched -- notes are per-product, unlike
+// the tier label itself which is intentionally shared across the whole catalog.
+router.patch('/products/:sku/tier-note', requireAdmin, async (req, res) => {
+  try {
+    const { tierId, note } = req.body;
+    if (!tierId) return res.status(400).json({ ok: false, error: 'tierId required' });
+    const result = await query(
+      `UPDATE products SET tier_notes = COALESCE(tier_notes,'{}'::jsonb) || jsonb_build_object($1::text, $2::text) WHERE sku=$3`,
+      [tierId, note || '', req.params.sku]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ ok: false, error: 'Product not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Update product tier note error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
