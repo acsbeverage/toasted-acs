@@ -381,6 +381,11 @@ async function migrate() {
     );
   }
 
+  // Internal notes per pricing tier are specific to each product (a note on one item's
+  // Frontline tier shouldn't show up on every other product's Frontline tier) -- unlike the
+  // tier label itself, which is intentionally shared/global across the whole catalog.
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS tier_notes JSONB DEFAULT '{}'`);
+
   console.log('All tables created successfully');
 }
 
