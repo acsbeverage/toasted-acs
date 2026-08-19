@@ -1264,7 +1264,7 @@ async function loadAllDataFromBackend(){
     // Load standard pricing tier labels/notes
     const tierCfgRes=await fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config',{headers}).then(r=>r.json());
     if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length){
-      TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label,internalNote:t.internalNote}));
+      TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));
       console.log('Loaded',TIERS.length,'pricing tier configs from database');
     }
     // Load users
@@ -11637,9 +11637,9 @@ function openProductPricing(sku){
         <td style="padding:10px 12px">
           <div style="display:flex;align-items:center;gap:6px">
             <div style="font-weight:600;font-size:14px">${t.name}</div>
-            ${isAdminUser?`<button onclick="openEditPricingTier('${t.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0;display:flex" title="Edit tier label/note"><i class="ti ti-edit" style="font-size:13px"></i></button>`:''}
+            ${isAdminUser?`<button onclick="openEditPricingTier('${t.id}','${sku.replace(/'/g,"\\'")}')" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0;display:flex" title="Edit tier label/note"><i class="ti ti-edit" style="font-size:13px"></i></button>`:''}
           </div>
-          ${t.internalNote?`<div style="font-size:11px;color:#888;margin-top:2px">${t.internalNote}</div>`:''}
+          ${(p.tierNotes&&p.tierNotes[t.id])?`<div style="font-size:11px;color:#888;margin-top:2px">${p.tierNotes[t.id]}</div>`:''}
         </td>
         <td style="padding:10px 12px">
           <div style="display:flex;align-items:center;gap:4px">
@@ -11955,38 +11955,48 @@ async function deletePricingLane(id,sku){
   }catch(e){toast('Could not delete -- check connection');}
 }
 
-function openEditPricingTier(tierId){
+function openEditPricingTier(tierId,sku){
   const t=TIERS.find(x=>x.id===tierId);if(!t)return;
+  const p=PRODUCTS.find(x=>x.sku===sku);
+  const currentNote=(p&&p.tierNotes&&p.tierNotes[tierId])||'';
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-bg open" id="tier-edit-modal-bg" style="display:flex">
       <div class="modal" style="max-width:440px">
         <div class="modal-title">Edit Pricing Tier</div>
-        <label class="flabel">Label</label>
+        <label class="flabel">Label <span style="color:var(--text3);font-weight:400">(shared across every product)</span></label>
         <input class="finput" id="tier-edit-label" value="${(t.name||'').replace(/"/g,'&quot;')}" style="margin-bottom:12px"/>
-        <label class="flabel">Internal Note <span style="color:var(--text3);font-weight:400">(visible to reps, shown under the tier label)</span></label>
-        <textarea class="finput" id="tier-edit-note" rows="3" placeholder="e.g. Standard pricing for most accounts" style="resize:vertical;margin-bottom:12px">${(t.internalNote||'').replace(/</g,'&lt;')}</textarea>
+        <label class="flabel">Internal Note <span style="color:var(--text3);font-weight:400">(specific to ${p?p.name:'this product'} only, visible to reps)</span></label>
+        <textarea class="finput" id="tier-edit-note" rows="3" placeholder="e.g. Only offer this tier to accounts with a 50+ case commitment" style="resize:vertical;margin-bottom:12px">${currentNote.replace(/</g,'&lt;')}</textarea>
         <div class="modal-footer">
           <button class="btn" onclick="document.getElementById('tier-edit-modal-bg').remove()">Cancel</button>
-          <button class="btn btn-dark" onclick="saveEditedPricingTier('${tierId}')">Save Changes</button>
+          <button class="btn btn-dark" onclick="saveEditedPricingTier('${tierId}','${sku.replace(/'/g,"\\'")}')">Save Changes</button>
         </div>
       </div>
     </div>`);
 }
-async function saveEditedPricingTier(tierId){
+async function saveEditedPricingTier(tierId,sku){
   const label=document.getElementById('tier-edit-label').value.trim();
   if(!label){alert('Tier label is required');return}
-  const internalNote=document.getElementById('tier-edit-note').value.trim();
+  const note=document.getElementById('tier-edit-note').value.trim();
   try{
-    const res=await fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config/'+tierId,{
-      method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({label,internalNote})
-    }).then(r=>r.json());
-    if(!res.ok){alert(res.error||'Could not save tier');return}
+    const [labelRes,noteRes]=await Promise.all([
+      fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config/'+tierId,{
+        method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+        body:JSON.stringify({label})
+      }).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku)+'/tier-note',{
+        method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+        body:JSON.stringify({tierId,note})
+      }).then(r=>r.json()),
+    ]);
+    if(!labelRes.ok){alert(labelRes.error||'Could not save tier label');return}
+    if(!noteRes.ok){alert(noteRes.error||'Could not save tier note');return}
     const t=TIERS.find(x=>x.id===tierId);
-    if(t){t.name=label;t.internalNote=internalNote;}
+    if(t)t.name=label;
+    const p=PRODUCTS.find(x=>x.sku===sku);
+    if(p){if(!p.tierNotes)p.tierNotes={};p.tierNotes[tierId]=note;}
     document.getElementById('tier-edit-modal-bg').remove();
     toast('Pricing tier updated');
-    // Re-render whichever page is currently showing this tier, if any
     if(window._openDetailView&&window._openDetailView.type==='product')openProductPricing(window._openDetailView.id);
   }catch(e){alert('Could not save -- check connection');}
 }
