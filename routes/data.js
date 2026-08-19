@@ -334,6 +334,7 @@ router.get('/product-tier-prices', requireAdmin, async (req, res) => {
     res.json({ ok: true, tiers: rows.map(t => ({
       id: t.id, sku: t.sku, tierName: t.tier_name,
       price: parseFloat(t.price) || 0, da: parseFloat(t.da_amount) || 0,
+      commission: t.commission !== null && t.commission !== undefined ? parseFloat(t.commission) : null,
       repVisible: t.rep_visible,
       accountIds: t.account_ids || [],
       accountNames: (t.account_ids || []).map(id => acctNameById[id] || id),
@@ -347,12 +348,12 @@ router.get('/product-tier-prices', requireAdmin, async (req, res) => {
 
 router.post('/product-tier-prices', requireAdmin, async (req, res) => {
   try {
-    const { sku, tierName, price, da, accountIds, corpGroups, repVisible } = req.body;
+    const { sku, tierName, price, da, commission, accountIds, corpGroups, repVisible } = req.body;
     if (!sku || !tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Product and pricing lane name are required' });
     const row = await getOne(
-      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, rep_visible, account_ids, corp_groups)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [sku, tierName, price || 0, da || 0, !!repVisible, accountIds || [], corpGroups || []]
+      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, commission, rep_visible, account_ids, corp_groups)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [sku, tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, !!repVisible, accountIds || [], corpGroups || []]
     );
     res.json({ ok: true, id: row.id });
   } catch (err) {
@@ -363,11 +364,11 @@ router.post('/product-tier-prices', requireAdmin, async (req, res) => {
 
 router.patch('/product-tier-prices/:id', requireAdmin, async (req, res) => {
   try {
-    const { tierName, price, da, accountIds, corpGroups, repVisible } = req.body;
+    const { tierName, price, da, commission, accountIds, corpGroups, repVisible } = req.body;
     if (!tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Pricing lane name is required' });
     await query(
-      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, rep_visible=$4, account_ids=$5, corp_groups=$6, updated_at=NOW() WHERE id=$7`,
-      [tierName, price || 0, da || 0, !!repVisible, accountIds || [], corpGroups || [], req.params.id]
+      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, commission=$4, rep_visible=$5, account_ids=$6, corp_groups=$7, updated_at=NOW() WHERE id=$8`,
+      [tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, !!repVisible, accountIds || [], corpGroups || [], req.params.id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -382,6 +383,29 @@ router.delete('/product-tier-prices/:id', requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+// Standard pricing tier labels + internal notes -- editable, persisted data (used to be a
+// hardcoded frontend array and static, non-editable text). GET is available to any
+// authenticated user since reps need to see these too, not just admin.
+router.get('/pricing-tier-config', requireAuth, async (req, res) => {
+  try {
+    const rows = await getAll('SELECT * FROM pricing_tier_config ORDER BY sort_order, label');
+    res.json({ ok: true, tiers: rows.map(t => ({ id: t.id, label: t.label, internalNote: t.internal_note || '' })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/pricing-tier-config/:id', requireAdmin, async (req, res) => {
+  try {
+    const { label, internalNote } = req.body;
+    if (!label || !label.trim()) return res.status(400).json({ ok: false, error: 'Tier label is required' });
+    await query('UPDATE pricing_tier_config SET label=$1, internal_note=$2 WHERE id=$3', [label, internalNote || '', req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
