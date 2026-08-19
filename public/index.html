@@ -11790,7 +11790,7 @@ async function loadPricingLanes(sku){
         const scopeHtml=scopeLabels.length?('<span style="color:var(--gold);font-weight:600">\u2605</span> '+scopeLabels.join(', ')):'<span style="color:var(--text3)">All accounts</span>';
         const hasCommOverride=t.commission!==null&&t.commission!==undefined;
         return`<tr style="border-bottom:1px solid #f0f0f0">
-        <td style="padding:8px 12px;font-weight:600">${t.tierName}</td>
+        <td style="padding:8px 12px"><div style="font-weight:600">${t.tierName}</div>${t.internalNote?`<div style="font-size:11px;color:#888;margin-top:2px">${t.internalNote}</div>`:''}</td>
         <td style="padding:8px 12px;text-align:right">$${(t.price*btl).toFixed(2)}</td>
         ${isAdminUser?`<td style="padding:8px 12px;text-align:right">$${(t.da*btl).toFixed(2)}</td>
         <td style="padding:8px 12px;text-align:center;font-size:12px;font-weight:${hasCommOverride?'700':'400'};color:${hasCommOverride?'#1a5c3a':'#aaa'}">${hasCommOverride?t.commission+'%':'Rep default'}</td>`:''}
@@ -11822,6 +11822,9 @@ function _laneModalHtml(title,sku,saveOnclick,prefill){
       </div>
       <label class="flabel">Sales Rep Commission % <span style="color:var(--text3);font-weight:400">(blank = rep's standard commission)</span></label>
       <input class="finput" type="number" step="0.1" min="0" max="100" id="lane-commission" value="${prefill.commission!==undefined&&prefill.commission!==null?prefill.commission:''}" placeholder="default" style="margin-bottom:12px"/>
+
+      <label class="flabel">Internal Note <span style="color:var(--text3);font-weight:400">(visible to reps who can see this lane)</span></label>
+      <textarea class="finput" id="lane-note" rows="2" placeholder="e.g. Only for accounts committing to 10+ cases/month" style="resize:vertical;margin-bottom:12px">${(prefill.internalNote||'').replace(/</g,'&lt;')}</textarea>
 
       <label class="flabel">Restrict to Corp Group(s) <span style="color:var(--text3);font-weight:400">(applies to every account in that group)</span></label>
       <select class="finput" id="lane-corpgroup-picker" onchange="addLaneCorpGroup(this.value);this.value=''" style="margin-bottom:6px">
@@ -11893,13 +11896,14 @@ async function saveNewPricingLane(sku){
   const caseDa=parseFloat(document.getElementById('lane-da').value)||0;
   const commVal=document.getElementById('lane-commission').value;
   const commission=commVal===''?null:parseFloat(commVal);
+  const internalNote=document.getElementById('lane-note').value.trim();
   const accountIds=window._laneSelectedAccounts.map(a=>a.id);
   const corpGroups=window._laneSelectedCorpGroups.slice();
   const repVisible=document.getElementById('lane-rep-visible').checked;
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices',{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({sku,tierName:name,price:casePrice/btl,da:caseDa/btl,commission,accountIds,corpGroups,repVisible})
+      body:JSON.stringify({sku,tierName:name,price:casePrice/btl,da:caseDa/btl,commission,internalNote,accountIds,corpGroups,repVisible})
     }).then(r=>r.json());
     if(!res.ok){alert(res.error||'Could not create pricing lane');return}
     document.getElementById('lane-modal-bg').remove();
@@ -11917,7 +11921,7 @@ function openEditPricingLane(id,sku){
   window._laneSelectedAccounts=(lane.accountIds||[]).map((id,i)=>({id,name:(lane.accountNames||[])[i]||id}));
   window._laneSelectedCorpGroups=(lane.corpGroups||[]).slice();
   document.body.insertAdjacentHTML('beforeend',_laneModalHtml('Edit Pricing Lane',sku,`saveEditedPricingLane(${lane.id},'${sku.replace(/'/g,"\\'")}')`,{
-    id:lane.id,name:lane.tierName,price:(lane.price*btl).toFixed(2),da:(lane.da*btl).toFixed(2),commission:lane.commission,repVisible:lane.repVisible,
+    id:lane.id,name:lane.tierName,price:(lane.price*btl).toFixed(2),da:(lane.da*btl).toFixed(2),commission:lane.commission,internalNote:lane.internalNote,repVisible:lane.repVisible,
   }));
   renderLaneChips();
 }
@@ -11930,13 +11934,14 @@ async function saveEditedPricingLane(id,sku){
   const caseDa=parseFloat(document.getElementById('lane-da').value)||0;
   const commVal=document.getElementById('lane-commission').value;
   const commission=commVal===''?null:parseFloat(commVal);
+  const internalNote=document.getElementById('lane-note').value.trim();
   const accountIds=window._laneSelectedAccounts.map(a=>a.id);
   const corpGroups=window._laneSelectedCorpGroups.slice();
   const repVisible=document.getElementById('lane-rep-visible').checked;
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices/'+id,{
       method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({tierName:name,price:casePrice/btl,da:caseDa/btl,commission,accountIds,corpGroups,repVisible})
+      body:JSON.stringify({tierName:name,price:casePrice/btl,da:caseDa/btl,commission,internalNote,accountIds,corpGroups,repVisible})
     }).then(r=>r.json());
     if(!res.ok){alert(res.error||'Could not save pricing lane');return}
     document.getElementById('lane-modal-bg').remove();
