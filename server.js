@@ -80,6 +80,26 @@ app.post('/api/import-orders', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.get('/api/enable-redemption-all-accounts', async (req, res) => {
+  if(req.query.secret !== 'toasted2026-redemptionall') return res.status(403).json({ok:false});
+  const execute = req.query.execute === 'true';
+  try {
+    const { query, getAll } = require('./db');
+    const toUpdate = await getAll(`SELECT id, name, redemption FROM accounts WHERE redemption IS DISTINCT FROM 'Yes'`);
+    if (!execute) {
+      return res.json({ ok: true, dryRun: true,
+        matchingCount: toUpdate.length,
+        sample: toUpdate.slice(0, 15),
+        note: 'Re-run with &execute=true to set redemption="Yes" on all matching accounts.' });
+    }
+    const result = await query(`UPDATE accounts SET redemption='Yes' WHERE redemption IS DISTINCT FROM 'Yes'`);
+    res.json({ ok: true, executed: true, updated: result.rowCount });
+  } catch (err) {
+    console.error('Enable redemption error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/import-historical-pos', async (req, res) => {
   if(req.query.secret !== 'toasted2026-poimport') return res.status(403).json({ok:false});
   const execute = req.query.execute === 'true';
