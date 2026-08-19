@@ -262,6 +262,7 @@ router.get('/products', requireAuth, async (req, res) => {
         name: t.tier_name,
         price: parseFloat(t.price) || 0,
         da: parseFloat(t.da_amount) || 0,
+        internalNote: t.internal_note || '',
         repVisible: t.rep_visible,
         accountId: t.account_id || null, // kept for backward compatibility
         accountIds: t.account_ids || [],
