@@ -357,6 +357,30 @@ async function migrate() {
     }
   }
 
+  // Sales Rep Commission for custom pricing lanes -- mirrors the same per-tier commission
+  // override the 5 standard tiers already have, so custom lanes have full feature parity.
+  await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS commission NUMERIC(5,2)`);
+
+  // Editable label + internal note per standard pricing tier -- replaces both the previously
+  // hardcoded tier names (frontline/mix12/etc.) and the static, non-editable "Internal / Price
+  // Book" text with real, persisted, admin-editable data that reps can also see.
+  await query(`CREATE TABLE IF NOT EXISTS pricing_tier_config (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    internal_note TEXT DEFAULT '',
+    sort_order INTEGER DEFAULT 0
+  )`);
+  const defaultTiers = [
+    ['frontline', 'Frontline', 0], ['mix12', '12 Btl Mix', 1], ['acs3', '3 Case ACS', 2],
+    ['brand3', '3 Case Brand Family', 3], ['brand5', '5 Case Brand Family', 4],
+  ];
+  for (const [id, label, sortOrder] of defaultTiers) {
+    await query(
+      `INSERT INTO pricing_tier_config (id, label, sort_order) VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING`,
+      [id, label, sortOrder]
+    );
+  }
+
   console.log('All tables created successfully');
 }
 
