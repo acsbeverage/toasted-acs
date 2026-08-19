@@ -317,7 +317,7 @@ router.get('/products', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/product-tier-prices', requireAdmin, async (req, res) => {
+router.get('/product-tier-prices', requireAuth, async (req, res) => {
   try {
     const sku = req.query.sku;
     if (!sku) return res.status(400).json({ ok: false, error: 'SKU required' });
@@ -336,6 +336,7 @@ router.get('/product-tier-prices', requireAdmin, async (req, res) => {
       id: t.id, sku: t.sku, tierName: t.tier_name,
       price: parseFloat(t.price) || 0, da: parseFloat(t.da_amount) || 0,
       commission: t.commission !== null && t.commission !== undefined ? parseFloat(t.commission) : null,
+      internalNote: t.internal_note || '',
       repVisible: t.rep_visible,
       accountIds: t.account_ids || [],
       accountNames: (t.account_ids || []).map(id => acctNameById[id] || id),
@@ -349,12 +350,12 @@ router.get('/product-tier-prices', requireAdmin, async (req, res) => {
 
 router.post('/product-tier-prices', requireAdmin, async (req, res) => {
   try {
-    const { sku, tierName, price, da, commission, accountIds, corpGroups, repVisible } = req.body;
+    const { sku, tierName, price, da, commission, internalNote, accountIds, corpGroups, repVisible } = req.body;
     if (!sku || !tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Product and pricing lane name are required' });
     const row = await getOne(
-      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, commission, rep_visible, account_ids, corp_groups)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [sku, tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, !!repVisible, accountIds || [], corpGroups || []]
+      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, commission, internal_note, rep_visible, account_ids, corp_groups)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [sku, tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, internalNote || '', !!repVisible, accountIds || [], corpGroups || []]
     );
     res.json({ ok: true, id: row.id });
   } catch (err) {
@@ -365,11 +366,11 @@ router.post('/product-tier-prices', requireAdmin, async (req, res) => {
 
 router.patch('/product-tier-prices/:id', requireAdmin, async (req, res) => {
   try {
-    const { tierName, price, da, commission, accountIds, corpGroups, repVisible } = req.body;
+    const { tierName, price, da, commission, internalNote, accountIds, corpGroups, repVisible } = req.body;
     if (!tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Pricing lane name is required' });
     await query(
-      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, commission=$4, rep_visible=$5, account_ids=$6, corp_groups=$7, updated_at=NOW() WHERE id=$8`,
-      [tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, !!repVisible, accountIds || [], corpGroups || [], req.params.id]
+      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, commission=$4, internal_note=$5, rep_visible=$6, account_ids=$7, corp_groups=$8, updated_at=NOW() WHERE id=$9`,
+      [tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, internalNote || '', !!repVisible, accountIds || [], corpGroups || [], req.params.id]
     );
     res.json({ ok: true });
   } catch (err) {
