@@ -955,15 +955,18 @@ function buildTierOptions(p,item,withPricePreview,acctId){
   // standard tier rather than leaving the dropdown completely empty.
   const fixedList=(priceableTiers.length||extraList.length)?priceableTiers:TIERS;
 
+  const escText=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const fixedOpts=fixedList.map(t=>{
-    const label=withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name;
+    const note=(p.tierNotes&&p.tierNotes[t.id])?` -- ${escText(p.tierNotes[t.id])}`:'';
+    const label=(withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name)+note;
     return `<option value="${t.id}" ${item.tier===t.id?'selected':''}>${label}</option>`;
   }).join('');
   if(!extraList.length)return fixedOpts;
   const extraOpts=extraList.map(t=>{
     const isScoped=(t.accountIds&&t.accountIds.length)||(t.corpGroups&&t.corpGroups.length);
     const scopeTag=isScoped?' \u2605':''; // star marks a scoped (account or corp-group) lane
-    const label=withPricePreview?`${t.name}${scopeTag} (Cs: $${(t.price*p.btl).toFixed(2)} / Bt: $${t.price.toFixed(2)})`:`${t.name}${scopeTag}`;
+    const note=t.internalNote?` -- ${escText(t.internalNote)}`:'';
+    const label=(withPricePreview?`${t.name}${scopeTag} (Cs: $${(t.price*p.btl).toFixed(2)} / Bt: $${t.price.toFixed(2)})`:`${t.name}${scopeTag}`)+note;
     return `<option value="${esc(t.name)}" ${item.tier===t.name?'selected':''}>${label}</option>`;
   }).join('');
   return fixedOpts+`<optgroup label="Special Pricing">${extraOpts}</optgroup>`;
