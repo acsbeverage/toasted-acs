@@ -11799,7 +11799,7 @@ async function loadPricingLanes(sku){
     window._currentLanesData=res.tiers; // cached so the edit modal can look up a lane by ID without a re-fetch
     // Reps only ever see lanes explicitly marked visible to them, matching the same
     // repVisible flag already used elsewhere for this exact purpose.
-    const visibleLanes=isAdminUser?res.tiers:res.tiers.filter(t=>t.repVisible);
+    const visibleLanes=isAdminUser?res.tiers:res.tiers.filter(t=>t.repVisible||(t.visibleRepIds||[]).includes(currentUser.id));
     if(!visibleLanes.length){container.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No custom pricing lanes for this product yet.</div>';return;}
     const p=PRODUCTS.find(x=>x.sku===sku);const btl=p?.btl||1;
     container.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
@@ -11822,7 +11822,7 @@ async function loadPricingLanes(sku){
         ${isAdminUser?`<td style="padding:8px 12px;text-align:right">$${(t.da*btl).toFixed(2)}</td>
         <td style="padding:8px 12px;text-align:center;font-size:12px;font-weight:${hasCommOverride?'700':'400'};color:${hasCommOverride?'#1a5c3a':'#aaa'}">${hasCommOverride?t.commission+'%':'Rep default'}</td>`:''}
         <td style="padding:8px 12px;font-size:12px;max-width:260px">${scopeHtml}</td>
-        ${isAdminUser?`<td style="padding:8px 12px;font-size:12px">${t.repVisible?'Reps &amp; Admin':'Admin/Pricing-admin only'}</td>
+        ${isAdminUser?`<td style="padding:8px 12px;font-size:12px">${t.repVisible?'Reps &amp; Admin':((t.visibleRepNames||[]).length?'Admin + '+t.visibleRepNames.join(', '):'Admin/Pricing-admin only')}</td>
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           <button class="btn btn-sm" onclick="openEditPricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i></button>
           <button class="btn-delete-item" onclick="deletePricingLane(${t.id},'${sku.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
@@ -11865,6 +11865,14 @@ function _laneModalHtml(title,sku,saveOnclick,prefill){
       <div id="lane-acct-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
 
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><input type="checkbox" id="lane-rep-visible" ${prefill.repVisible?'checked':''} style="width:16px;height:16px"/><label for="lane-rep-visible" style="font-size:13px;cursor:pointer">Visible to reps <span style="color:var(--text3)">(unchecked = admin/pricing-admin only)</span></label></div>
+
+      <label class="flabel" style="margin-top:8px">Also grant specific rep(s) access <span style="color:var(--text3);font-weight:400">(works even with "Visible to reps" unchecked above)</span></label>
+      <select class="finput" id="lane-rep-picker" onchange="addLaneRep(this.value,this.options[this.selectedIndex].text);this.value=''" style="margin-bottom:6px">
+        <option value="">-- Select a rep to add --</option>
+        ${USERS.filter(u=>u.role==='rep').sort((a,b)=>a.fname.localeCompare(b.fname)).map(u=>`<option value="${u.id}">${u.fname} ${u.lname||''}</option>`).join('')}
+      </select>
+      <div id="lane-rep-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+
       <div class="modal-footer"><button class="btn" onclick="document.getElementById('lane-modal-bg').remove()">Cancel</button><button class="btn btn-dark" onclick="${saveOnclick}">${prefill.id?'Save Changes':'Create Lane'}</button></div>
     </div>
   </div>`;
@@ -11878,6 +11886,10 @@ function renderLaneChips(){
   if(cgBox)cgBox.innerHTML=window._laneSelectedCorpGroups.map(g=>
     `<span class="tier-pill" style="display:inline-flex;align-items:center;gap:5px;background:#FFF3D6;color:#8A6100"><i class="ti ti-building-store" style="font-size:11px"></i>${g}<i class="ti ti-x" style="cursor:pointer" onclick="removeLaneCorpGroup('${g.replace(/'/g,"\\'")}')"></i></span>`
   ).join('')||'<span style="font-size:12px;color:var(--text3)">None selected</span>';
+  const repBox=document.getElementById('lane-rep-chips');
+  if(repBox)repBox.innerHTML=(window._laneSelectedReps||[]).map(r=>
+    `<span class="tier-pill" style="display:inline-flex;align-items:center;gap:5px;background:#E8F0FE;color:#1A4B8C"><i class="ti ti-user" style="font-size:11px"></i>${r.name}<i class="ti ti-x" style="cursor:pointer" onclick="removeLaneRep('${r.id.replace(/'/g,"\\'")}')"></i></span>`
+  ).join('')||'<span style="font-size:12px;color:var(--text3)">None selected</span>';
 }
 function addLaneCorpGroup(g){
   if(!g||window._laneSelectedCorpGroups.includes(g))return;
@@ -11886,6 +11898,16 @@ function addLaneCorpGroup(g){
 }
 function removeLaneCorpGroup(g){
   window._laneSelectedCorpGroups=window._laneSelectedCorpGroups.filter(x=>x!==g);
+  renderLaneChips();
+}
+function addLaneRep(id,name){
+  if(!id||(window._laneSelectedReps||[]).find(r=>r.id===id))return;
+  if(!window._laneSelectedReps)window._laneSelectedReps=[];
+  window._laneSelectedReps.push({id,name});
+  renderLaneChips();
+}
+function removeLaneRep(id){
+  window._laneSelectedReps=(window._laneSelectedReps||[]).filter(r=>r.id!==id);
   renderLaneChips();
 }
 function onLaneAcctSearch(val){
@@ -11911,6 +11933,7 @@ function removeLaneAccount(id){
 function openAddPricingLane(sku){
   window._laneSelectedAccounts=[];
   window._laneSelectedCorpGroups=[];
+  window._laneSelectedReps=[];
   document.body.insertAdjacentHTML('beforeend',_laneModalHtml('New Pricing Lane',sku,`saveNewPricingLane('${sku.replace(/'/g,"\\'")}')`,{}));
   renderLaneChips();
 }
@@ -11927,10 +11950,11 @@ async function saveNewPricingLane(sku){
   const accountIds=window._laneSelectedAccounts.map(a=>a.id);
   const corpGroups=window._laneSelectedCorpGroups.slice();
   const repVisible=document.getElementById('lane-rep-visible').checked;
+  const visibleRepIds=window._laneSelectedReps.map(r=>r.id);
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices',{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({sku,tierName:name,price:casePrice/btl,da:caseDa/btl,commission,internalNote,accountIds,corpGroups,repVisible})
+      body:JSON.stringify({sku,tierName:name,price:casePrice/btl,da:caseDa/btl,commission,internalNote,accountIds,corpGroups,repVisible,visibleRepIds})
     }).then(r=>r.json());
     if(!res.ok){alert(res.error||'Could not create pricing lane');return}
     document.getElementById('lane-modal-bg').remove();
@@ -11947,6 +11971,7 @@ function openEditPricingLane(id,sku){
   const btl=p?.btl||1;
   window._laneSelectedAccounts=(lane.accountIds||[]).map((id,i)=>({id,name:(lane.accountNames||[])[i]||id}));
   window._laneSelectedCorpGroups=(lane.corpGroups||[]).slice();
+  window._laneSelectedReps=(lane.visibleRepIds||[]).map((id,i)=>({id,name:(lane.visibleRepNames||[])[i]||id}));
   document.body.insertAdjacentHTML('beforeend',_laneModalHtml('Edit Pricing Lane',sku,`saveEditedPricingLane(${lane.id},'${sku.replace(/'/g,"\\'")}')`,{
     id:lane.id,name:lane.tierName,price:(lane.price*btl).toFixed(2),da:(lane.da*btl).toFixed(2),commission:lane.commission,internalNote:lane.internalNote,repVisible:lane.repVisible,
   }));
@@ -11965,10 +11990,11 @@ async function saveEditedPricingLane(id,sku){
   const accountIds=window._laneSelectedAccounts.map(a=>a.id);
   const corpGroups=window._laneSelectedCorpGroups.slice();
   const repVisible=document.getElementById('lane-rep-visible').checked;
+  const visibleRepIds=window._laneSelectedReps.map(r=>r.id);
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-tier-prices/'+id,{
       method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({tierName:name,price:casePrice/btl,da:caseDa/btl,commission,internalNote,accountIds,corpGroups,repVisible})
+      body:JSON.stringify({tierName:name,price:casePrice/btl,da:caseDa/btl,commission,internalNote,accountIds,corpGroups,repVisible,visibleRepIds})
     }).then(r=>r.json());
     if(!res.ok){alert(res.error||'Could not save pricing lane');return}
     document.getElementById('lane-modal-bg').remove();
@@ -12767,13 +12793,25 @@ function qboBatchSend(orderIds){
   toast('Sending '+payloads.length+' invoice'+( payloads.length!==1?'s':'')+'...');
   qboFetch('/api/qbo/invoices','POST',{invoices:payloads})
     .then(data=>{
-      (data.invoiceIds||[]).forEach((qid,i)=>{
-        if(orders[i]){
-          orders[i].qboInvoiceId=qid;orders[i].qboSyncedAt=today();
-          saveOrderStatusToDB(orders[i].id,{qboInvoiceId:qid,qboSyncedAt:orders[i].qboSyncedAt});
+      const results=data.results||[];
+      const failures=[];
+      results.forEach(r=>{
+        const order=orders.find(o=>o.id===r.orderId);
+        if(!order)return;
+        if(r.ok){
+          order.qboInvoiceId=r.invoiceId;order.qboSyncedAt=today();
+          saveOrderStatusToDB(order.id,{qboInvoiceId:r.invoiceId,qboSyncedAt:order.qboSyncedAt});
+        } else {
+          failures.push({id:order.id,error:r.error});
         }
       });
-      toast(payloads.length+' invoice'+(payloads.length!==1?'s':'')+' sent to QuickBooks');
+      const successCount=results.filter(r=>r.ok).length;
+      if(failures.length){
+        const preview=failures.slice(0,3).map(f=>f.id+': '+f.error).join(' · ');
+        toast(successCount+' sent, '+failures.length+' failed -- '+preview+(failures.length>3?' ...':''));
+      } else {
+        toast(successCount+' invoice'+(successCount!==1?'s':'')+' sent to QuickBooks');
+      }
       renderQBOBatchModal(false);
       if(_currentPage===originatingPage){
         const active=document.querySelector('.nav-item.active');
