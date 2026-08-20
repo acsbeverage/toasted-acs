@@ -127,50 +127,73 @@ async function buildRA5(from, to, producers) {
   return { headers, rows: out };
 }
 
-async function buildRBInventory(producers) {
+async function buildRBInventory(sched) {
+  const producers = sched.producers || [];
   const rows = await getAll(
-    `SELECT sku, name, vintage, cat, producer, stock, reorder, btl, fob_price,
-            price_frontline, comm_frontline, active, created_at
+    `SELECT sku, name, vintage, cat, producer, stock
      FROM products
      WHERE COALESCE(warehouse,'main')<>'acs_logistics'
        AND ($1::text[] IS NULL OR producer = ANY($1))
      ORDER BY producer, name`,
-    [(producers && producers.length) ? producers : null]
+    [producers.length ? producers : null]
   );
-  const headers = [
-    'Code', 'Name', 'Vintage', 'Product Type', 'Producer', 'Warehouse',
-    'On Hand', 'Available', 'Default Price', 'FOB Price', 'End Of Stock',
-    'Inventory: Created', 'Wine/Supplier Commission Rate (%)',
+  const invHeaders = [
+    'Code', 'Name', 'Vintage', 'Product Type', 'Producer', 'Warehouse', 'BIN location',
+    'On Hand', 'On Hold', 'On Future', 'Pending Sync', 'Available', 'On Order', 'On Transfer',
   ];
+  const invRows = rows.map(p => {
+    const onHand = Number(parseFloat(p.stock).toFixed(2));
+    return [
+      p.sku, p.name, p.vintage || '', p.cat || '', p.producer, 'ACS Warehouse', '',
+      onHand, 0, 0, 0, onHand, 0, 0, // Toasted has no hold/future/pending-sync/on-order/transfer tracking -- always 0
+    ];
+  });
+
+  const reportName = sched.type === 'RB1' ? 'InventoryBySupplier' : 'InventoryByProducer';
+  const filterRows = [
+    ['Producers', producers.length ? producers.join(', ') : 'All'],
+    ['Warehouses', 'ACS Warehouse'],
+    ['Wine Status', 'All Wines'],
+    ['Include active prices?', 'No'],
+    ['Include "Delivery Fee" and "Duty" columns?', 'No'],
+    ['Include non-inventory items?', 'No'],
+    ['Include pre-sale allocations?', 'No'],
+    ['Use simplified version?', 'No'],
+    ['Include disabled warehouses?', 'No'],
+    ['Report At', new Date().toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })],
+    ['Report Name', reportName],
+    ['Organization', 'ACS Beverage Co.'],
+  ];
+
   return {
-    headers,
-    rows: rows.map(p => [
-      p.sku, p.name, p.vintage || '', p.cat || '', p.producer, 'ACS Warehouse',
-      parseFloat(p.stock), parseFloat(p.stock),
-      Number((parseFloat(p.price_frontline || 0) * p.btl).toFixed(2)),
-      parseFloat(p.fob_price || 0),
-      p.active === 'No' ? 'Yes' : '',
-      p.created_at ? p.created_at.toISOString().slice(0, 10) : '',
-      p.comm_frontline !== null ? parseFloat(p.comm_frontline) : 0,
-    ]),
+    sheets: [
+      { name: 'Inventory', headers: invHeaders, rows: invRows },
+      { name: 'Filters', headers: ['Filters', ''], rows: filterRows },
+    ],
+    rows: invRows, // kept for the row-count shown in the confirmation email
   };
 }
 
 async function buildReportData(sched) {
-  const { from, to } = resolveDateRange(sched);
-  const producers = sched.producers || [];
-  if (sched.type === 'RA5') return buildRA5(from, to, producers);
-  if (sched.type === 'RB1' || sched.type === 'RB2') return buildRBInventory(producers);
+  if (sched.type === 'RA5') {
+    const { from, to } = resolveDateRange(sched);
+    return buildRA5(from, to, sched.producers || []);
+  }
+  // RB1/RB2 are current-state snapshots -- no date range to resolve, run fresh every time
+  if (sched.type === 'RB1' || sched.type === 'RB2') return buildRBInventory(sched);
   return null; // Not yet supported for automated sending
 }
 
 // ─── EXCEL GENERATION ──────────────────────────────────────────────────────
 async function buildExcelBuffer(reportName, data) {
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(reportName.slice(0, 31)); // Excel sheet name limit
-  ws.addRow(data.headers).font = { bold: true };
-  data.rows.forEach(r => ws.addRow(r));
-  ws.columns.forEach(col => { col.width = 18; });
+  const sheets = data.sheets || [{ name: reportName.slice(0, 31), headers: data.headers, rows: data.rows }];
+  sheets.forEach(sheet => {
+    const ws = wb.addWorksheet(sheet.name.slice(0, 31)); // Excel sheet name limit
+    ws.addRow(sheet.headers).font = { bold: true };
+    sheet.rows.forEach(r => ws.addRow(r));
+    ws.columns.forEach(col => { col.width = 18; });
+  });
   return wb.xlsx.writeBuffer();
 }
 
