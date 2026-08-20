@@ -253,7 +253,8 @@ router.get('/products', requireAuth, async (req, res) => {
     const tierRows = isCustomer ? [] : await getAll(
       seesAllTiers
         ? 'SELECT * FROM product_tier_prices ORDER BY sort_order, tier_name'
-        : 'SELECT * FROM product_tier_prices WHERE rep_visible=TRUE ORDER BY sort_order, tier_name'
+        : 'SELECT * FROM product_tier_prices WHERE rep_visible=TRUE OR $1 = ANY(visible_rep_ids) ORDER BY sort_order, tier_name',
+      seesAllTiers ? [] : [req.user.id]
     );
     const tiersBySku = {};
     tierRows.forEach(t => {
@@ -265,6 +266,7 @@ router.get('/products', requireAuth, async (req, res) => {
         commission: t.commission !== null && t.commission !== undefined ? parseFloat(t.commission) : null,
         internalNote: t.internal_note || '',
         repVisible: t.rep_visible,
+        visibleRepIds: t.visible_rep_ids || [],
         accountId: t.account_id || null, // kept for backward compatibility
         accountIds: t.account_ids || [],
         corpGroups: t.corp_groups || [],
@@ -327,12 +329,18 @@ router.get('/product-tier-prices', requireAuth, async (req, res) => {
       `SELECT * FROM product_tier_prices WHERE sku=$1 ORDER BY tier_name`,
       [sku]
     );
-    // Resolve account names for display in one batch, rather than a query per row
+    // Resolve account and rep names for display in one batch, rather than a query per row
     const allAcctIds = [...new Set(rows.flatMap(r => r.account_ids || []))];
     let acctNameById = {};
     if (allAcctIds.length) {
       const acctRows = await getAll(`SELECT id, name FROM accounts WHERE id = ANY($1)`, [allAcctIds]);
       acctRows.forEach(a => { acctNameById[a.id] = a.name; });
+    }
+    const allRepIds = [...new Set(rows.flatMap(r => r.visible_rep_ids || []))];
+    let repNameById = {};
+    if (allRepIds.length) {
+      const repRows = await getAll(`SELECT id, fname, lname FROM users WHERE id = ANY($1)`, [allRepIds]);
+      repRows.forEach(r => { repNameById[r.id] = r.fname + ' ' + (r.lname || ''); });
     }
     res.json({ ok: true, tiers: rows.map(t => ({
       id: t.id, sku: t.sku, tierName: t.tier_name,
@@ -343,6 +351,8 @@ router.get('/product-tier-prices', requireAuth, async (req, res) => {
       accountIds: t.account_ids || [],
       accountNames: (t.account_ids || []).map(id => acctNameById[id] || id),
       corpGroups: t.corp_groups || [],
+      visibleRepIds: t.visible_rep_ids || [],
+      visibleRepNames: (t.visible_rep_ids || []).map(id => repNameById[id] || id),
     })) });
   } catch (err) {
     console.error('List pricing lanes error:', err.message);
@@ -352,12 +362,12 @@ router.get('/product-tier-prices', requireAuth, async (req, res) => {
 
 router.post('/product-tier-prices', requireAdmin, async (req, res) => {
   try {
-    const { sku, tierName, price, da, commission, internalNote, accountIds, corpGroups, repVisible } = req.body;
+    const { sku, tierName, price, da, commission, internalNote, accountIds, corpGroups, repVisible, visibleRepIds } = req.body;
     if (!sku || !tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Product and pricing lane name are required' });
     const row = await getOne(
-      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, commission, internal_note, rep_visible, account_ids, corp_groups)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [sku, tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, internalNote || '', !!repVisible, accountIds || [], corpGroups || []]
+      `INSERT INTO product_tier_prices (sku, tier_name, price, da_amount, commission, internal_note, rep_visible, account_ids, corp_groups, visible_rep_ids)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [sku, tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, internalNote || '', !!repVisible, accountIds || [], corpGroups || [], visibleRepIds || []]
     );
     res.json({ ok: true, id: row.id });
   } catch (err) {
@@ -368,11 +378,11 @@ router.post('/product-tier-prices', requireAdmin, async (req, res) => {
 
 router.patch('/product-tier-prices/:id', requireAdmin, async (req, res) => {
   try {
-    const { tierName, price, da, commission, internalNote, accountIds, corpGroups, repVisible } = req.body;
+    const { tierName, price, da, commission, internalNote, accountIds, corpGroups, repVisible, visibleRepIds } = req.body;
     if (!tierName || !tierName.trim()) return res.status(400).json({ ok: false, error: 'Pricing lane name is required' });
     await query(
-      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, commission=$4, internal_note=$5, rep_visible=$6, account_ids=$7, corp_groups=$8, updated_at=NOW() WHERE id=$9`,
-      [tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, internalNote || '', !!repVisible, accountIds || [], corpGroups || [], req.params.id]
+      `UPDATE product_tier_prices SET tier_name=$1, price=$2, da_amount=$3, commission=$4, internal_note=$5, rep_visible=$6, account_ids=$7, corp_groups=$8, visible_rep_ids=$9, updated_at=NOW() WHERE id=$10`,
+      [tierName, price || 0, da || 0, commission === '' || commission === undefined ? null : commission, internalNote || '', !!repVisible, accountIds || [], corpGroups || [], visibleRepIds || [], req.params.id]
     );
     res.json({ ok: true });
   } catch (err) {
