@@ -361,6 +361,7 @@ async function migrate() {
   // override the 5 standard tiers already have, so custom lanes have full feature parity.
   await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS commission NUMERIC(5,2)`);
   await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS internal_note TEXT DEFAULT ''`);
+  await query(`ALTER TABLE product_tier_prices ADD COLUMN IF NOT EXISTS visible_rep_ids TEXT[] DEFAULT '{}'`);
 
   // Editable label + internal note per standard pricing tier -- replaces both the previously
   // hardcoded tier names (frontline/mix12/etc.) and the static, non-editable "Internal / Price
