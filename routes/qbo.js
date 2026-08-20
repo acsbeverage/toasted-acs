@@ -298,7 +298,33 @@ router.post('/invoices', requireAdmin, async (req, res) => {
     const conn = await getConnection();
     const results = [];
 
+    // Reconcile against QuickBooks first, in bulk -- for any order whose invoice already
+    // exists there (DocNumber = Toasted's order ID), skip creating it entirely and just link
+    // it. This is what actually stops "duplicate" errors from happening: the duplicate is
+    // detected and handled before an attempt is ever made, rather than caught after
+    // QuickBooks rejects it. Chunked so a batch of thousands doesn't build one huge query.
+    const existingByDocNumber = {};
+    const orderIds = invoices.map(inv => inv.orderId);
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < orderIds.length; i += CHUNK_SIZE) {
+      const chunk = orderIds.slice(i, i + CHUNK_SIZE);
+      const docNumberList = chunk.map(id => `'${id.replace(/'/g, "\\'")}'`).join(',');
+      try {
+        const existing = await qboQuery(null, `SELECT Id, DocNumber FROM Invoice WHERE DocNumber IN (${docNumberList}) MAXRESULTS 1000`);
+        (existing.QueryResponse?.Invoice || []).forEach(qi => { existingByDocNumber[qi.DocNumber] = qi.Id; });
+      } catch (lookupErr) {
+        // If the reconciliation lookup itself fails, fall through to normal per-invoice
+        // creation below -- QuickBooks' own duplicate check on create is still the backstop.
+        console.error('QBO reconciliation lookup error:', lookupErr.message);
+      }
+    }
+
     for (const inv of invoices) {
+      const existingId = existingByDocNumber[inv.orderId];
+      if (existingId) {
+        results.push({ orderId: inv.orderId, ok: true, invoiceId: existingId, alreadyExisted: true });
+        continue;
+      }
       try {
         const customer = await resolveCustomer(inv);
         const lines = [];
@@ -330,9 +356,10 @@ router.post('/invoices', requireAdmin, async (req, res) => {
         const result = await qboApi('POST', `/v3/company/${conn.realm_id}/invoice?minorversion=65`, payload);
         results.push({ orderId: inv.orderId, ok: true, invoiceId: result.Invoice?.Id });
       } catch (invErr) {
-        // One invoice failing (e.g. QuickBooks rejecting a duplicate DocNumber) should never
-        // stop the rest of the batch, and must never be silently dropped -- the caller needs
-        // to know exactly which orders actually went through versus which need attention.
+        // One invoice failing should never stop the rest of the batch, and must never be
+        // silently dropped -- the caller needs to know exactly which orders actually went
+        // through versus which need attention. A genuine duplicate should be extremely rare
+        // now that the check above runs first, but this remains the backstop if it happens.
         console.error(`QBO invoice creation error for order ${inv.orderId}:`, invErr.message);
         results.push({ orderId: inv.orderId, ok: false, error: invErr.message });
       }
@@ -340,12 +367,14 @@ router.post('/invoices', requireAdmin, async (req, res) => {
 
     const succeeded = results.filter(r => r.ok);
     const failed = results.filter(r => !r.ok);
+    const reconciled = results.filter(r => r.alreadyExisted);
     res.json({
       ok: true,
       results,
       invoiceIds: succeeded.map(r => r.invoiceId), // kept for backward compatibility
       succeededCount: succeeded.length,
       failedCount: failed.length,
+      reconciledCount: reconciled.length,
     });
   } catch (err) {
     console.error('QBO invoice creation error:', err.message);
