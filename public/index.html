@@ -12820,6 +12820,14 @@ function qboBatchSend(orderIds){
     })
     .catch(e=>toast('QBO batch error: '+e.message));
 }
+function markOrderAlreadyInQBO(orderId){
+  const order=ORDERS.find(o=>o.id===orderId);if(!order)return;
+  if(!confirm(`Mark ${orderId} as already in QuickBooks?\n\nThis does NOT create or check anything in QuickBooks -- it just tells Toasted this invoice already exists there, so it stops appearing as pending here.`))return;
+  order.qboSyncedAt=today();
+  saveOrderStatusToDB(order.id,{qboSyncedAt:order.qboSyncedAt});
+  toast(orderId+' marked as already in QuickBooks');
+  renderQBOBatchModal(false);
+}
 
 // -- BATCH MODAL ---------------------------------------------------------------
 function openQBOBatch(){
@@ -12850,7 +12858,9 @@ function renderQBOBatchModal(initial){
       html+='<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">';
       html+='<input type="checkbox" class="qbo-order-chk" value="'+o.id+'" style="width:15px;height:15px;accent-color:var(--gold)"/>';
       html+='<div style="flex:1"><div style="font-weight:600">'+o.id+(o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0">Sample</span>':'')+'</div>';
-      html+='<div style="font-size:11px;color:var(--text2)">'+(acct?acct.name:'--')+' · '+o.date+' · '+fmt(orderTotal(o))+'</div></div></label>';
+      html+='<div style="font-size:11px;color:var(--text2)">'+(acct?acct.name:'--')+' · '+o.date+' · '+fmt(orderTotal(o))+'</div></div>';
+      html+='<button type="button" class="btn btn-sm" title="Mark as already in QuickBooks -- removes it from this list without sending it again" onclick="event.preventDefault();event.stopPropagation();markOrderAlreadyInQBO(\''+o.id+'\')" style="font-size:11px;white-space:nowrap">Already in QB</button>';
+      html+='</label>';
     });
     html+='</div>';
   } else {
