@@ -296,41 +296,57 @@ router.post('/invoices', requireAdmin, async (req, res) => {
     const invoices = req.body.invoices || [];
     if (!invoices.length) return res.status(400).json({ ok: false, message: 'No invoices provided' });
     const conn = await getConnection();
-    const invoiceIds = [];
+    const results = [];
 
     for (const inv of invoices) {
-      const customer = await resolveCustomer(inv);
-      const lines = [];
-      for (const line of inv.lines) {
-        const item = await resolveItem(line.qboItemName || line.description);
-        const rate = line.discountPct ? line.unitPrice * (1 - line.discountPct / 100) : line.unitPrice;
-        lines.push({
-          DetailType: 'SalesItemLineDetail',
-          Amount: Math.round(rate * line.qty * 100) / 100,
-          Description: line.description,
-          SalesItemLineDetail: {
-            ItemRef: { value: item.Id, name: item.Name },
-            Qty: line.qty,
-            UnitPrice: Math.round(rate * 10000) / 10000,
-          },
-        });
+      try {
+        const customer = await resolveCustomer(inv);
+        const lines = [];
+        for (const line of inv.lines) {
+          const item = await resolveItem(line.qboItemName || line.description);
+          const rate = line.discountPct ? line.unitPrice * (1 - line.discountPct / 100) : line.unitPrice;
+          lines.push({
+            DetailType: 'SalesItemLineDetail',
+            Amount: Math.round(rate * line.qty * 100) / 100,
+            Description: line.description,
+            SalesItemLineDetail: {
+              ItemRef: { value: item.Id, name: item.Name },
+              Qty: line.qty,
+              UnitPrice: Math.round(rate * 10000) / 10000,
+            },
+          });
+        }
+
+        const payload = {
+          CustomerRef: { value: customer.Id, name: customer.DisplayName },
+          TxnDate: inv.invoiceDate,
+          DueDate: inv.dueDate,
+          DocNumber: inv.orderId,
+          PrivateNote: inv.memo || '',
+          CustomerMemo: inv.poNumber ? { value: 'PO #: ' + inv.poNumber } : undefined,
+          Line: lines,
+        };
+
+        const result = await qboApi('POST', `/v3/company/${conn.realm_id}/invoice?minorversion=65`, payload);
+        results.push({ orderId: inv.orderId, ok: true, invoiceId: result.Invoice?.Id });
+      } catch (invErr) {
+        // One invoice failing (e.g. QuickBooks rejecting a duplicate DocNumber) should never
+        // stop the rest of the batch, and must never be silently dropped -- the caller needs
+        // to know exactly which orders actually went through versus which need attention.
+        console.error(`QBO invoice creation error for order ${inv.orderId}:`, invErr.message);
+        results.push({ orderId: inv.orderId, ok: false, error: invErr.message });
       }
-
-      const payload = {
-        CustomerRef: { value: customer.Id, name: customer.DisplayName },
-        TxnDate: inv.invoiceDate,
-        DueDate: inv.dueDate,
-        DocNumber: inv.orderId,
-        PrivateNote: inv.memo || '',
-        CustomerMemo: inv.poNumber ? { value: 'PO #: ' + inv.poNumber } : undefined,
-        Line: lines,
-      };
-
-      const result = await qboApi('POST', `/v3/company/${conn.realm_id}/invoice?minorversion=65`, payload);
-      invoiceIds.push(result.Invoice?.Id);
     }
 
-    res.json({ ok: true, invoiceIds });
+    const succeeded = results.filter(r => r.ok);
+    const failed = results.filter(r => !r.ok);
+    res.json({
+      ok: true,
+      results,
+      invoiceIds: succeeded.map(r => r.invoiceId), // kept for backward compatibility
+      succeededCount: succeeded.length,
+      failedCount: failed.length,
+    });
   } catch (err) {
     console.error('QBO invoice creation error:', err.message);
     res.status(500).json({ ok: false, message: err.message });
