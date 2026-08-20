@@ -6478,7 +6478,11 @@ function getLineCommission(item, repId){
   if(!p)return 0;
   const overrideKey='__comm_'+item.tier;
   if(p.prices && p.prices[overrideKey]!==undefined && p.prices[overrideKey]!==null){
-    return p.prices[overrideKey]; // tier-specific override
+    return p.prices[overrideKey]; // standard-tier override
+  }
+  const lane=(p.extraTiers||[]).find(t=>t.name===item.tier);
+  if(lane && lane.commission!==undefined && lane.commission!==null){
+    return lane.commission; // custom pricing lane override
   }
   const rep=USERS.find(u=>u.id===repId);
   return rep?rep.commission||0:0;
@@ -10309,13 +10313,14 @@ function exportCommissionPDF(){
     if(window._comFrom)orders=orders.filter(o=>o.date>=window._comFrom);
     if(window._comTo)orders=orders.filter(o=>o.date<=window._comTo);
     const revenue=orders.reduce((s,o)=>s+orderTotal(o),0);
-    const pct=rep.commission||0;const comm=revenue*(pct/100);
+    const comm=orders.reduce((s,o)=>s+orderTotal(o)*(getOrderCommission(o)/100),0);
+    const pct=revenue>0?comm/revenue*100:rep.commission||0;
     const btl=orders.reduce((s,o)=>s+o.items.reduce((ss,x)=>ss+itemTotalBottles(x),0),0);
     grandTotal+=comm;
     doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(30,30,30);
     doc.text(rep.fname+' '+rep.lname,M,y);
     doc.setTextColor(80,80,80);doc.setFontSize(8);
-    doc.text(String(orders.length),M+130,y);doc.text(String(btl),M+200,y);doc.text(fmt(revenue),M+270,y);doc.text(pct+'%',M+370,y);
+    doc.text(String(orders.length),M+130,y);doc.text(String(btl),M+200,y);doc.text(fmt(revenue),M+270,y);doc.text(pct.toFixed(1)+'%',M+370,y);
     doc.setFont('helvetica','bold');doc.setTextColor(45,106,79);doc.text(fmt(comm),W-M,y,{align:'right'});
     doc.setDrawColor(220,220,220);doc.line(M,y+5,W-M,y+5);
     y+=16;
@@ -10335,31 +10340,33 @@ function exportRepCommission(repId){
   let orders=ORDERS.filter(o=>o.status==='delivered'&&o.rep===repId);
   if(window._comFrom)orders=orders.filter(o=>o.date>=window._comFrom);
   if(window._comTo)orders=orders.filter(o=>o.date<=window._comTo);
-  const pct=rep.commission||0;
+  const defaultPct=rep.commission||0;
 
   const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'pt',format:'letter'});
   const W=612,M=40;let y=M;
   doc.setFillColor(26,30,46);doc.rect(0,0,W,50,'F');
   doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(232,201,122);doc.text('COMMISSION STATEMENT',M,28);
   doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(160,160,160);
-  doc.text(rep.fname+' '+rep.lname+' · '+pct+'% commission rate',M,40);doc.text('Generated: '+today(),W-M,40,{align:'right'});
+  doc.text(rep.fname+' '+rep.lname+' · '+defaultPct+'% standard rate (per-order rate may vary with pricing overrides)',M,40);doc.text('Generated: '+today(),W-M,40,{align:'right'});
   y=68;
 
   doc.setFillColor(240,240,240);doc.rect(M,y-9,W-M*2,14,'F');
   doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);
-  doc.text('Invoice',M,y);doc.text('Account',M+80,y);doc.text('Date',M+250,y);doc.text('Delivery',M+310,y);doc.text('Revenue',M+375,y);doc.text('Commission',W-M,y,{align:'right'});
+  doc.text('Invoice',M,y);doc.text('Account',M+75,y);doc.text('Date',M+215,y);doc.text('Delivery',M+260,y);doc.text('Revenue',M+310,y);doc.text('Rate',M+390,y);doc.text('Commission',W-M,y,{align:'right'});
   y+=14;
 
   let totalRev=0;let totalComm=0;
   orders.slice().reverse().forEach((o,i)=>{
     if(y>700){doc.addPage();y=40;}
     const acct=acctById(o.acct);
-    const rev=orderTotal(o);const comm=rev*(pct/100);
+    const rev=orderTotal(o);const effPct=getOrderCommission(o);const comm=rev*(effPct/100);
     totalRev+=rev;totalComm+=comm;
     if(i%2===0){doc.setFillColor(252,252,252);doc.rect(M,y-8,W-M*2,13,'F')}
     doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(80,80,80);
-    doc.text(o.id,M,y);doc.text(acct?acct.name.substring(0,22):'-',M+80,y);doc.text(o.date,M+250,y);doc.text(o.delivery,M+310,y);
-    doc.setTextColor(30,30,30);doc.text(fmt(rev),M+375,y);
+    doc.text(o.id,M,y);doc.text(acct?acct.name.substring(0,18):'-',M+75,y);doc.text(o.date,M+215,y);doc.text(o.delivery,M+260,y);
+    doc.setTextColor(30,30,30);doc.text(fmt(rev),M+310,y);
+    if(effPct!==defaultPct)doc.setTextColor(180,83,9);else doc.setTextColor(80,80,80); // highlight rows where an override changed the rate
+    doc.text(effPct.toFixed(1)+'%',M+390,y);
     doc.setFont('helvetica','bold');doc.setTextColor(45,106,79);doc.text(fmt(comm),W-M,y,{align:'right'});
     doc.setDrawColor(230,230,230);doc.line(M,y+4,W-M,y+4);
     y+=13;
@@ -10367,7 +10374,8 @@ function exportRepCommission(repId){
   y+=8;doc.setDrawColor(100,100,100);doc.line(M,y,W-M,y);y+=12;
   doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(30,30,30);
   doc.text('Total revenue:',M,y);doc.text(fmt(totalRev),M+200,y);
-  doc.text('Commission ('+pct+'%):',M,y+14);
+  const blendedPct=totalRev>0?(totalComm/totalRev*100):defaultPct;
+  doc.text('Commission (blended '+blendedPct.toFixed(1)+'%):',M,y+14);
   doc.setTextColor(45,106,79);doc.text(fmt(totalComm),M+200,y+14);
   savePDF(doc,'commission-'+rep.fname.toLowerCase()+'-'+today()+'.pdf');
   toast('Statement exported for '+rep.fname);
