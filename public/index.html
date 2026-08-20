@@ -12806,9 +12806,12 @@ function qboBatchSend(orderIds){
         }
       });
       const successCount=results.filter(r=>r.ok).length;
+      const reconciledCount=results.filter(r=>r.alreadyExisted).length;
       if(failures.length){
         const preview=failures.slice(0,3).map(f=>f.id+': '+f.error).join(' · ');
         toast(successCount+' sent, '+failures.length+' failed -- '+preview+(failures.length>3?' ...':''));
+      } else if(reconciledCount){
+        toast(successCount+' invoice'+(successCount!==1?'s':'')+' processed ('+reconciledCount+' already existed in QuickBooks and '+(reconciledCount!==1?'were':'was')+' just linked)');
       } else {
         toast(successCount+' invoice'+(successCount!==1?'s':'')+' sent to QuickBooks');
       }
