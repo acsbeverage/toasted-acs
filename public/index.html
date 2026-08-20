@@ -10490,7 +10490,7 @@ function renderScheduledReports(){
             <option value="RI2">RI2 - Open/Past Due</option>
           </select>
         </div>
-        <div>
+        <div id="sched-range-wrap">
           <label class="flabel">Date range to include</label>
           <select class="finput" id="sched-range" onchange="onSchedRangeChange()">
             <option value="rolling30">Last 30 days</option>
@@ -10508,6 +10508,7 @@ function renderScheduledReports(){
             </div>
           </div>
         </div>
+        <div id="sched-range-inventory-note" style="display:none;font-size:12px;color:var(--text3);padding:8px 0">Inventory reports always reflect current stock at the moment they run -- no date range applies.</div>
         <div>
           <label class="flabel">Frequency</label>
           <select class="finput" id="sched-freq" onchange="onSchedFreqChange()">
@@ -10578,7 +10579,7 @@ function renderSchedRows(schedules){
     <td><div style="font-weight:600">${s.name}</div></td>
     <td><span class="badge ${['RA5','RB1','RB2'].includes(s.type)?'badge-spirits':'badge-wine'}"><i class="ti ${typeIcon[s.type]||'ti-file'}" style="font-size:11px;margin-right:3px"></i>${typeLabel[s.type]||s.type}</span></td>
     <td style="font-size:12px;color:var(--text2)">${freqLabel(s)}</td>
-    <td style="font-size:12px;color:var(--text2)">${s.dateRange==='custom'?(s.customFrom||'?')+' -> '+(s.customTo||'?'):dateRangeLabel(s.dateRange)}</td>
+    <td style="font-size:12px;color:var(--text2)">${['RB1','RB2'].includes(s.type)?'Current snapshot':(s.dateRange==='custom'?(s.customFrom||'?')+' -> '+(s.customTo||'?'):dateRangeLabel(s.dateRange))}</td>
     <td>
       ${s.recipients.slice(0,2).map(r=>`<div style="font-size:11px;color:var(--text2);white-space:nowrap">${r.label||r.email}</div>`).join('')}
       ${s.recipients.length>2?`<div style="font-size:11px;color:var(--text3)">+${s.recipients.length-2} more</div>`:''}
@@ -10644,6 +10645,11 @@ function onSchedTypeChange(){
   const t=document.getElementById('sched-type').value;
   const pw=document.getElementById('sched-producers-wrap');
   if(pw)pw.style.display=['RA5','RB1','RB2'].includes(t)?'':'none';
+  const isInventory=['RB1','RB2'].includes(t);
+  const rw=document.getElementById('sched-range-wrap');
+  const rn=document.getElementById('sched-range-inventory-note');
+  if(rw)rw.style.display=isInventory?'none':'';
+  if(rn)rn.style.display=isInventory?'':'none';
 }
 function onSchedFreqChange(){
   const f=document.getElementById('sched-freq').value;
