@@ -941,7 +941,7 @@ function lastOrderLineForAccountProduct(acctId,sku){
     if(o.status!=='delivered'&&o.status!=='confirmed')return;
     if(best&&o.date<=best.date)return;
     const line=(o.items||[]).find(i=>i.sku===sku&&!i._fee);
-    if(line)best={date:o.date,tier:line.tier,rate:itemUnitPrice(line,prodBySku(sku))};
+    if(line)best={date:o.date,tier:line.tier,rate:parseFloat(line.rate)||0};
   });
   return best;
 }
@@ -973,18 +973,20 @@ function buildTierOptions(p,item,withPricePreview,acctId){
 
   // Surface what this account used last time as a convenience shortcut at the very top of the
   // list, above Frontline -- reps requested this so they don't have to hunt for the right
-  // tier on repeat orders. Only shown if that tier still has a genuine, current price for
-  // this product -- otherwise selecting it would silently apply a $0 price, since a tier
-  // with no current price is also excluded from the regular list below.
+  // tier on repeat orders. Matches the historical tier name/id against real, existing tiers
+  // (standard or custom lane) and uses that tier directly when found, applying today's
+  // current price for it. If the historical tier doesn't match anything real (e.g. an import
+  // placeholder), the shortcut simply isn't shown.
   let lastUsedOpt='';
   if(acctId){
     const last=lastOrderLineForAccountProduct(acctId,p.sku);
     if(last){
       const isStandard=TIERS.some(t=>t.id===last.tier);
-      const tierLabel=isStandard?(TIERS.find(t=>t.id===last.tier)||{}).name:last.tier;
-      const currentPrice=itemPrice(p,last.tier);
-      if(tierLabel&&currentPrice>0){
+      const isCustomLane=!isStandard&&(p.extraTiers||[]).some(t=>t.name===last.tier);
+      if(isStandard||isCustomLane){
+        const tierLabel=isStandard?(TIERS.find(t=>t.id===last.tier)||{}).name:last.tier;
         const val=isStandard?last.tier:esc(last.tier);
+        const currentPrice=itemPrice(p,last.tier);
         lastUsedOpt=`<option value="${val}">\u2605 Last used: ${escText(tierLabel)} ($${(currentPrice*p.btl).toFixed(2)}/cs)</option>`;
       }
     }
