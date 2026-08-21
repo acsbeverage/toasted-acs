@@ -6677,6 +6677,32 @@ function renderImport(){
 }
 
 // Reads a File (csv/xlsx) and resolves to an array-of-arrays (first row = headers)
+// Proper RFC4180 CSV parser: handles quoted fields containing commas, embedded newlines, and
+// escaped quotes ("" -> "). The previous version did a naive line.split(',') which silently
+// shredded any cell containing a comma (e.g. "Delivery Hours: Thursdays, 10am to 2pm"),
+// spilling the tail of that value into the next column.
+function _parseCSV(text){
+  const rows=[];let row=[];let field='';let inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQuotes){
+      if(c==='"'){
+        if(text[i+1]==='"'){field+='"';i++;}
+        else{inQuotes=false;}
+      } else {
+        field+=c;
+      }
+    } else {
+      if(c==='"'){inQuotes=true;}
+      else if(c===','){row.push(field);field='';}
+      else if(c==='\r'){/* skip -- \n (if present) closes the row */}
+      else if(c==='\n'){row.push(field);rows.push(row);row=[];field='';}
+      else{field+=c;}
+    }
+  }
+  if(field.length||row.length){row.push(field);rows.push(row);}
+  return rows.filter(r=>r.some(c=>c!==''));
+}
 function _readImportFile(file){
   return new Promise((resolve,reject)=>{
     const isExcel=/\.xlsx?$/i.test(file.name);
@@ -6694,8 +6720,8 @@ function _readImportFile(file){
       reader.readAsArrayBuffer(file);
     } else {
       reader.onload=e=>{
-        const lines=e.target.result.split('\n').filter(l=>l.trim());
-        resolve(lines.map(l=>l.split(',').map(c=>c.trim())));
+        const rows=_parseCSV(e.target.result).map(r=>r.map(c=>c.trim()));
+        resolve(rows);
       };
       reader.readAsText(file);
     }
