@@ -931,6 +931,20 @@ const itemPrice=(p,tier)=>{
   const t=(p.extraTiers||[]).find(x=>x.name===tier);
   return t?(t.price||0):0;
 };
+// Finds this account's most recent past order line for a specific product, so the tier
+// dropdown can show "last used" -- reps don't have to remember or hunt down which tier/price
+// they used with this account last time.
+function lastOrderLineForAccountProduct(acctId,sku){
+  let best=null;
+  ORDERS.forEach(o=>{
+    if(o.acct!==acctId)return;
+    if(o.status!=='delivered'&&o.status!=='confirmed')return;
+    if(best&&o.date<=best.date)return;
+    const line=(o.items||[]).find(i=>i.sku===sku&&!i._fee);
+    if(line)best={date:o.date,tier:line.tier,rate:itemUnitPrice(line,prodBySku(sku))};
+  });
+  return best;
+}
 // Builds <option> list for a tier <select>: the 5 standard tiers, plus any special/negotiated
 // tiers this product has (already filtered server-side by what the current user is allowed to see).
 function buildTierOptions(p,item,withPricePreview,acctId){
@@ -956,7 +970,25 @@ function buildTierOptions(p,item,withPricePreview,acctId){
   const fixedList=(priceableTiers.length||extraList.length)?priceableTiers:TIERS;
 
   const escText=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const fixedOpts=fixedList.map(t=>{
+
+  // Surface what this account used last time as a convenience shortcut at the very top of the
+  // list, above Frontline -- reps requested this so they don't have to hunt for the right
+  // tier on repeat orders. Shows the price they paid last time for reference, but selecting
+  // it applies today's current price for that tier, not a stale historical one.
+  let lastUsedOpt='';
+  if(acctId){
+    const last=lastOrderLineForAccountProduct(acctId,p.sku);
+    if(last){
+      const isStandard=TIERS.some(t=>t.id===last.tier);
+      const tierLabel=isStandard?(TIERS.find(t=>t.id===last.tier)||{}).name:last.tier;
+      if(tierLabel){
+        const val=isStandard?last.tier:esc(last.tier);
+        lastUsedOpt=`<option value="${val}">\u2605 Last used: ${escText(tierLabel)} ($${(last.rate*p.btl).toFixed(2)}/cs last time)</option>`;
+      }
+    }
+  }
+
+  const fixedOpts=lastUsedOpt+fixedList.map(t=>{
     const note=(p.tierNotes&&p.tierNotes[t.id])?` -- ${escText(p.tierNotes[t.id])}`:'';
     const label=(withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name)+note;
     return `<option value="${t.id}" ${item.tier===t.id?'selected':''}>${label}</option>`;
