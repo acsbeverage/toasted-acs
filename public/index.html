@@ -6677,32 +6677,6 @@ function renderImport(){
 }
 
 // Reads a File (csv/xlsx) and resolves to an array-of-arrays (first row = headers)
-// Proper RFC4180 CSV parser: handles quoted fields containing commas, embedded newlines, and
-// escaped quotes ("" -> "). The previous version did a naive line.split(',') which silently
-// shredded any cell containing a comma (e.g. "Delivery Hours: Thursdays, 10am to 2pm"),
-// spilling the tail of that value into the next column.
-function _parseCSV(text){
-  const rows=[];let row=[];let field='';let inQuotes=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(inQuotes){
-      if(c==='"'){
-        if(text[i+1]==='"'){field+='"';i++;}
-        else{inQuotes=false;}
-      } else {
-        field+=c;
-      }
-    } else {
-      if(c==='"'){inQuotes=true;}
-      else if(c===','){row.push(field);field='';}
-      else if(c==='\r'){/* skip -- \n (if present) closes the row */}
-      else if(c==='\n'){row.push(field);rows.push(row);row=[];field='';}
-      else{field+=c;}
-    }
-  }
-  if(field.length||row.length){row.push(field);rows.push(row);}
-  return rows.filter(r=>r.some(c=>c!==''));
-}
 function _readImportFile(file){
   return new Promise((resolve,reject)=>{
     const isExcel=/\.xlsx?$/i.test(file.name);
@@ -6720,8 +6694,8 @@ function _readImportFile(file){
       reader.readAsArrayBuffer(file);
     } else {
       reader.onload=e=>{
-        const rows=_parseCSV(e.target.result).map(r=>r.map(c=>c.trim()));
-        resolve(rows);
+        const lines=e.target.result.split('\n').filter(l=>l.trim());
+        resolve(lines.map(l=>l.split(',').map(c=>c.trim())));
       };
       reader.readAsText(file);
     }
@@ -7915,6 +7889,10 @@ function renderReportTab(){
 }
 
 // ── ACS REPORT DEFINITIONS ────────────────────────────────────────────────────
+// Reports that filter by supplier/producer -- shared between the live report page's own
+// filter bar and the schedule modal, so the two can never drift out of sync on which reports
+// actually have a producer concept.
+const PRODUCER_FILTERABLE_REPORTS = ['RA2','RA5','RA6','RA8','RA9','RA10','RA12','RA13','RA14','RA18','RA21','RA22','RA28','RA33','RA34','RA38','RA39','RA41','RA42','RA44','RB1','RB2','RB6','RB7','RB9','RBOUTS','RC12'];
 const REPORT_CATEGORIES = [
   {
     id: 'sales', name: 'Sales & Depletions', icon: 'ti-chart-bar',
@@ -8080,10 +8058,7 @@ function renderReportsList(){
       <span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2)">Fintech</span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
-      <div class="card" style="cursor:pointer;transition:box-shadow 0.15s"
-           onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)'" 
-           onmouseout="this.style.boxShadow=''"
-           onclick="openReport('FINTECH')">
+      <div class="card" style="transition:box-shadow 0.15s">
         <div class="card-body" style="padding:14px 16px">
           <div style="display:flex;align-items:flex-start;gap:10px">
             <div style="width:34px;height:34px;background:rgba(184,135,44,0.12);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -8117,8 +8092,7 @@ function renderReportsList(){
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
         ${filtered.map(r=>`
-        <div class="card" style="cursor:${r.available?'pointer':'default'};opacity:${r.available?1:0.55};transition:box-shadow 0.15s"
-             ${r.available?`onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow=''" onclick="openReport('${r.id}')"`:''}> 
+        <div class="card" style="opacity:${r.available?1:0.55}">
           <div class="card-body" style="padding:14px 16px">
             <div style="display:flex;align-items:flex-start;gap:10px">
               <div style="width:34px;height:34px;background:${r.available?'rgba(184,135,44,0.12)':'var(--bg3)'};border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -8249,7 +8223,7 @@ function renderActiveReport(reportId){
           <input type="date" class="finput" id="rpt-to" value="${window._rptTo||''}" onchange="window._rptTo=this.value;renderActiveReport('${reportId}')" style="width:145px"/>
         </div>
       </div>
-      ${['RA2','RA5','RA6','RA8','RA9','RA10','RA12','RA13','RA14','RA18','RA21','RA22','RA28','RA33','RA34','RA38','RA39','RA41','RA42','RA44','RB1','RB2','RB6','RB7','RB9','RBOUTS','RC12'].includes(reportId)?`
+      ${PRODUCER_FILTERABLE_REPORTS.includes(reportId)?`
       <div>
         <label class="flabel">Supplier / Producer</label>
         <select class="finput" id="rpt-producer" onchange="window._rptProducer=this.value;renderActiveReport('${reportId}')" style="width:200px;padding:7px 9px">
@@ -10514,14 +10488,12 @@ function renderScheduledReports(){
         <div>
           <label class="flabel">Report type</label>
           <select class="finput" id="sched-type" onchange="onSchedTypeChange()">
-            <option value="RA2">RA2 - Invoice Line Item</option>
             <option value="FINTECH">Fintech Report</option>
-            <option value="RA5">RA5 - Depletion by Producer</option>
-            <option value="RA40">RA40 - CRV</option>
-            <option value="RB1">RB1 - Inventory by Supplier</option>
-            <option value="RB2">RB2 - Inventory by Producer</option>
-            <option value="RC12">RC12 - Samples</option>
-            <option value="RI2">RI2 - Open/Past Due</option>
+            ${REPORT_CATEGORIES.map(cat=>{
+              const avail=cat.reports.filter(r=>r.available);
+              if(!avail.length)return'';
+              return `<optgroup label="${cat.name}">${avail.map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}</optgroup>`;
+            }).join('')}
           </select>
         </div>
         <div id="sched-range-wrap">
@@ -10604,14 +10576,14 @@ function renderScheduledReports(){
 }
 
 function renderSchedRows(schedules){
-  const typeLabel={RA2:'RA2 - Invoice Line Item',FINTECH:'Fintech Report',RA5:'RA5 - Depletion by Producer',RA40:'RA40 - CRV',RB1:'RB1 - Inventory by Supplier',RB2:'RB2 - Inventory by Producer',RC12:'RC12 - Samples',RI2:'RI2 - Open/Past Due'};
-  const typeIcon={RA2:'ti-file-invoice',FINTECH:'ti-credit-card',RA5:'ti-chart-bar',RA40:'ti-recycle',RB1:'ti-bottle',RB2:'ti-bottle',RC12:'ti-flask',RI2:'ti-clock-dollar'};
+  const typeLabel={RA2:'RA2 - Invoice Line Item',FINTECH:'Fintech Report',RA5:'RA5 - Depletion by Producer',RA6:'RA6 - Depletion by Supplier',RA40:'RA40 - CRV',RB1:'RB1 - Inventory by Supplier',RB2:'RB2 - Inventory by Producer',RC12:'RC12 - Samples',RI2:'RI2 - Open/Past Due'};
+  const typeIcon={RA2:'ti-file-invoice',FINTECH:'ti-credit-card',RA5:'ti-chart-bar',RA6:'ti-building-store',RA40:'ti-recycle',RB1:'ti-bottle',RB2:'ti-bottle',RC12:'ti-flask',RI2:'ti-clock-dollar'};
   return`<thead><tr>
     <th>Schedule name</th><th>Type</th><th>Frequency</th><th>Date range</th><th>Recipients</th><th>Next send</th><th>Last sent</th><th></th>
   </tr></thead><tbody>`+
   schedules.map(s=>`<tr>
     <td><div style="font-weight:600">${s.name}</div></td>
-    <td><span class="badge ${['RA5','RB1','RB2'].includes(s.type)?'badge-spirits':'badge-wine'}"><i class="ti ${typeIcon[s.type]||'ti-file'}" style="font-size:11px;margin-right:3px"></i>${typeLabel[s.type]||s.type}</span></td>
+    <td><span class="badge ${['RA5','RA6','RB1','RB2'].includes(s.type)?'badge-spirits':'badge-wine'}"><i class="ti ${typeIcon[s.type]||'ti-file'}" style="font-size:11px;margin-right:3px"></i>${typeLabel[s.type]||s.type}</span></td>
     <td style="font-size:12px;color:var(--text2)">${freqLabel(s)}</td>
     <td style="font-size:12px;color:var(--text2)">${['RB1','RB2'].includes(s.type)?'Current snapshot':(s.dateRange==='custom'?(s.customFrom||'?')+' -> '+(s.customTo||'?'):dateRangeLabel(s.dateRange))}</td>
     <td>
@@ -10678,7 +10650,7 @@ function editSchedule(id){openSchedModal(id);}
 function onSchedTypeChange(){
   const t=document.getElementById('sched-type').value;
   const pw=document.getElementById('sched-producers-wrap');
-  if(pw)pw.style.display=['RA5','RB1','RB2'].includes(t)?'':'none';
+  if(pw)pw.style.display=PRODUCER_FILTERABLE_REPORTS.includes(t)?'':'none';
   const isInventory=['RB1','RB2'].includes(t);
   const rw=document.getElementById('sched-range-wrap');
   const rn=document.getElementById('sched-range-inventory-note');
