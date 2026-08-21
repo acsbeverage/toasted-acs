@@ -387,6 +387,7 @@ async function migrate() {
   // Frontline tier shouldn't show up on every other product's Frontline tier) -- unlike the
   // tier label itself, which is intentionally shared/global across the whole catalog.
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS tier_notes JSONB DEFAULT '{}'`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS spirit_type TEXT DEFAULT ''`);
 
   console.log('All tables created successfully');
 }
