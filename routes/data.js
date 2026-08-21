@@ -303,6 +303,7 @@ router.get('/products', requireAuth, async (req, res) => {
         bottleSize: r.bottle_size||'',
         active: r.active||'Yes',
         vintage: r.vintage||'',
+        spiritType: r.spirit_type||'',
       } : {
         redemptionEntry: r.redemption_entry||'',
         bottleSize: r.bottle_size||'',
@@ -312,6 +313,7 @@ router.get('/products', requireAuth, async (req, res) => {
         active: r.active||'Yes',
         core: r.core||'No',
         vintage: r.vintage||'',
+        spiritType: r.spirit_type||'',
       },
       image: r.image_url||'',
       tierNotes: r.tier_notes||{},
@@ -511,7 +513,7 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
       stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
       redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25,
       comm_frontline=$26,comm_mix12=$27,comm_acs3=$28,comm_brand3=$29,comm_brand5=$30,
-      warehouse=COALESCE($31,warehouse), restricted=$32
+      warehouse=COALESCE($31,warehouse), restricted=$32, spirit_type=$33
       WHERE sku=$24`,
       [name,producer,cat,btl,
        prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
@@ -524,7 +526,7 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
        _details?.vintage||'',
        prices?.__comm_frontline ?? null, prices?.__comm_mix12 ?? null,
        prices?.__comm_acs3 ?? null, prices?.__comm_brand3 ?? null, prices?.__comm_brand5 ?? null,
-       warehouse||null, !!restricted]);
+       warehouse||null, !!restricted, _details?.spiritType||'']);
 
     // SKU rename -- product_tier_prices cascades automatically via the foreign key (see
     // migrate.js), but order_items.sku has no formal constraint, so it needs updating by hand
