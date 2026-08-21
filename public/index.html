@@ -12419,9 +12419,17 @@ function renderProductForm(p,isNew){
       <input id="pf-producer" type="text" class="finput" value="${p.producer||''}" placeholder="Producer name" style="margin-bottom:12px"/>
 
       <label class="flabel">Category</label>
-      <select id="pf-cat" class="finput" style="margin-bottom:12px">
+      <select id="pf-cat" class="finput" onchange="toggleSpiritTypeField()" style="margin-bottom:12px">
         ${['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'].map(c=>`<option value="${c}" ${(p.cat||'Spirits')===c?'selected':''}>${c}</option>`).join('')}
       </select>
+
+      <div id="pf-spirittype-wrap" style="display:${(p.cat||'Spirits')==='Spirits'?'block':'none'}">
+        <label class="flabel">Spirit Type</label>
+        <select id="pf-spirittype" class="finput" style="margin-bottom:12px">
+          <option value="">-- None selected --</option>
+          ${['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'].map(s=>`<option value="${s}" ${d.spiritType===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
 
       <label class="flabel">Vintage</label>
       <input id="pf-vintage" type="text" class="finput" value="${d.vintage||''}" placeholder="e.g. 2021" style="margin-bottom:12px"/>
@@ -12514,6 +12522,11 @@ function renderProductForm(p,isNew){
     </div>
   </div>`;
 }
+function toggleSpiritTypeField(){
+  const cat=document.getElementById('pf-cat').value;
+  const wrap=document.getElementById('pf-spirittype-wrap');
+  if(wrap)wrap.style.display=cat==='Spirits'?'block':'none';
+}
 
 function saveProduct(){
   const name=(document.getElementById('pf-name').value||'').trim();
@@ -12549,6 +12562,7 @@ function saveProduct(){
     managerApproval:document.getElementById('pf-managerapproval').checked,
     newVintageInStock:document.getElementById('pf-newvintage').checked,
     samplesAllowed:document.getElementById('pf-samples').checked,
+    spiritType:document.getElementById('pf-spirittype')?.value||'',
   };
 
   if(isNew){
