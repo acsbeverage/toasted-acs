@@ -414,7 +414,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div style="display:flex;align-items:center;gap:12px">
       <div style="color:#aaa;font-size:12px">Customer Portal</div>
     </div>
-    <div onclick="showPortalPage('neworder')" title="Go to Place Order" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;cursor:pointer;user-select:none">Toast<span style="color:#D4967D;font-weight:400;font-style:italic">ed</span></div>
+    <div onclick="showPortalPage('shop')" title="Go to Shop" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;cursor:pointer;user-select:none">Toast<span style="color:#D4967D;font-weight:400;font-style:italic">ed</span></div>
     <div style="display:flex;align-items:center;gap:12px">
       <span id="portal-acct-name" style="color:#ccc;font-size:13px"></span>
       <button onclick="doPortalLogout()" style="background:#333;color:#ccc;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer">Sign out</button>
@@ -426,7 +426,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <button class="portal-nav-btn active" id="pnav-account" onclick="showPortalPage('account')">Account</button>
     <button class="portal-nav-btn" id="pnav-orders" onclick="showPortalPage('orders')">Order History</button>
     <button class="portal-nav-btn" id="pnav-invoices" onclick="showPortalPage('invoices')">Invoices</button>
-    <button class="portal-nav-btn portal-nav-btn-primary" id="pnav-neworder" onclick="showPortalPage('neworder')">Place Order</button>
+    <button class="portal-nav-btn portal-nav-btn-primary" id="pnav-shop" onclick="showPortalPage('shop')">Shop</button>
   </div>
 
   <!-- Portal Content -->
@@ -434,7 +434,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   <div class="qv-bg" id="modal-quickview" onmousedown="if(event.target===this)closeQuickView()">
     <div class="qv-modal" id="qv-body"></div>
   </div>
-  <button id="portal-cart-btn" onclick="document.getElementById('portal-checkout-section').scrollIntoView({behavior:'smooth',block:'start'})" style="display:none;position:fixed;bottom:24px;right:24px;z-index:200;background:#6B2737;color:#fff;border:none;border-radius:30px;padding:13px 22px 13px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(20,10,10,0.3);align-items:center;gap:10px">
+  <button id="portal-cart-btn" onclick="showPortalPage('cart')" style="display:none;position:fixed;bottom:24px;right:24px;z-index:200;background:#6B2737;color:#fff;border:none;border-radius:30px;padding:13px 22px 13px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(20,10,10,0.3);align-items:center;gap:10px">
     <i class="ti ti-shopping-cart" style="font-size:18px"></i>
     <span id="portal-cart-btn-count"></span>
     <span id="portal-cart-btn-total" style="color:#F0D5C8"></span>
@@ -1349,16 +1349,18 @@ async function loadAllDataFromBackend(){
 async function loadPortalData(){
   const headers={'Authorization':'Bearer '+window._authToken};
   try{
-    const [acctsRes,prodsRes,ordersRes,usersRes]=await Promise.all([
+    const [acctsRes,prodsRes,ordersRes,usersRes,tierCfgRes]=await Promise.all([
       fetch(TOASTED_BACKEND_URL+'/api/accounts',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/products',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/orders',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/users',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config',{headers}).then(r=>r.json()),
     ]);
     if(acctsRes.ok)ACCOUNTS=acctsRes.accounts;
     if(prodsRes.ok)PRODUCTS=prodsRes.products;
     if(ordersRes.ok)ORDERS=ordersRes.orders;
     if(usersRes.ok)USERS=usersRes.users;
+    if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length)TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));
   }catch(e){
     console.error('Failed to load portal data:',e.message);
     toast('Could not load your account -- please refresh and try again');
@@ -1494,7 +1496,7 @@ async function triggerBackgroundPortalRefresh(page){
     // Also skip if the customer is actively typing somewhere -- don't wipe unsaved input.
     const activeTag=document.activeElement?document.activeElement.tagName:'';
     const isTyping=activeTag==='INPUT'||activeTag==='TEXTAREA'||activeTag==='SELECT';
-    if(page!=='neworder' && !isTyping){
+    if(page!=='shop' && page!=='cart' && !isTyping){
       const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices};
       if(fns[page])fns[page]();
     }
@@ -1504,8 +1506,8 @@ async function triggerBackgroundPortalRefresh(page){
 function showPortalPage(page){
   document.querySelectorAll('.portal-nav-btn').forEach(b=>b.classList.remove('active'));
   const btn=document.getElementById('pnav-'+page);if(btn)btn.classList.add('active');
-  if(page!=='neworder')localStorage.setItem('_toastedPortalPage',page);
-  const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices,neworder:renderPortalNewOrder};
+  if(page!=='shop' && page!=='cart')localStorage.setItem('_toastedPortalPage',page);
+  const fns={account:renderPortalAccount,orders:renderPortalOrders,invoices:renderPortalInvoices,shop:renderPortalShop,cart:renderPortalCart};
   if(fns[page])fns[page]();
   triggerBackgroundPortalRefresh(page);
 }
@@ -1709,9 +1711,14 @@ function portalAddRecentItem(sku){
   toast('Added to your order');
 }
 
-function renderPortalNewOrder(){
+function renderPortalShop(){
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
-  currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
+  // Only start a fresh cart if one doesn't already exist for this account -- otherwise
+  // navigating here from the Cart page (or back again) would silently wipe out whatever the
+  // customer already added. submitPortalOrder() explicitly resets this after a real submit.
+  if(!currentOrder||currentOrder.acct!==acct.id){
+    currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
+  }
   const isMobileView=window.matchMedia('(max-width:768px)').matches;
   const recentItems=isMobileView?portalFrequentItems(acct.id,4):portalRecentItems(acct.id,8);
 
@@ -1739,16 +1746,28 @@ function renderPortalNewOrder(){
     <div class="portal-card">
       <div class="portal-card-title">Shop products</div>
       <div class="shop-cat-row" id="shop-cat-row">
-        ${['All','Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'].map(c=>`<button class="shop-cat-pill${c==='All'?' active':''}" data-cat="${c==='All'?'':c}" onclick="filterShopGrid(this)">${c}</button>`).join('')}
+        <button class="shop-cat-pill${_shopActiveCat?'':' active'}" data-cat="" onclick="filterShopGrid(this)">All</button>
+        ${getShopRowKeys(mainInventory()).map(k=>`<button class="shop-cat-pill${_shopActiveCat===k?' active':''}" data-cat="${k}" onclick="filterShopGrid(this)">${k}</button>`).join('')}
       </div>
       <div style="margin-bottom:16px">
         <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="shop-search" placeholder="Search products..." oninput="filterShopGrid()"/></div>
       </div>
       <div id="shop-grid-sections"></div>
     </div>
+  `;
+  syncFees();
+  renderLineItems(); // no-ops for the missing line-items table, but still updates the floating cart button
+  filterShopGrid();
+}
 
-    <div class="portal-card" id="portal-checkout-section">
-      <div class="portal-card-title">Place an Order — ${acct.name}</div>
+function renderPortalCart(){
+  const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
+  if(!currentOrder||currentOrder.acct!==acct.id){
+    currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
+  }
+  document.getElementById('portal-content').innerHTML=`
+    <div class="portal-card">
+      <div class="portal-card-title">Your Order — ${acct.name}</div>
 
       <div style="background:#FFF8E8;border:1px solid #F0D080;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#7a5800;display:flex;align-items:center;gap:8px">
         <i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i>
@@ -1757,17 +1776,21 @@ function renderPortalNewOrder(){
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
         <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Requested delivery date</label>
-          <input type="date" class="finput" id="pcust-del" value="${nextValidDeliveryDate(today())}" onchange="currentOrder.delivery=this.value" style="width:100%"/>
+          <input type="date" class="finput" id="pcust-del" value="${currentOrder.delivery||nextValidDeliveryDate(today())}" onchange="currentOrder.delivery=this.value" style="width:100%"/>
         </div>
         <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">PO number (optional)</label>
-          <input type="text" class="finput" id="pcust-po" placeholder="PO-1234" onchange="currentOrder.po=this.value" style="width:100%"/>
+          <input type="text" class="finput" id="pcust-po" placeholder="PO-1234" value="${(currentOrder.po||'').replace(/"/g,'&quot;')}" onchange="currentOrder.po=this.value" style="width:100%"/>
         </div>
       </div>
 
       <div id="line-items-wrap" style="margin-bottom:16px"></div>
 
+      <div style="margin-bottom:16px">
+        <button onclick="showPortalPage('shop')" style="background:none;border:1px solid #ddd;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:#555"><i class="ti ti-arrow-left" style="vertical-align:-2px"></i> Continue shopping</button>
+      </div>
+
       <div><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Delivery Instructions</label>
-        <textarea class="finput" id="o-delivery-instructions" rows="2" placeholder="Special requests, gate codes, preferred delivery window..." onchange="currentOrder.notes=this.value" style="width:100%;resize:vertical">${(acct.deliveryNotes||'').replace(/</g,'&lt;')}</textarea>
+        <textarea class="finput" id="o-delivery-instructions" rows="2" placeholder="Special requests, gate codes, preferred delivery window..." onchange="currentOrder.notes=this.value" style="width:100%;resize:vertical">${(currentOrder.notes||'').replace(/</g,'&lt;')}</textarea>
       </div>
     </div>
 
@@ -1790,7 +1813,6 @@ function renderPortalNewOrder(){
   syncFees();
   renderLineItems();
   updatePortalMinimumStatus();
-  filterShopGrid();
 }
 
 function updatePortalMinimumStatus(){
@@ -1826,6 +1848,7 @@ function updatePortalMinimumStatus(){
 }
 
 const SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+const SPIRIT_TYPES=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
 const SHOP_SECTION_CAP=8;
 let _shopActiveCat='';
 function shopCardHtml(p){
@@ -1842,6 +1865,22 @@ function shopCardHtml(p){
     </div>
   </div>`;
 }
+// A "row key" is either one of the 11 spirit sub-types, 'Other Spirits' (a Spirits product
+// with no sub-type set), or a plain main category name (Wine, Beer & RTD, etc). This keeps
+// one single concept for both the default row-based browse view and the filtered flat view,
+// rather than two separate, potentially-diverging category systems.
+function productMatchesRowKey(p,key){
+  if(SPIRIT_TYPES.includes(key))return p.cat==='Spirits'&&(p._details?.spiritType||'')===key;
+  if(key==='Other Spirits')return p.cat==='Spirits'&&!(p._details?.spiritType);
+  return p.cat===key;
+}
+function getShopRowKeys(all){
+  const keys=[];
+  SPIRIT_TYPES.forEach(st=>{ if(all.some(p=>productMatchesRowKey(p,st))) keys.push(st); });
+  if(all.some(p=>productMatchesRowKey(p,'Other Spirits'))) keys.push('Other Spirits');
+  SHOP_CATEGORIES.filter(c=>c!=='Spirits').forEach(cat=>{ if(all.some(p=>productMatchesRowKey(p,cat))) keys.push(cat); });
+  return keys;
+}
 function filterShopGrid(pillEl){
   if(pillEl){
     document.querySelectorAll('.shop-cat-pill').forEach(b=>b.classList.remove('active'));
@@ -1853,16 +1892,17 @@ function filterShopGrid(pillEl){
   const all=mainInventory();
   const matchesQ=p=>!q||p.name.toLowerCase().includes(q)||(p.producer||'').toLowerCase().includes(q)||p.sku.toLowerCase().includes(q);
 
-  // Browsing with no category or search active -- show organized sections by department,
-  // each capped with a "View all" link, rather than one undifferentiated wall of products.
+  // Browsing with no filter or search active -- one row per spirit sub-type, then one row
+  // per other main category, each capped with a "See more" link.
   if(!_shopActiveCat&&!q){
-    const sections=SHOP_CATEGORIES.map(cat=>{
-      const prods=all.filter(p=>p.cat===cat).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    const rowKeys=getShopRowKeys(all);
+    const sections=rowKeys.map(key=>{
+      const prods=all.filter(p=>productMatchesRowKey(p,key)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
       if(!prods.length)return'';
       return`<div style="margin-bottom:26px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
-          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:#221d18">${cat}</div>
-          ${prods.length>SHOP_SECTION_CAP?`<button onclick="filterShopGrid(document.querySelector('.shop-cat-pill[data-cat=\\'${cat.replace(/'/g,"\\\\'")}\\']'))" style="background:none;border:none;color:#D4967D;font-size:12px;font-weight:600;cursor:pointer">View all ${prods.length} &rarr;</button>`:''}
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:#221d18">${key}</div>
+          ${prods.length>SHOP_SECTION_CAP?`<button onclick="filterShopGrid(document.querySelector('.shop-cat-pill[data-cat=\\'${key.replace(/'/g,"\\\\'")}\\']'))" style="background:none;border:none;color:#D4967D;font-size:12px;font-weight:600;cursor:pointer">See more (${prods.length}) &rarr;</button>`:''}
         </div>
         <div class="shop-grid">${prods.slice(0,SHOP_SECTION_CAP).map(shopCardHtml).join('')}</div>
       </div>`;
@@ -1871,8 +1911,8 @@ function filterShopGrid(pillEl){
     return;
   }
 
-  // A category or search is active -- show one flat, complete grid of matches
-  const prods=all.filter(p=>(!_shopActiveCat||p.cat===_shopActiveCat)&&matchesQ(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  // A row filter or search is active -- show one flat, complete grid of matches
+  const prods=all.filter(p=>(!_shopActiveCat||productMatchesRowKey(p,_shopActiveCat))&&matchesQ(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   wrap.innerHTML=prods.length
     ? `<div class="shop-grid">${prods.map(shopCardHtml).join('')}</div>`
     : '<div style="text-align:center;padding:36px;color:#aaa;font-size:13px">No products match -- try a different search or category</div>';
@@ -1897,6 +1937,13 @@ function openQuickView(sku){
   window._qvSku=sku;
   const price=itemPrice(p,'frontline');
   const existing=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
+  const tierRows=TIERS.filter(t=>itemPrice(p,t.id)>0).map(t=>{
+    const tp=itemPrice(p,t.id);
+    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0ebe4;font-size:12px">
+      <span style="color:#665">${t.name}</span>
+      <span style="font-weight:700;color:#221d18">${fmt(tp*p.btl)}/cs <span style="font-weight:400;color:#999">(${fmt(tp)}/btl)</span></span>
+    </div>`;
+  }).join('');
   document.getElementById('qv-body').innerHTML=`
     <button class="qv-close" onclick="closeQuickView()"><i class="ti ti-x"></i></button>
     <div class="qv-img-wrap">${p.image?`<img src="${p.image}" alt="${p.name}"/>`:`<i class="ti ti-bottle"></i>`}</div>
@@ -1925,6 +1972,10 @@ function openQuickView(sku){
       <div class="qv-price-row">
         <strong>${price>0?fmt(price*p.btl):'--'}</strong> per case &middot; <strong>${price>0?fmt(price):'--'}</strong> per unit
       </div>
+      ${tierRows?`<div style="margin:12px 0">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#999;margin-bottom:4px">Pricing tiers</div>
+        ${tierRows}
+      </div>`:''}
       <button class="qv-add-btn" onclick="addToCartFromQuickView()"><i class="ti ti-shopping-cart-plus"></i> Add to Order</button>
     </div>`;
   document.getElementById('modal-quickview').classList.add('open');
@@ -1991,6 +2042,7 @@ function submitPortalOrder(){
     }
     const finalId=res.id||id;
     ORDERS.push({...newOrder,id:finalId});
+    currentOrder={acct:newOrder.acct,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
     // Success screen
     document.getElementById('portal-content').innerHTML=`
       <div class="portal-card" style="text-align:center;padding:48px 24px">
@@ -2950,10 +3002,11 @@ function updatePortalCartButton(){
   btn.style.display='inline-flex';
 }
 function renderLineItems(){
+  updatePortalCartButton(); // update regardless of whether the line-items table itself exists on this page
   const wrap=document.getElementById('line-items-wrap');if(!wrap)return;
   const prodItems=currentOrder.items.filter(x=>!x._fee);
   const cnt=document.getElementById('item-count');if(cnt)cnt.textContent=prodItems.length+' item'+(prodItems.length!==1?'s':'');
-  if(!prodItems.length&&!currentOrder.items.find(x=>x._fee)){wrap.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div>';renderTotals();updatePortalCartButton();return}
+  if(!prodItems.length&&!currentOrder.items.find(x=>x._fee)){wrap.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div>';renderTotals();return}
   const isAdmin=currentUser&&currentUser.role==='admin';
 
   // -- DESKTOP TABLE VIEW --------------------------------------------------
