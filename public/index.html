@@ -2815,7 +2815,7 @@ function selectOrderAcct(id){
 function onProdSearch(val){
   const dd=document.getElementById('prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
+  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addLineItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -3435,7 +3435,7 @@ function selectTastingAcct(id){
 function onTastingProdSearch(val){
   const dd=document.getElementById('ts-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
+  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addTastingItem('${p.sku.replace(/'/g,"\\'")}')">
@@ -4516,7 +4516,7 @@ function openEditOrder(orderId){
 function onEditSearch(val){
   const dd=document.getElementById('edit-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,8);
+  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`<div class="dd-item" onmousedown="addEditItem('${p.sku.replace(/'/g,"\\'")}')"><div><div class="dd-name">${p.name}</div><div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div><div style="margin-top:2px">${stockChip(p)}</div></div></div>`).join('');
   dd.classList.add('open');
@@ -11589,7 +11589,7 @@ function openClonePricingSearch(sku){
 function onClonePriceSearch(targetSku,val){
   const dd=document.getElementById('clone-price-dd');if(!dd)return;
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=PRODUCTS.filter(p=>p.sku!==targetSku&&matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,10);
+  const matches=PRODUCTS.filter(p=>p.sku!==targetSku&&matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>{
     const flPrice=p.prices.frontline||0;
