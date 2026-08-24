@@ -8,7 +8,19 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
 const FROM_NAME = process.env.FROM_NAME || 'Toasted -- ACS Beverage Co.';
 
 // ─── DATE RANGE HELPERS ───────────────────────────────────────────────────
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+// Render's servers run in UTC, but the business operates in Pacific time -- all scheduling
+// day/time math needs to happen in Pacific time, not the server's raw UTC clock. Otherwise a
+// schedule due at, say, 6pm Pacific already looks like the next calendar day from the
+// server's UTC perspective (UTC is 7-8 hours ahead), causing it to fire a day early.
+function nowPacific() {
+  const pacificStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+  return new Date(pacificStr);
+}
+function dateOnlyStr(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function todayStr() { return dateOnlyStr(nowPacific()); }
 function plusDays(dateStr, n) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + n);
@@ -32,24 +44,30 @@ function resolveDateRange(sched) {
     default: return { from: plusDays(today, -30), to: today };
   }
 }
-// Next send date after "today" matching the schedule's frequency/day settings -- mirrors the
-// frontend's calcNextSend so schedules created or edited from either side stay consistent.
-function calcNextSend(freq, dayOfWeek, dayOfMonth, time) {
-  const now = new Date();
+// Next send date matching the schedule's frequency/day settings, computed in Pacific time.
+// When afterSend is true (called right after a successful send), the result is guaranteed to
+// be strictly after today -- never today again -- regardless of how the exact configured
+// send time compares to the actual moment we sent at. This is what actually stops a schedule
+// from re-firing on every subsequent hourly check: previously, if the real send happened
+// earlier in the day than the configured time (which the timezone bug above caused), the
+// plain "next <= now" comparison could fail to advance to the following week at all.
+function calcNextSend(freq, dayOfWeek, dayOfMonth, time, afterSend) {
+  const now = nowPacific();
   const [hh, mm] = (time || '08:00').split(':').map(Number);
   let next = new Date(now);
   if (freq === 'monthly') {
     next.setDate(dayOfMonth || 1);
     next.setHours(hh || 8, mm || 0, 0, 0);
-    if (next <= now) next.setMonth(next.getMonth() + 1);
+    const landsToday = afterSend && dateOnlyStr(next) === dateOnlyStr(now);
+    if (next <= now || landsToday) next.setMonth(next.getMonth() + 1);
   } else {
     const targetDow = dayOfWeek ?? 1;
     next.setHours(hh || 8, mm || 0, 0, 0);
     let daysUntil = (targetDow - next.getDay() + 7) % 7;
-    if (daysUntil === 0 && next <= now) daysUntil = freq === 'biweekly' ? 14 : 7;
+    if (daysUntil === 0 && (next <= now || afterSend)) daysUntil = freq === 'biweekly' ? 14 : 7;
     next.setDate(next.getDate() + daysUntil);
   }
-  return next.toISOString().slice(0, 10);
+  return dateOnlyStr(next);
 }
 
 // ─── REPORT DATA GENERATION (server-side, direct from the database) ──────
@@ -307,7 +325,7 @@ router.post('/:id/run', requireAdmin, async (req, res) => {
     const sched = mapRow(row);
     const result = await sendScheduleNow(sched);
     if (!result.ok) return res.status(400).json(result);
-    const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, sched.time);
+    const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, sched.time, true);
     await query('UPDATE report_schedules SET last_sent=$1, next_send=$2 WHERE id=$3', [todayStr(), nextSend, req.params.id]);
     res.json({ ok: true, ...result });
   } catch (err) {
@@ -323,11 +341,17 @@ async function runDueSchedules() {
       `SELECT * FROM report_schedules WHERE active=TRUE AND next_send <= $1`,
       [todayStr()]
     );
+    const nowHour = nowPacific().getHours();
     for (const row of due) {
       const sched = mapRow(row);
+      // next_send is date-only, so a schedule due today would otherwise fire at whatever
+      // hour first happens to catch it after midnight, not the hour the user configured.
+      // Only send once we've actually reached that hour.
+      const [schedHour] = (sched.time || '08:00').split(':').map(Number);
+      if (nowHour < schedHour) continue;
       try {
         const result = await sendScheduleNow(sched);
-        const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, sched.time);
+        const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, sched.time, true);
         if (result.ok) {
           await query('UPDATE report_schedules SET last_sent=$1, next_send=$2 WHERE id=$3', [todayStr(), nextSend, sched.id]);
           console.log(`Scheduled report sent: ${sched.name} (${sched.type}) -- ${result.recipientCount} recipient(s)`);
