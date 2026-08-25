@@ -814,8 +814,8 @@ function prodBySku(sku){
 
 let DRAFT_ORDERS=[];
 let TASTINGS=[];
-let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[];
-let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false;
+let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[],PO_SUPPLIER_CONTACTS=[];
+let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false,_poDetailSupplierId=null;
 // SHARED_DOCS declared at top
 // -- CONFIG & STATIC DATA ------------------------------------------------------
 let COMPANY={name:'ACS Beverage Co. LLC',address:'6680 Alhambra Ave. #505, Martinez, CA 94553',phone:'',email:'accounting@acsbeverage.com',license:'CA-DIS-00421',website:'acsbeverageco.com'};
@@ -3928,25 +3928,63 @@ function renderPOSuppliers(){
     <div class="card-header"><span class="card-title">${PO_SUPPLIERS.length} suppliers</span><button class="btn btn-sm btn-success" onclick="openPOSupplierForm()"><i class="ti ti-plus"></i> Add Supplier</button></div>
     <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Name</th><th>Terms</th><th>Contact</th><th></th></tr></thead><tbody>
     ${PO_SUPPLIERS.map(s=>`<tr>
-      <td style="font-weight:600;cursor:pointer" onclick="managePOProducts(${s.id})">${s.name}</td>
+      <td style="font-weight:600;cursor:pointer" onclick="openPOSupplierDetail(${s.id})">${s.name}</td>
       <td><span class="tier-pill" style="font-size:11px">${s.paymentTerms}</span></td>
-      <td style="font-size:12px;color:var(--text2)">${s.contactEmail||'--'}</td>
+      <td style="font-size:12px;color:var(--text2)">${s.contactEmail||'--'}${s.contactCount>1?` <span class="tier-pill" style="font-size:10px">+${s.contactCount-1} more</span>`:''}</td>
       <td style="white-space:nowrap;display:flex;gap:6px">
-        <button class="btn btn-sm" onclick="managePOProducts(${s.id})"><i class="ti ti-bottle"></i> Products</button>
-        <button class="btn btn-sm btn-warning" onclick="openPOSupplierForm(${s.id})"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-sm" onclick="openPOSupplierDetail(${s.id})"><i class="ti ti-bottle"></i> Products</button>
+        <button class="btn btn-sm btn-warning" onclick="openPOSupplierDetail(${s.id})"><i class="ti ti-edit"></i></button>
         <button class="btn-delete-item" onclick="deletePOSupplier(${s.id})"><i class="ti ti-trash"></i></button>
       </td>
     </tr>`).join('')||'<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--text3)">No suppliers yet</td></tr>'}
     </tbody></table></div>
-  </div>
-  <div id="po-products-mgmt"></div>`;
+  </div>`;
 }
-async function managePOProducts(supplierId){
-  await loadPOProducts(supplierId);
-  const supplier=PO_SUPPLIERS.find(s=>s.id===supplierId);if(!supplier)return;
-  const wrap=document.getElementById('po-products-mgmt');
-  wrap.innerHTML=`<div class="card">
-    <div class="card-header"><span class="card-title">${supplier.name} -- ${PO_PRODUCTS.length} products</span><button class="btn btn-sm btn-success" onclick="openPOProductForm(${supplierId})"><i class="ti ti-plus"></i> Add Product</button></div>
+
+// -- Dedicated Supplier Detail page (contacts + products) ---------------------
+async function openPOSupplierDetail(supplierId){
+  _poDetailSupplierId=supplierId;
+  await renderPOSupplierDetail();
+}
+async function renderPOSupplierDetail(){
+  const supplier=PO_SUPPLIERS.find(s=>s.id===_poDetailSupplierId);if(!supplier)return;
+  const wrap=document.getElementById('po-subview-body');if(!wrap)return;
+  wrap.innerHTML=`<div style="padding:60px;text-align:center;color:var(--text3)">Loading...</div>`;
+  await Promise.all([loadPOProducts(_poDetailSupplierId),loadPOSupplierContacts(_poDetailSupplierId)]);
+  renderPOSupplierDetailBody();
+}
+function renderPOSupplierDetailBody(){
+  const supplier=PO_SUPPLIERS.find(s=>s.id===_poDetailSupplierId);if(!supplier)return;
+  const wrap=document.getElementById('po-subview-body');if(!wrap)return;
+  wrap.innerHTML=`
+  <button class="btn btn-sm" onclick="_poDetailSupplierId=null;_poSubview='suppliers';renderPOSuppliers()" style="margin-bottom:14px"><i class="ti ti-arrow-left"></i> Back to Suppliers</button>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-header"><span class="card-title">${supplier.name}</span><button class="btn btn-sm btn-warning" onclick="openPOSupplierForm(${supplier.id})"><i class="ti ti-edit"></i> Edit Supplier</button></div>
+    <div style="padding:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;font-size:13px">
+      <div><div style="color:var(--text3);font-size:11px;text-transform:uppercase;margin-bottom:2px">Payment Terms</div>${supplier.paymentTerms}</div>
+      <div style="grid-column:span 2"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;margin-bottom:2px">Address</div>${supplier.address||'--'}</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-header"><span class="card-title">${PO_SUPPLIER_CONTACTS.length} contact${PO_SUPPLIER_CONTACTS.length!==1?'s':''}</span><button class="btn btn-sm btn-success" onclick="openContactForm(${supplier.id})"><i class="ti ti-plus"></i> Add Contact</button></div>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th></th></tr></thead><tbody>
+    ${PO_SUPPLIER_CONTACTS.map(c=>`<tr>
+      <td style="font-weight:500">${c.name||'--'}${c.isPrimary?' <span class="tier-pill" style="font-size:10px;background:#FFF3D6;color:#8A6100">\u2605 Primary</span>':''}</td>
+      <td style="font-size:12px;color:var(--text2)">${c.role||'--'}</td>
+      <td style="font-size:12px;color:var(--text2)">${c.email||'--'}</td>
+      <td style="font-size:12px;color:var(--text2)">${c.phone||'--'}</td>
+      <td style="white-space:nowrap;display:flex;gap:6px">
+        <button class="btn btn-sm btn-warning" onclick='openContactForm(${supplier.id},${c.id})'><i class="ti ti-edit"></i></button>
+        <button class="btn-delete-item" onclick="deletePOContact(${c.id})"><i class="ti ti-trash"></i></button>
+      </td>
+    </tr>`).join('')||'<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text3)">No contacts yet</td></tr>'}
+    </tbody></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">${PO_PRODUCTS.length} products</span><button class="btn btn-sm btn-success" onclick="openPOProductForm(${supplier.id})"><i class="ti ti-plus"></i> Add Product</button></div>
     <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Description</th><th>Type/Size</th><th>Pack</th><th style="text-align:right">Case $</th><th style="text-align:right">Btl $</th><th></th></tr></thead><tbody>
     ${PO_PRODUCTS.map(p=>`<tr>
       <td style="font-weight:500">${p.description}</td>
@@ -3955,15 +3993,15 @@ async function managePOProducts(supplierId){
       <td style="text-align:right">${p.casePrice===0?'<span style="color:var(--red);font-weight:600">N/C</span>':fmt(p.casePrice)}</td>
       <td style="text-align:right;color:var(--text2)">${p.bottlePrice===0?'<span style="color:var(--red)">N/C</span>':fmt(p.bottlePrice)}</td>
       <td style="white-space:nowrap;display:flex;gap:6px">
-        <button class="btn btn-sm btn-warning" onclick='openPOProductForm(${supplierId},${p.id})'><i class="ti ti-edit"></i></button>
-        <button class="btn-delete-item" onclick="deletePOProduct(${p.id},${supplierId})"><i class="ti ti-trash"></i></button>
+        <button class="btn btn-sm btn-warning" onclick='openPOProductForm(${supplier.id},${p.id})'><i class="ti ti-edit"></i></button>
+        <button class="btn-delete-item" onclick="deletePOProduct(${p.id},${supplier.id})"><i class="ti ti-trash"></i></button>
       </td>
     </tr>`).join('')||'<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text3)">No products yet</td></tr>'}
     </tbody></table></div>
   </div>`;
 }
 
-function closePOModal(){const a=document.getElementById('po-supplier-modal-bg');if(a)a.remove();const b=document.getElementById('po-product-modal-bg');if(b)b.remove();}
+function closePOModal(){const a=document.getElementById('po-supplier-modal-bg');if(a)a.remove();const b=document.getElementById('po-product-modal-bg');if(b)b.remove();const c=document.getElementById('po-contact-modal-bg');if(c)c.remove();}
 
 function openPOSupplierForm(id){
   const s=id?PO_SUPPLIERS.find(x=>x.id===id):null;
@@ -3972,10 +4010,8 @@ function openPOSupplierForm(id){
       <div class="modal-title">${s?'Edit':'Add'} Supplier</div>
       <label class="flabel">Supplier Name *</label><input class="finput" id="pos-name" value="${s?s.name.replace(/"/g,'&quot;'):''}" style="margin-bottom:12px"/>
       <label class="flabel">Payment Terms</label><select class="finput" id="pos-terms" style="margin-bottom:12px">${['Net 30','Net 45','Net 60'].map(t=>`<option ${s&&s.paymentTerms===t?'selected':''}>${t}</option>`).join('')}</select>
-      <label class="flabel">Contact Name</label><input class="finput" id="pos-cname" value="${s?(s.contactName||'').replace(/"/g,'&quot;'):''}" style="margin-bottom:12px"/>
-      <label class="flabel">Contact Email</label><input class="finput" id="pos-cemail" value="${s?(s.contactEmail||''):''}" style="margin-bottom:12px"/>
-      <label class="flabel">Contact Phone</label><input class="finput" id="pos-cphone" value="${s?(s.contactPhone||''):''}" style="margin-bottom:12px"/>
-      <label class="flabel">Address</label><input class="finput" id="pos-address" value="${s?(s.address||'').replace(/"/g,'&quot;'):''}"/>
+      <label class="flabel">Address</label><input class="finput" id="pos-address" value="${s?(s.address||'').replace(/"/g,'&quot;'):''}" style="margin-bottom:12px"/>
+      ${!s?'<div style="font-size:11px;color:var(--text3)">Contacts and products can be added once the supplier is created.</div>':''}
       <div class="modal-footer"><button class="btn" onclick="closePOModal()">Cancel</button><button class="btn btn-dark" onclick="savePOSupplier(${id||'null'})">Save</button></div>
     </div>
   </div>`;
@@ -3985,9 +4021,6 @@ async function savePOSupplier(id){
   const payload={
     name:document.getElementById('pos-name').value.trim(),
     paymentTerms:document.getElementById('pos-terms').value,
-    contactName:document.getElementById('pos-cname').value.trim(),
-    contactEmail:document.getElementById('pos-cemail').value.trim(),
-    contactPhone:document.getElementById('pos-cphone').value.trim(),
     address:document.getElementById('pos-address').value.trim()
   };
   if(!payload.name){toast('Supplier name required');return}
@@ -3998,14 +4031,15 @@ async function savePOSupplier(id){
     toast('Supplier saved');
     closePOModal();
     await loadPOData(true);
-    renderPOSuppliers();
+    if(_poDetailSupplierId)renderPOSupplierDetailBody();else renderPOSuppliers();
   }catch(e){toast('Failed to save -- check connection');}
 }
 async function deletePOSupplier(id){
-  if(!confirm('Delete this supplier? Its products will also be removed.'))return;
+  if(!confirm('Delete this supplier? Its products and contacts will also be removed.'))return;
   try{
     await fetch(TOASTED_BACKEND_URL+'/api/po/suppliers/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
     toast('Supplier deleted');
+    _poDetailSupplierId=null;
     await loadPOData(true);
     renderPOSuppliers();
   }catch(e){toast('Failed to delete');}
@@ -4060,7 +4094,8 @@ async function savePOProduct(supplierId,id){
     if(!res.ok){toast(res.error||'Failed to save product');return}
     toast('Product saved');
     closePOModal();
-    await managePOProducts(supplierId);
+    await loadPOProducts(supplierId);
+    renderPOSupplierDetailBody();
   }catch(e){toast('Failed to save -- check connection');}
 }
 async function deletePOProduct(id,supplierId){
@@ -4068,7 +4103,64 @@ async function deletePOProduct(id,supplierId){
   try{
     await fetch(TOASTED_BACKEND_URL+'/api/po/products/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
     toast('Product removed');
-    await managePOProducts(supplierId);
+    await loadPOProducts(supplierId);
+    renderPOSupplierDetailBody();
+  }catch(e){toast('Failed to delete');}
+}
+
+// -- Supplier contacts ---------------------------------------------------------
+async function loadPOSupplierContacts(supplierId){
+  const headers={'Authorization':'Bearer '+window._authToken};
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/suppliers/'+supplierId+'/contacts',{headers}).then(r=>r.json());
+    if(res.ok) PO_SUPPLIER_CONTACTS=res.contacts;
+  }catch(e){console.error('Failed to load supplier contacts:',e.message);}
+}
+function openContactForm(supplierId,id){
+  const c=id?PO_SUPPLIER_CONTACTS.find(x=>x.id===id):null;
+  const html=`<div class="modal-bg open" id="po-contact-modal-bg" style="display:flex">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-title">${c?'Edit':'Add'} Contact</div>
+      <label class="flabel">Name</label><input class="finput" id="poc-name" value="${c?(c.name||'').replace(/"/g,'&quot;'):''}" style="margin-bottom:12px"/>
+      <label class="flabel">Role / Title</label><input class="finput" id="poc-role" value="${c?(c.role||'').replace(/"/g,'&quot;'):''}" placeholder="e.g. Sales Rep, Accounting" style="margin-bottom:12px"/>
+      <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:12px">
+        <div><label class="flabel">Email</label><input class="finput" id="poc-email" value="${c?(c.email||''):''}"/></div>
+        <div><label class="flabel">Phone</label><input class="finput" id="poc-phone" value="${c?(c.phone||''):''}"/></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="poc-primary" ${c&&c.isPrimary?'checked':''} style="width:16px;height:16px"/><label for="poc-primary" style="font-size:13px;cursor:pointer">Primary contact</label></div>
+      <div class="modal-footer"><button class="btn" onclick="document.getElementById('po-contact-modal-bg').remove()">Cancel</button><button class="btn btn-dark" onclick="saveContact(${supplierId},${id||'null'})">Save</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+async function saveContact(supplierId,id){
+  const payload={
+    name:document.getElementById('poc-name').value.trim(),
+    role:document.getElementById('poc-role').value.trim(),
+    email:document.getElementById('poc-email').value.trim(),
+    phone:document.getElementById('poc-phone').value.trim(),
+    isPrimary:document.getElementById('poc-primary').checked
+  };
+  if(!payload.name&&!payload.email&&!payload.phone){toast('At least a name, email, or phone is required');return}
+  try{
+    const url=TOASTED_BACKEND_URL+'/api/po/'+(id?'supplier-contacts/'+id:'suppliers/'+supplierId+'/contacts');
+    const res=await fetch(url,{method:id?'PATCH':'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to save contact');return}
+    toast('Contact saved');
+    document.getElementById('po-contact-modal-bg').remove();
+    await loadPOData(true); // refreshes the supplier list's primary-contact display too
+    await loadPOSupplierContacts(supplierId);
+    renderPOSupplierDetailBody();
+  }catch(e){toast('Failed to save -- check connection');}
+}
+async function deletePOContact(id){
+  if(!confirm('Remove this contact?'))return;
+  try{
+    await fetch(TOASTED_BACKEND_URL+'/api/po/supplier-contacts/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
+    toast('Contact removed');
+    await loadPOData(true);
+    await loadPOSupplierContacts(_poDetailSupplierId);
+    renderPOSupplierDetailBody();
   }catch(e){toast('Failed to delete');}
 }
 
