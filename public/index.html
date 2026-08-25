@@ -2071,6 +2071,7 @@ function doLogout(){
   window._authToken=null;
   localStorage.removeItem('_toastedToken');
   localStorage.removeItem('_toastedUser');
+  localStorage.removeItem('_toastedLastPage');
   document.getElementById('view-app').classList.add('hidden');
   document.getElementById('view-login').classList.remove('hidden');
   ['login-email','login-pw'].forEach(id=>document.getElementById(id).value='')
@@ -2121,7 +2122,8 @@ function doLogout(){
     const hashParts=(location.hash||'').replace('#','').split('/');
     const hashPage=hashParts[0];
     const hashDetailId=hashParts[1];
-    const restorePage=RESTORABLE_PAGES.includes(hashPage)?hashPage:'dashboard';
+    const lastPage=localStorage.getItem('_toastedLastPage');
+    const restorePage=RESTORABLE_PAGES.includes(hashPage)?hashPage:(RESTORABLE_PAGES.includes(lastPage)?lastPage:'dashboard');
     loadAllDataFromBackend().then(()=>{
       updateBadges();
       showPage(restorePage,false);
@@ -2388,6 +2390,7 @@ function showPage(page, pushState=true){
   // way it does on any normal website -- one step back to whatever you were just looking at.
   if(pushState){
     history.pushState({page}, '', '#'+page);
+    localStorage.setItem('_toastedLastPage', page);
   }
   _currentPage=page;
   // Leaving Reports for somewhere else -- reset so coming back shows the picker list,
