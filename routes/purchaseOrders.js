@@ -235,7 +235,7 @@ router.get('/orders', requireAdmin, async (req, res) => {
 router.get('/orders/:id', requireAdmin, async (req, res) => {
   try {
     const po = await getOne(`
-      SELECT po.*, s.name as supplier_name, s.contact_email
+      SELECT po.*, s.name as supplier_name, s.address as supplier_address, s.contact_email
       FROM purchase_orders po LEFT JOIN po_suppliers s ON po.supplier_id = s.id
       WHERE po.id=$1`, [req.params.id]);
     if (!po) return res.status(404).json({ ok: false, error: 'PO not found' });
@@ -243,6 +243,7 @@ router.get('/orders/:id', requireAdmin, async (req, res) => {
     res.json({ ok: true, order: {
       id: po.id, poNumber: po.po_number, poDate: po.po_date, paymentTerms: po.payment_terms,
       supplierId: po.supplier_id, supplierName: po.supplier_name || '--',
+      supplierAddress: po.supplier_address || '',
       supplierContactEmail: po.contact_email || '',
       deliveryAddress: po.delivery_address,
       totalBottles: po.total_bottles, totalCases: parseFloat(po.total_cases) || 0,
@@ -259,6 +260,45 @@ router.get('/orders/:id', requireAdmin, async (req, res) => {
     }});
   } catch (err) {
     console.error('Get PO error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.patch('/orders/:id', requireAdmin, async (req, res) => {
+  try {
+    const existing = await getOne('SELECT id FROM purchase_orders WHERE id=$1', [req.params.id]);
+    if (!existing) return res.status(404).json({ ok: false, error: 'PO not found' });
+    const { paymentTerms, deliveryAddress, notes, totalBottles, totalCases, grandTotal, lineItems } = req.body;
+    if (!Array.isArray(lineItems) || !lineItems.length) return res.status(400).json({ ok: false, error: 'At least one line item required' });
+
+    // Editing resets email status to pending -- the previously sent email no longer reflects
+    // this PO's current contents, so "Resend" should read as genuinely not-yet-sent until the
+    // updated version actually goes out.
+    await query(
+      `UPDATE purchase_orders SET payment_terms=$1, delivery_address=$2, notes=$3,
+       total_bottles=$4, total_cases=$5, grand_total=$6, email_status='pending'
+       WHERE id=$7`,
+      [paymentTerms || 'Net 30', deliveryAddress || '', notes || '',
+       totalBottles || 0, totalCases || 0, grandTotal || 0, req.params.id]
+    );
+
+    await query('DELETE FROM po_line_items WHERE po_id=$1', [req.params.id]);
+    for (let i = 0; i < lineItems.length; i++) {
+      const item = lineItems[i];
+      await query(`
+        INSERT INTO po_line_items (po_id,product_id,brand_name,vintage,type,bottle_size,bottles_per_case,
+          description,quantity_bottles,quantity_cases,case_price,bottle_price,line_total,is_no_charge,sort_order)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [req.params.id, item.productId || null, item.brandName || '', item.vintage || null, item.type || 'Spirits',
+         item.bottleSize || '750ml', item.bottlesPerCase || 6, item.description || '',
+         item.quantityBottles || 0, item.quantityCases || 0,
+         item.isNoCharge ? null : (item.casePrice || 0), item.isNoCharge ? null : (item.bottlePrice || 0),
+         item.lineTotal || 0, !!item.isNoCharge, i]);
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Update PO error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
