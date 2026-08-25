@@ -4599,7 +4599,10 @@ async function openSendInvoiceModal(orderId){
     <label class="flabel">Message</label>
     <textarea class="finput" id="send-invoice-body-text" style="min-height:90px;margin-bottom:16px">${defaultBody}</textarea>
 
-    <div class="modal-footer">
+    <div class="modal-footer" style="flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="viewInvoice('${orderId}')"><i class="ti ti-file-text"></i> View Invoice</button>
+      <button class="btn" onclick="downloadInvoice('${orderId}')"><i class="ti ti-printer"></i> Print / Download</button>
+      <div style="flex:1"></div>
       <button class="btn" onclick="skipSendInvoice()">Skip</button>
       <button class="btn btn-dark" id="send-invoice-btn" onclick="confirmSendInvoice('${orderId}')" ${recipients.length?'':'disabled'}><i class="ti ti-send"></i> Confirm &amp; Send</button>
     </div>
