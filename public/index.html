@@ -8421,11 +8421,17 @@ async function renderActiveReport(reportId){
   const to = window._rptTo||'';
   const producer = window._rptProducer||'';
 
+  // Every report in this list receives the same shared `orders` array below -- converting
+  // where that array comes from covers all of them at once, since they're already generic
+  // over whatever orders they're handed. (RC12, RA19, RA20, RA35, RB6 compute their own
+  // orders internally instead of receiving this shared one, so they're handled separately,
+  // further down in their own functions.)
+  const REPORTS_NEEDING_ORDERS=['RA1','RA2','RA5','RA6','RA7','RA8','RA9','RA10','RA11','RA12','RA13','RA14','RA18','RA21','RA22','RA23','RA24','RA26','RA28','RA33','RA34','RA37','RA38','RA39','RA40','RA41','RA42','RA44','RC2','RC5','RC6','RC7','RC10','RF1'];
+
   let orders;
-  if(reportId==='RA5'){
-    // Test case for fetching report data scoped to its own date range, rather than relying
-    // on the bulk-loaded ORDERS array -- every other report below is untouched, still using
-    // the existing bulk data exactly as before.
+  if(REPORTS_NEEDING_ORDERS.includes(reportId)){
+    // Fetch only the orders within this report's own selected date range, rather than
+    // relying on the bulk-loaded ORDERS array (which carries the entire order history).
     el.innerHTML += '<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
     try{
       const params=new URLSearchParams();
@@ -8450,10 +8456,10 @@ async function renderActiveReport(reportId){
   else if(reportId==='RA40') renderRA40(el, orders);
   else if(reportId==='RB1') renderRB1(el, producer);
   else if(reportId==='RB2') renderRB2(el, producer);
-  else if(reportId==='RC12') renderRC12(el, from, to, producer);
-  else if(reportId==='RI2') renderRI2(el);
+  else if(reportId==='RC12') await renderRC12(el, from, to, producer);
+  else if(reportId==='RI2') await renderRI2(el);
   else if(reportId==='RA1') renderRA1(el, orders, producer);
-  else if(reportId==='RA3') renderRA3(el, producer);
+  else if(reportId==='RA3') await renderRA3(el, producer);
   else if(reportId==='RA4') renderRA4(el);
   else if(reportId==='RA6') renderRA6(el, orders, producer);
   else if(reportId==='RA7') renderRA7(el, orders);
@@ -8466,8 +8472,8 @@ async function renderActiveReport(reportId){
   else if(reportId==='RA14') renderRA14(el, orders, producer);
   else if(reportId==='RA15') renderRA15(el, from, to);
   else if(reportId==='RA18') renderRA18(el, orders, producer);
-  else if(reportId==='RA19') renderRA19(el, producer);
-  else if(reportId==='RA20') renderRA20(el, producer);
+  else if(reportId==='RA19') await renderRA19(el, producer);
+  else if(reportId==='RA20') await renderRA20(el, producer);
   else if(reportId==='RA21') renderRA21(el, orders, producer);
   else if(reportId==='RA22') renderRA22(el, orders, producer);
   else if(reportId==='RA23') renderRA23(el, orders, producer);
@@ -8476,14 +8482,14 @@ async function renderActiveReport(reportId){
   else if(reportId==='RA28') renderRA28(el, orders, producer);
   else if(reportId==='RA33') renderRA33(el, orders, producer);
   else if(reportId==='RA34') renderRA34(el, orders, producer);
-  else if(reportId==='RA35') renderRA35(el, producer);
+  else if(reportId==='RA35') await renderRA35(el, producer);
   else if(reportId==='RA37') renderRA37(el, orders);
   else if(reportId==='RA38') renderRA38(el, orders, producer);
   else if(reportId==='RA39') renderRA39(el, orders, producer);
   else if(reportId==='RA41') renderRA41(el, orders, producer);
   else if(reportId==='RA42') renderRA42(el, orders, producer);
   else if(reportId==='RA44') renderRA44(el, orders, producer);
-  else if(reportId==='RB6') renderRB6(el, producer);
+  else if(reportId==='RB6') await renderRB6(el, producer);
   else if(reportId==='RB7') renderRB7(el, producer);
   else if(reportId==='RB9') renderRB9(el, producer);
   else if(reportId==='RBOUTS') renderRBOUTS(el, producer);
@@ -8496,9 +8502,9 @@ async function renderActiveReport(reportId){
   else if(reportId==='RC10') renderRC10(el, orders);
   else if(reportId==='RF1') renderRF1(el, orders);
   else if(reportId==='RH1') renderRH1(el);
-  else if(reportId==='RH2') renderRH2(el);
-  else if(reportId==='RI1') renderRI1(el);
-  else if(reportId==='FINTECH') renderFINTECH(el, from, to);
+  else if(reportId==='RH2') await renderRH2(el);
+  else if(reportId==='RI1') await renderRI1(el);
+  else if(reportId==='FINTECH') await renderFINTECH(el, from, to);
   else {
     el.innerHTML+=`<div class="card"><div class="card-body" style="padding:60px;text-align:center;color:var(--text3)">
       <i class="ti ti-tools" style="font-size:48px;display:block;margin-bottom:14px;color:var(--gold)"></i>
@@ -8878,13 +8884,23 @@ function renderRB2(el, producerFilter){
 }
 
 // RC12 - Samples
-function renderRC12(el, from, to, producerFilter){
-  let orders=ORDERS.filter(o=>{
+async function renderRC12(el, from, to, producerFilter){
+  let allOrders;
+  try{
+    const params=new URLSearchParams();
+    if(from)params.set('from',from);
+    if(to)params.set('to',to);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders;
+  }catch(e){
+    el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  let orders=allOrders.filter(o=>{
     if(o.isSample||o.orderType==='sample')return true;
     return isSampleAcct(o.acct);
   });
-  if(from)orders=orders.filter(o=>o.date>=from);
-  if(to)  orders=orders.filter(o=>o.date<=to);
 
   // Group line items by account, matching the reference report's layout
   const acctMap={};
@@ -8953,9 +8969,21 @@ function renderRC12(el, from, to, producerFilter){
 }
 
 // RI2 - Open/Past Due
-function renderRI2(el){
+async function renderRI2(el){
+  const existingHtml=el.innerHTML;
+  el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
+  let allOrders;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders;
+  }catch(e){
+    el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  el.innerHTML=existingHtml;
   const today_=today();
-  const orders=ORDERS.filter(o=>o.status==='delivered'&&!o.paid);
+  const orders=allOrders.filter(o=>o.status==='delivered'&&!o.paid);
   const rows=orders.map(o=>{
     const acct=acctById(o.acct)||{name:'Unknown',terms:'Net 30'};
     const rep=userById(o.rep)||{fname:'',lname:''};
@@ -9033,7 +9061,7 @@ function exportReportCSV(reportId){
 }
 
 // FINTECH Report
-function renderFINTECH(el, from, to){
+async function renderFINTECH(el, from, to){
   // Get all Fintech accounts
   const fintechAccounts = ACCOUNTS.filter(a=>a.paymentProvider==='Fintech');
 
@@ -9047,15 +9075,29 @@ function renderFINTECH(el, from, to){
     return;
   }
 
+  const existingHtml=el.innerHTML;
+  el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
+  let allOrders;
+  try{
+    const params=new URLSearchParams();
+    if(from)params.set('from',from);
+    if(to)params.set('to',to);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders.filter(o=>o.status==='delivered'||o.status==='confirmed');
+  }catch(e){
+    el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  el.innerHTML=existingHtml;
+
   // Build invoice data for Fintech accounts
   const rows = [];
   let totalRevenue = 0, totalUnpaid = 0;
 
   fintechAccounts.forEach(a => {
     const rep = USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
-    let acctOrders = ORDERS.filter(o=>o.acct===a.id&&(o.status==='delivered'||o.status==='confirmed'));
-    if(from) acctOrders = acctOrders.filter(o=>o.date>=from);
-    if(to)   acctOrders = acctOrders.filter(o=>o.date<=to);
+    let acctOrders = allOrders.filter(o=>o.acct===a.id);
 
     const acctRevenue = acctOrders.reduce((s,o)=>s+orderTotal(o),0);
     const acctUnpaid  = acctOrders.filter(o=>!o.paid).reduce((s,o)=>s+arBalanceDue(o),0);
@@ -9213,13 +9255,30 @@ function renderRA1(el, orders, producerFilter){
 }
 
 // RA3 - Sales Comparison
-function renderRA3(el, producerFilter){
+async function renderRA3(el, producerFilter){
   const from1=window._rptFrom||'';const to1=window._rptTo||'';
   // For comparison use previous period of same length
   const ms=from1&&to1?new Date(to1)-new Date(from1):0;
   const from2=from1?new Date(new Date(from1)-ms-86400000).toISOString().slice(0,10):'';
   const to2=from1?new Date(new Date(from1)-86400000).toISOString().slice(0,10):'';
-  let o1=ORDERS.filter(o=>o.status==='delivered'||o.status==='confirmed');
+
+  const existingHtml=el.innerHTML;
+  el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
+  let allOrders;
+  try{
+    const params=new URLSearchParams();
+    if(from2)params.set('from',from2); // earliest of the two periods -- covers both in one fetch
+    if(to1)params.set('to',to1);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders.filter(o=>o.status==='delivered'||o.status==='confirmed');
+  }catch(e){
+    el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  el.innerHTML=existingHtml;
+
+  let o1=allOrders;
   let o2=[...o1];
   if(from1)o1=o1.filter(o=>o.date>=from1);if(to1)o1=o1.filter(o=>o.date<=to1);
   if(from2)o2=o2.filter(o=>o.date>=from2);if(to2)o2=o2.filter(o=>o.date<=to2);
@@ -9440,8 +9499,8 @@ function renderRA15(el, from, to){
 function renderRA18(el, orders, producerFilter){renderRA12(el,orders,producerFilter);}
 
 // RA19/RA20 - Date range comparison
-function renderRA19(el, producerFilter){renderRA3(el,producerFilter);}
-function renderRA20(el, producerFilter){renderRA3(el,producerFilter);}
+async function renderRA19(el, producerFilter){await renderRA3(el,producerFilter);}
+async function renderRA20(el, producerFilter){await renderRA3(el,producerFilter);}
 
 // RA21 - Top Products Sold
 function renderRA21(el, orders, producerFilter){
@@ -9544,9 +9603,18 @@ function renderRA33(el, orders, producerFilter){renderRA23(el,orders,producerFil
 function renderRA34(el, orders, supplierFilter){renderRA10(el,orders,supplierFilter);}
 
 // RA35 - Products Last Purchased
-function renderRA35(el, producerFilter){
+async function renderRA35(el, producerFilter){
+  let allOrders;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders;
+  }catch(e){
+    el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
   const lastPurchase={};
-  ORDERS.filter(o=>o.status==='delivered'||o.status==='confirmed').forEach(o=>{
+  allOrders.filter(o=>o.status==='delivered'||o.status==='confirmed').forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
       if(!lastPurchase[item.sku]||o.date>lastPurchase[item.sku].date){
         lastPurchase[item.sku]={date:o.date,acct:acctById(o.acct)?.name||'Unknown',invoice:o.id};
@@ -9677,9 +9745,18 @@ function renderRA44(el, orders, producerFilter){
 }
 
 // RB6 - Velocity Estimate
-function renderRB6(el, producerFilter){
+async function renderRB6(el, producerFilter){
   const now=new Date();const thirtyDaysAgo=new Date(now-30*24*60*60*1000).toISOString().slice(0,10);
-  const recent=ORDERS.filter(o=>o.date>=thirtyDaysAgo&&(o.status==='delivered'||o.status==='confirmed'));
+  let recent;
+  try{
+    const params=new URLSearchParams({from:thirtyDaysAgo});
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    recent=res.orders.filter(o=>o.status==='delivered'||o.status==='confirmed');
+  }catch(e){
+    el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
   const velocity={};
   recent.forEach(o=>{
     o.items.filter(i=>!i._fee).forEach(item=>{
@@ -10043,9 +10120,21 @@ function renderRH1(el){
 }
 
 // RH2 - Account A/R History Detail
-function renderRH2(el){
+async function renderRH2(el){
+  const existingHtml=el.innerHTML;
+  el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
+  let allOrders;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders;
+  }catch(e){
+    el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  el.innerHTML=existingHtml;
   const rows=[];
-  ORDERS.filter(o=>o.status==='delivered').forEach(o=>{
+  allOrders.filter(o=>o.status==='delivered').forEach(o=>{
     const acct=acctById(o.acct)||{name:'Unknown'};
     const rep=userById(o.rep)||{fname:'',lname:''};
     rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,total:orderTotal(o),paid:o.paid?'Paid':'Open',paidDate:o.paidDate||'—'});
@@ -10061,8 +10150,20 @@ function renderRH2(el){
 }
 
 // RI1 - Account Receivables: Paid
-function renderRI1(el){
-  const rows=ORDERS.filter(o=>o.paid).map(o=>{
+async function renderRI1(el){
+  const existingHtml=el.innerHTML;
+  el.innerHTML+='<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
+  let allOrders;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    allOrders=res.orders;
+  }catch(e){
+    el.innerHTML=existingHtml+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  el.innerHTML=existingHtml;
+  const rows=allOrders.filter(o=>o.paid).map(o=>{
     const acct=acctById(o.acct)||{name:'Unknown'};
     const rep=userById(o.rep)||{fname:'',lname:''};
     return{invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,total:orderTotal(o),paidDate:o.paidDate||'—'};
@@ -10075,8 +10176,7 @@ function renderRI1(el){
   window._lastReportRows=rows;window._lastReportCols=['invoice','date','acct','rep','total','paidDate'];
 }
 
-function renderSalesReport(){
-  const confirmedOrDelivered=ORDERS.filter(o=>o.status==='delivered');
+async function renderSalesReport(){
   // date range state
   window._rptFrom=window._rptFrom||'';
   window._rptTo=window._rptTo||'';
@@ -10089,7 +10189,7 @@ function renderSalesReport(){
   }
 
   const el=document.getElementById('report-body');
-  el.innerHTML=`
+  const filterBar=`
   <div class="card" style="margin-bottom:14px">
     <div class="card-body" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
       <div>
@@ -10120,11 +10220,23 @@ function renderSalesReport(){
       </div>
     </div>
   </div>`;
+  el.innerHTML = filterBar + '<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
 
-  // Filter orders
-  let orders=confirmedOrDelivered;
-  if(window._rptFrom)orders=orders.filter(o=>o.date>=window._rptFrom);
-  if(window._rptTo)orders=orders.filter(o=>o.date<=window._rptTo);
+  // Fetch only orders within this report's own selected date range, rather than relying on
+  // the bulk-loaded ORDERS array (which carries the entire order history).
+  let orders;
+  try{
+    const params=new URLSearchParams();
+    if(window._rptFrom)params.set('from',window._rptFrom);
+    if(window._rptTo)params.set('to',window._rptTo);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){el.innerHTML=filterBar+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    orders=res.orders.filter(o=>o.status==='delivered');
+  }catch(e){
+    el.innerHTML=filterBar+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+  el.innerHTML = filterBar; // clear the loading message before the report renders below
   if(window._rptRep)orders=orders.filter(o=>o.rep===window._rptRep);
 
   // Aggregate by producer
@@ -10406,16 +10518,28 @@ function exportInventoryPDF(){
 }
 
 // -- COMMISSION REPORT ---------------------------------------------------------
-function renderCommissionReport(){
+async function renderCommissionReport(){
   window._comFrom=window._comFrom||'';
   window._comTo=window._comTo||'';
   const reps=USERS.filter(u=>u.role==='rep');
 
+  document.getElementById('report-body').innerHTML='<div style="padding:40px;text-align:center;color:var(--text3)">Loading report data...</div>';
+  let deliveredOrders;
+  try{
+    const params=new URLSearchParams();
+    if(window._comFrom)params.set('from',window._comFrom);
+    if(window._comTo)params.set('to',window._comTo);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){document.getElementById('report-body').innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
+    deliveredOrders=res.orders.filter(o=>o.status==='delivered');
+  }catch(e){
+    document.getElementById('report-body').innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
+    return;
+  }
+
   // calculate per rep - uses tier-level commission overrides where set
   const repData=reps.map(rep=>{
-    let orders=ORDERS.filter(o=>o.status==='delivered'&&o.rep===rep.id);
-    if(window._comFrom)orders=orders.filter(o=>o.date>=window._comFrom);
-    if(window._comTo)orders=orders.filter(o=>o.date<=window._comTo);
+    const orders=deliveredOrders.filter(o=>o.rep===rep.id);
     const revenue=orders.reduce((s,o)=>s+orderTotal(o),0);
     // Commission: sum each order's effective commission (respects tier overrides)
     const commission=orders.reduce((s,o)=>{
@@ -10482,8 +10606,22 @@ function renderCommissionReport(){
   </div>`;
 }
 
-function exportCommissionPDF(){
+async function exportCommissionPDF(){
   const reps=USERS.filter(u=>u.role==='rep');
+  toast('Generating payroll PDF...');
+  let deliveredOrders;
+  try{
+    const params=new URLSearchParams();
+    if(window._comFrom)params.set('from',window._comFrom);
+    if(window._comTo)params.set('to',window._comTo);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast('Could not load report data -- '+(res.error||'please try again'));return;}
+    deliveredOrders=res.orders.filter(o=>o.status==='delivered');
+  }catch(e){
+    toast('Could not load report data -- check your connection');
+    return;
+  }
+
   const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'pt',format:'letter'});
   const W=612,M=40;let y=M;
   const dateLabel=(window._comFrom||window._comTo)?`${window._comFrom||'start'} -> ${window._comTo||'today'}`:'All time';
@@ -10504,9 +10642,7 @@ function exportCommissionPDF(){
 
   let grandTotal=0;
   reps.forEach(rep=>{
-    let orders=ORDERS.filter(o=>o.status==='delivered'&&o.rep===rep.id);
-    if(window._comFrom)orders=orders.filter(o=>o.date>=window._comFrom);
-    if(window._comTo)orders=orders.filter(o=>o.date<=window._comTo);
+    const orders=deliveredOrders.filter(o=>o.rep===rep.id);
     const revenue=orders.reduce((s,o)=>s+orderTotal(o),0);
     const comm=orders.reduce((s,o)=>s+orderTotal(o)*(getOrderCommission(o)/100),0);
     const pct=revenue>0?comm/revenue*100:rep.commission||0;
@@ -10530,11 +10666,21 @@ function exportCommissionPDF(){
   toast('Commission payroll exported');
 }
 
-function exportRepCommission(repId){
+async function exportRepCommission(repId){
   const rep=USERS.find(u=>u.id===repId);if(!rep)return;
-  let orders=ORDERS.filter(o=>o.status==='delivered'&&o.rep===repId);
-  if(window._comFrom)orders=orders.filter(o=>o.date>=window._comFrom);
-  if(window._comTo)orders=orders.filter(o=>o.date<=window._comTo);
+  toast('Generating statement PDF...');
+  let orders;
+  try{
+    const params=new URLSearchParams();
+    if(window._comFrom)params.set('from',window._comFrom);
+    if(window._comTo)params.set('to',window._comTo);
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast('Could not load report data -- '+(res.error||'please try again'));return;}
+    orders=res.orders.filter(o=>o.status==='delivered'&&o.rep===repId);
+  }catch(e){
+    toast('Could not load report data -- check your connection');
+    return;
+  }
   const defaultPct=rep.commission||0;
 
   const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'pt',format:'letter'});
