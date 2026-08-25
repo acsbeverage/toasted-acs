@@ -3014,8 +3014,9 @@ function renderLineItems(){
   const isAdmin=currentUser&&currentUser.role==='admin';
 
   // -- DESKTOP TABLE VIEW --------------------------------------------------
+  const stickyDeleteTh=`<th style="position:sticky;right:0;background:#fafafa;box-shadow:-2px 0 4px rgba(0,0,0,0.06)"></th>`;
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl">
-  <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th><th></th></tr></thead>
+  <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th>${stickyDeleteTh}</tr></thead>
   <tbody>`+
   currentOrder.items.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
@@ -3026,7 +3027,7 @@ function renderLineItems(){
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveDelivery()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:'<span style="font-size:11px;color:var(--text3);margin-left:6px">(standard)</span>'}
         </td>
         <td style="font-weight:600;color:#5B4FA0;white-space:nowrap">${fmt(item.feeAmt||DELIVERY_FEE_AMT)}</td>
-        <td></td>
+        <td style="position:sticky;right:0;background:#F5F3FF"></td>
       </tr>`;
     }
     if(item.sku===BROKEN_CASE_SKU){
@@ -3041,7 +3042,7 @@ function renderLineItems(){
           <span style="font-size:11px;color:var(--text3);margin-left:8px"><button onclick="${removeAction}" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>
         </td>
         <td style="font-weight:600;color:var(--amber);white-space:nowrap">${fmt(itemLineTotal(item))}</td>
-        <td></td>
+        <td style="position:sticky;right:0;background:#FFF8E8"></td>
       </tr>`;
     }
     if(item.sku===CRV_SKU){
@@ -3052,7 +3053,7 @@ function renderLineItems(){
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:''}
         </td>
         <td style="font-weight:600;color:#0D7A5F;white-space:nowrap">${fmt(item.feeAmt)}</td>
-        <td></td>
+        <td style="position:sticky;right:0;background:#E8F8F5"></td>
       </tr>`;
     }
     const p=prodBySku(item.sku);if(!p)return'';
@@ -3074,7 +3075,7 @@ function renderLineItems(){
       <td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateItemDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td>
       <td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateItemNotes(${idx},this.value)"/></td>
       <td id="lt-${idx}" style="font-weight:600;white-space:nowrap">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td>
-      <td><button class="btn-delete-item" onclick="removeLineItem(${idx})"><i class="ti ti-trash"></i></button></td>
+      <td style="position:sticky;right:0;background:#fff"><button class="btn-delete-item" onclick="removeLineItem(${idx})"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   }).join('')+'</tbody></table></div>';
 
@@ -4762,7 +4763,8 @@ function renderEditItems(){
   const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;
 
   const isAdminUser=currentUser&&currentUser.role==='admin';
-  const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th><th></th></tr></thead><tbody>`+
+  const stickyDeleteTh=`<th style="position:sticky;right:0;background:#fafafa;box-shadow:-2px 0 4px rgba(0,0,0,0.06)"></th>`;
+  const tableHtml=`<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Product</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th>${stickyDeleteTh}</tr></thead><tbody>`+
   window._editItems.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
       return`<tr style="background:#F5F3FF">
@@ -4772,7 +4774,7 @@ function renderEditItems(){
           ${isAdminUser?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveEditDelivery()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:'<span style="font-size:11px;color:var(--text3);margin-left:6px">(standard)</span>'}
         </td>
         <td style="font-weight:600;color:#5B4FA0;white-space:nowrap">${fmt(item.feeAmt||DELIVERY_FEE_AMT)}</td>
-        <td></td>
+        <td style="position:sticky;right:0;background:#F5F3FF"></td>
       </tr>`;
     }
     if(item.sku===BROKEN_CASE_SKU){
@@ -4785,7 +4787,7 @@ function renderEditItems(){
           <span style="font-size:11px;color:var(--text3);margin-left:8px"><button onclick="${removeAction}" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>
         </td>
         <td style="font-weight:600;color:var(--amber);white-space:nowrap">${fmt(itemLineTotal(item))}</td>
-        <td></td>
+        <td style="position:sticky;right:0;background:#FFF8E8"></td>
       </tr>`;
     }
     if(item.sku===CRV_SKU){
@@ -4796,12 +4798,12 @@ function renderEditItems(){
           ${isAdminUser?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveEditCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:''}
         </td>
         <td style="font-weight:600;color:#0D7A5F;white-space:nowrap">${fmt(item.feeAmt)}</td>
-        <td></td>
+        <td style="position:sticky;right:0;background:#E8F8F5"></td>
       </tr>`;
     }
     const p=prodBySku(item.sku);if(!p)return'';const price=itemUnitPrice(item,p);const maxLoose=p.btl;
     const nameCell=`<td style="font-weight:500;color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')" title="View pricing for ${p.name.replace(/"/g,'&quot;')}">${p.name}</td>`;
-    return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>${isAdminUser?`<button onclick="openCustomPriceModal('edit',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}</td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+    return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,false,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>${isAdminUser?`<button onclick="openCustomPriceModal('edit',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}</td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td style="position:sticky;right:0;background:#fff"><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
