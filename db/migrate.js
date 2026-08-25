@@ -420,6 +420,21 @@ async function migrate() {
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS tier_notes JSONB DEFAULT '{}'`);
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS spirit_type TEXT DEFAULT ''`);
 
+  // Critical performance indexes -- orders/order_items are by far the largest, most
+  // frequently-queried tables (the full order history with line items loads on every app
+  // open). Without indexes on the exact columns used for joins/filtering/sorting here,
+  // Postgres has to scan the entire table on every single request, which gets progressively
+  // slower as more orders accumulate. Purely additive: doesn't change any query results.
+  await query(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_orders_acct_id ON orders(acct_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_orders_rep_id ON orders(rep_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_accounts_rep ON accounts(rep)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_draft_orders_acct_id ON draft_orders(acct_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_draft_orders_rep_id ON draft_orders(rep_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_tastings_acct_id ON tastings(acct_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_tastings_rep_id ON tastings(rep_id)`);
+
   console.log('All tables created successfully');
 }
 
