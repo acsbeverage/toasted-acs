@@ -305,6 +305,22 @@ router.post('/', requireAuth, async (req, res) => {
             item.discountPct||0, !!item._fee, item.feeAmt||null, item.count||null,
             !!item._manual, item.rate||null, i, item.notes||null]);
       }
+      // Deduct inventory for real (non-fee) product lines -- case-equivalent quantity per SKU,
+      // matching the same calculation already used above for tier-minimum validation.
+      const prodSkus = [...new Set(items.filter(i => !i._fee && i.sku).map(i => i.sku))];
+      const prodRows = prodSkus.length ? await getAll('SELECT sku, btl FROM products WHERE sku = ANY($1)', [prodSkus]) : [];
+      const btlBySku = {};
+      prodRows.forEach(r => { btlBySku[r.sku] = r.btl || 1; });
+      const caseEquivBySku = {};
+      for (const item of items) {
+        if (item._fee || !item.sku) continue;
+        const btl = btlBySku[item.sku] || 1;
+        const caseEquiv = (item.cases||0) + (item.bottles||0)/btl;
+        caseEquivBySku[item.sku] = (caseEquivBySku[item.sku]||0) + caseEquiv;
+      }
+      for (const [sku, qty] of Object.entries(caseEquivBySku)) {
+        await query('UPDATE products SET stock = stock - $1 WHERE sku=$2', [qty, sku]);
+      }
     }
     sendOrderNotification(id, placedByLabel||req.user.fname+' '+(req.user.lname||''), req.user.email).catch(console.error);
     res.json({ ok: true, id });
@@ -346,6 +362,28 @@ router.patch('/:id', requireAuth, async (req, res) => {
     }
     // Replace line items if a new set was provided (order-edit flow)
     if (Array.isArray(items)) {
+      // Adjust inventory for the exact delta between old and new quantities per SKU, rather
+      // than a blind restore-then-deduct -- a change from 3 cases to 5 should only move
+      // stock by the 2-case difference, not the full 3 and then the full 5.
+      const oldItems = await getAll('SELECT sku, cases, bottles, is_fee FROM order_items WHERE order_id=$1', [req.params.id]);
+      const allSkus = [...new Set([...oldItems, ...items].filter(i => !i.is_fee && !i._fee && i.sku).map(i => i.sku))];
+      const prodRows = allSkus.length ? await getAll('SELECT sku, btl FROM products WHERE sku = ANY($1)', [allSkus]) : [];
+      const btlBySku = {};
+      prodRows.forEach(r => { btlBySku[r.sku] = r.btl || 1; });
+      const caseEquiv = (item) => {
+        const btl = btlBySku[item.sku] || 1;
+        return (item.cases||0) + (item.bottles||0)/btl;
+      };
+      const deltaBySku = {};
+      oldItems.forEach(item => {
+        if (item.is_fee || !item.sku) return;
+        deltaBySku[item.sku] = (deltaBySku[item.sku]||0) - caseEquiv(item); // remove old commitment
+      });
+      items.forEach(item => {
+        if (item._fee || !item.sku) return;
+        deltaBySku[item.sku] = (deltaBySku[item.sku]||0) + caseEquiv(item); // apply new commitment
+      });
+
       await query('DELETE FROM order_items WHERE order_id=$1', [req.params.id]);
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -356,6 +394,11 @@ router.patch('/:id', requireAuth, async (req, res) => {
         `, [req.params.id, item.sku, item.cases||0, item.bottles||0, item.tier||'frontline',
             item.discountPct||0, !!item._fee, item.feeAmt||null, item.count||null,
             !!item._manual, item.rate||null, i, item.notes||null]);
+      }
+      // Delta is "new minus old" in case-equivalents -- a positive delta means more was
+      // ordered than before, so stock decreases by that amount (and vice versa).
+      for (const [sku, delta] of Object.entries(deltaBySku)) {
+        if (delta !== 0) await query('UPDATE products SET stock = stock - $1 WHERE sku=$2', [delta, sku]);
       }
     }
     if (updates.length === 0 && !Array.isArray(items)) {
@@ -370,6 +413,24 @@ router.patch('/:id', requireAuth, async (req, res) => {
 
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
+    // Restore inventory before deleting -- reverses exactly what was deducted when this
+    // order was originally created.
+    const oldItems = await getAll('SELECT sku, cases, bottles, is_fee FROM order_items WHERE order_id=$1', [req.params.id]);
+    const prodSkus = [...new Set(oldItems.filter(i => !i.is_fee && i.sku).map(i => i.sku))];
+    const prodRows = prodSkus.length ? await getAll('SELECT sku, btl FROM products WHERE sku = ANY($1)', [prodSkus]) : [];
+    const btlBySku = {};
+    prodRows.forEach(r => { btlBySku[r.sku] = r.btl || 1; });
+    const caseEquivBySku = {};
+    for (const item of oldItems) {
+      if (item.is_fee || !item.sku) continue;
+      const btl = btlBySku[item.sku] || 1;
+      const caseEquiv = (item.cases||0) + (item.bottles||0)/btl;
+      caseEquivBySku[item.sku] = (caseEquivBySku[item.sku]||0) + caseEquiv;
+    }
+    for (const [sku, qty] of Object.entries(caseEquivBySku)) {
+      await query('UPDATE products SET stock = stock + $1 WHERE sku=$2', [qty, sku]);
+    }
+
     await query('DELETE FROM order_items WHERE order_id=$1', [req.params.id]);
     await query('DELETE FROM orders WHERE id=$1', [req.params.id]);
     // Reclaim this order's number so the next order created reuses it, rather than
