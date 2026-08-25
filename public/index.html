@@ -1281,69 +1281,30 @@ function saveNewOrderToDB(order){
 async function loadAllDataFromBackend(){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
+  const safeFetch=(url)=>fetch(url,{headers}).then(r=>r.json()).catch(e=>({ok:false,_error:e.message}));
   try{
-    // Load orders
-    const ordersRes=await fetch(TOASTED_BACKEND_URL+'/api/orders',{headers}).then(r=>r.json());
-    if(ordersRes.ok&&ordersRes.orders){
-      ORDERS=ordersRes.orders;
-      console.log('Loaded',ORDERS.length,'orders from database');
-    }
-    // Load accounts
-    const acctsRes=await fetch(TOASTED_BACKEND_URL+'/api/accounts',{headers}).then(r=>r.json());
-    if(acctsRes.ok&&acctsRes.accounts){
-      ACCOUNTS=acctsRes.accounts;
-      console.log('Loaded',ACCOUNTS.length,'accounts from database');
-    }
-    // Load products
-    const prodsRes=await fetch(TOASTED_BACKEND_URL+'/api/products',{headers}).then(r=>r.json());
-    if(prodsRes.ok&&prodsRes.products){
-      PRODUCTS=prodsRes.products;
-      console.log('Loaded',PRODUCTS.length,'products from database');
-    }
-    // Load standard pricing tier labels/notes
-    const tierCfgRes=await fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config',{headers}).then(r=>r.json());
-    if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length){
-      TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));
-      console.log('Loaded',TIERS.length,'pricing tier configs from database');
-    }
-    // Load users
-    const usersRes=await fetch(TOASTED_BACKEND_URL+'/api/users',{headers}).then(r=>r.json());
-    if(usersRes.ok&&usersRes.users){
-      USERS=usersRes.users;
-      console.log('Loaded',USERS.length,'users from database');
-    }
-    // Load customer portal logins (admin only -- silently skipped for reps)
-    try{
-      const custRes=await fetch(TOASTED_BACKEND_URL+'/api/customer-users',{headers}).then(r=>r.json());
-      if(custRes.ok&&custRes.customerUsers){
-        CUSTOMER_USERS=custRes.customerUsers;
-        console.log('Loaded',CUSTOMER_USERS.length,'customer portal logins from database');
-      }
-    }catch(e){}
-    // Load drafts
-    const draftsRes=await fetch(TOASTED_BACKEND_URL+'/api/drafts',{headers}).then(r=>r.json());
-    if(draftsRes.ok&&draftsRes.drafts){
-      DRAFT_ORDERS=draftsRes.drafts;
-      console.log('Loaded',DRAFT_ORDERS.length,'drafts from database');
-    }
-    // Load tastings
-    const tastingsRes=await fetch(TOASTED_BACKEND_URL+'/api/tastings',{headers}).then(r=>r.json());
-    if(tastingsRes.ok&&tastingsRes.tastings){
-      TASTINGS=tastingsRes.tastings;
-      console.log('Loaded',TASTINGS.length,'tastings from database');
-    }
-    // Load docs
-    const docsRes=await fetch(TOASTED_BACKEND_URL+'/api/docs',{headers}).then(r=>r.json());
-    if(docsRes.ok&&docsRes.docs){
-      SHARED_DOCS=docsRes.docs;
-      console.log('Loaded',SHARED_DOCS.length,'docs from database');
-    }
-    // Load report schedules
-    const schedRes=await fetch(TOASTED_BACKEND_URL+'/api/report-schedules',{headers}).then(r=>r.json());
-    if(schedRes.ok&&schedRes.schedules){
-      SCHEDULES=schedRes.schedules;
-      console.log('Loaded',SCHEDULES.length,'report schedules from database');
-    }
+    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes]=await Promise.all([
+      safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/accounts'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/products'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/users'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/customer-users'), // admin only -- silently skipped for reps via the ok check below
+      safeFetch(TOASTED_BACKEND_URL+'/api/drafts'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/tastings'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/docs'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/report-schedules'),
+    ]);
+    if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
+    if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
+    if(prodsRes.ok&&prodsRes.products){PRODUCTS=prodsRes.products;console.log('Loaded',PRODUCTS.length,'products from database');}
+    if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length){TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));console.log('Loaded',TIERS.length,'pricing tier configs from database');}
+    if(usersRes.ok&&usersRes.users){USERS=usersRes.users;console.log('Loaded',USERS.length,'users from database');}
+    if(custRes.ok&&custRes.customerUsers){CUSTOMER_USERS=custRes.customerUsers;console.log('Loaded',CUSTOMER_USERS.length,'customer portal logins from database');}
+    if(draftsRes.ok&&draftsRes.drafts){DRAFT_ORDERS=draftsRes.drafts;console.log('Loaded',DRAFT_ORDERS.length,'drafts from database');}
+    if(tastingsRes.ok&&tastingsRes.tastings){TASTINGS=tastingsRes.tastings;console.log('Loaded',TASTINGS.length,'tastings from database');}
+    if(docsRes.ok&&docsRes.docs){SHARED_DOCS=docsRes.docs;console.log('Loaded',SHARED_DOCS.length,'docs from database');}
+    if(schedRes.ok&&schedRes.schedules){SCHEDULES=schedRes.schedules;console.log('Loaded',SCHEDULES.length,'report schedules from database');}
     updateBadges();
   } catch(err){
     console.error('Error loading data from backend:',err.message);
