@@ -116,6 +116,86 @@ router.get('/:id/items', requireAuth, async (req, res) => {
   }
 });
 
+// Date-range-scoped version of the main orders+items query above, for reports that only need
+// orders within a specific window rather than the entire order history pre-loaded in bulk.
+// Mirrors the exact same per-role access rules and item/order shape, so a report converted to
+// use this is a drop-in replacement for reading from the bulk-loaded ORDERS array -- built as
+// its own separate route so it can't affect the existing bulk route or anything relying on it.
+router.get('/report-data', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.user.role === 'admin';
+    const isCustomer = req.user.role === 'customer';
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    let rows;
+    if (isAdmin) {
+      rows = await getAll(`
+        SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        FROM orders o
+        LEFT JOIN accounts a ON o.acct_id = a.id
+        LEFT JOIN users u ON o.rep_id = u.id
+        WHERE ($1::date IS NULL OR o.date >= $1) AND ($2::date IS NULL OR o.date <= $2)
+        ORDER BY o.created_at DESC`, [from, to]);
+    } else if (isCustomer) {
+      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
+      if (!cust) return res.json({ ok: true, orders: [] });
+      rows = await getAll(`
+        SELECT o.*, a.name as acct_name
+        FROM orders o
+        LEFT JOIN accounts a ON o.acct_id = a.id
+        WHERE o.acct_id=$1 AND ($2::date IS NULL OR o.date >= $2) AND ($3::date IS NULL OR o.date <= $3)
+        ORDER BY o.created_at DESC`, [cust.acct_id, from, to]);
+    } else {
+      rows = await getAll(`
+        SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        FROM orders o
+        LEFT JOIN accounts a ON o.acct_id = a.id
+        LEFT JOIN users u ON o.rep_id = u.id
+        WHERE a.rep=$1 AND ($2::date IS NULL OR o.date >= $2) AND ($3::date IS NULL OR o.date <= $3)
+        ORDER BY o.created_at DESC`, [req.user.id, from, to]);
+    }
+    const orderIds = rows.map(r => r.id);
+    let items = [];
+    if (orderIds.length > 0) {
+      items = await getAll(
+        `SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY sort_order`,
+        [orderIds]);
+    }
+    const itemsByOrder = {};
+    items.forEach(item => {
+      if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+      itemsByOrder[item.order_id].push({
+        sku: item.sku, cases: item.cases, bottles: item.bottles,
+        tier: item.tier, discountPct: parseFloat(item.discount_pct)||0,
+        _fee: item.is_fee, feeAmt: item.fee_amt ? parseFloat(item.fee_amt) : undefined,
+        count: item.fee_count, _manual: item.is_manual,
+        rate: item.rate !== null ? parseFloat(item.rate) : undefined,
+        notes: item.notes || '',
+      });
+    });
+    const orders = rows.map(r => ({
+      id: r.id, acct: r.acct_id, acctName: r.acct_name,
+      rep: r.rep_id, repName: r.rep_fname ? r.rep_fname+' '+(r.rep_lname||'') : '',
+      date: r.date ? r.date.toISOString().slice(0,10) : '',
+      delivery: r.delivery ? r.delivery.toISOString().slice(0,10) : '',
+      status: r.status, orderType: r.order_type,
+      po: r.po, notes: r.notes, isSample: r.is_sample,
+      labelsPrinted: r.labels_printed||false,
+      waiveDelivery: r.waive_delivery, waiveBrokenCase: r.waive_broken_case,
+      waiveCRV: r.waive_crv, paid: r.paid,
+      paidDate: r.paid_date ? r.paid_date.toISOString().slice(0,10) : null,
+      paidAmount: r.paid_amount ? parseFloat(r.paid_amount) : null,
+      qboInvoiceId: r.qbo_invoice_id, qboSyncedAt: r.qbo_synced_at,
+      partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
+      items: itemsByOrder[r.id] || [],
+    }));
+    res.json({ ok: true, orders });
+  } catch (err) {
+    console.error('Get report-scoped orders error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.post('/', requireAuth, async (req, res) => {
   try {
     let { id, acct, rep, date, delivery, status, orderType, po, notes,
