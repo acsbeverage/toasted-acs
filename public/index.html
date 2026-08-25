@@ -815,7 +815,7 @@ function prodBySku(sku){
 let DRAFT_ORDERS=[];
 let TASTINGS=[];
 let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[],PO_SUPPLIER_CONTACTS=[];
-let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false,_poDetailSupplierId=null;
+let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false,_poDetailSupplierId=null,_poEditingId=null,_poEditingNumber=null;
 // SHARED_DOCS declared at top
 // -- CONFIG & STATIC DATA ------------------------------------------------------
 let COMPANY={name:'ACS Beverage Co. LLC',address:'6680 Alhambra Ave. #505, Martinez, CA 94553',phone:'',email:'accounting@acsbeverage.com',license:'CA-DIS-00421',website:'acsbeverageco.com'};
@@ -3756,8 +3756,19 @@ function renderPOSubview(){
 
 // -- New PO ----------------------------------------------------------------------
 async function renderPONew(){
-  if(!window._poNextNumberPreview) await loadPONextNumber();
+  if(!_poEditingId && !window._poNextNumberPreview) await loadPONextNumber();
   const wrap=document.getElementById('po-subview-body');
+  if(_poEditingId){
+    const supplier=PO_SUPPLIERS.find(s=>s.id===_poSelectedSupplier);
+    wrap.innerHTML=`
+    <div class="card" style="margin-bottom:14px"><div class="card-header">
+      <span class="card-title"><i class="ti ti-edit" style="color:var(--gold);margin-right:6px"></i>Editing PO ${_poEditingNumber}${supplier?' -- '+supplier.name:''}</span>
+      <button class="btn btn-sm" onclick="cancelEditPO()"><i class="ti ti-x"></i> Cancel edit</button>
+    </div></div>
+    <div id="po-lineitems-wrap"></div>`;
+    renderPOLineItems();
+    return;
+  }
   wrap.innerHTML=`
   <div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Select supplier</span><span style="font-size:12px;color:var(--text2)">Next PO: <strong style="font-family:monospace">${window._poNextNumberPreview||'ACS ---'}</strong></span></div>
     <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap">
@@ -3766,6 +3777,45 @@ async function renderPONew(){
   </div>
   <div id="po-lineitems-wrap"></div>`;
   if(_poSelectedSupplier) renderPOLineItems();
+}
+function cancelEditPO(){
+  _poEditingId=null;_poEditingNumber=null;_poSelectedSupplier=null;_poLineItems=[];
+  switchPOSubview('history');
+}
+async function openEditPO(id){
+  const order=await _fetchPOOrder(id);if(!order)return;
+  toast('Loading PO for editing...');
+  _poEditingId=id;_poEditingNumber=order.poNumber;_poSelectedSupplier=order.supplierId;_poSubview='new';
+  await loadPOProducts(order.supplierId);
+
+  // Merge the supplier's full current catalog (so new items can still be added) with the
+  // PO's saved quantities (so existing lines show what was actually ordered, not blank).
+  const savedByProductId={};
+  (order.lineItems||[]).forEach(li=>{ if(li.productId!=null) savedByProductId[li.productId]=li; });
+  _poLineItems=PO_PRODUCTS.map(p=>{
+    const saved=savedByProductId[p.id];
+    if(saved) delete savedByProductId[p.id]; // mark as consumed by a current catalog match
+    return{
+      productId:p.id,brandName:p.brandName,vintage:p.vintage,type:p.type,
+      bottleSize:p.bottleSize,bottlesPerCase:p.bottlesPerCase,description:p.description,
+      casePrice:p.casePrice,bottlePrice:p.bottlePrice,
+      isNoCharge:saved?saved.isNoCharge:p.casePrice===0,
+      inputCases:saved&&saved.quantityCases>0?String(saved.quantityCases):'',
+      inputBottles:saved&&saved.quantityBottles>0?String(saved.quantityBottles):'',
+    };
+  });
+  // Any saved line that no longer matches a current catalog product (e.g. removed since)
+  // still gets preserved, so editing never silently drops part of the original PO.
+  Object.values(savedByProductId).forEach(li=>{
+    _poLineItems.push({
+      productId:li.productId,brandName:li.brandName,vintage:li.vintage,type:li.type,
+      bottleSize:li.bottleSize,bottlesPerCase:li.bottlesPerCase,description:li.description,
+      casePrice:li.casePrice||0,bottlePrice:li.bottlePrice||0,isNoCharge:li.isNoCharge,
+      inputCases:li.quantityCases>0?String(li.quantityCases):'',
+      inputBottles:li.quantityBottles>0?String(li.quantityBottles):'',
+    });
+  });
+  renderPO();
 }
 async function selectPOSupplier(id){
   _poSelectedSupplier=id;
@@ -3813,12 +3863,12 @@ function renderPOLineItems(){
     </tbody></table></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;border-top:1px solid var(--border);flex-wrap:wrap;gap:12px">
       <div style="display:flex;gap:24px;flex-wrap:wrap">
-        <div><div class="flabel">PO Number</div><div style="font-weight:700;font-family:monospace">${window._poNextNumberPreview||'ACS ---'}</div></div>
+        <div><div class="flabel">PO Number</div><div style="font-weight:700;font-family:monospace">${_poEditingId?_poEditingNumber:(window._poNextNumberPreview||'ACS ---')}</div></div>
         <div><div class="flabel">Supplier</div><div style="font-weight:600">${supplier.name}</div></div>
         <div><div class="flabel">Terms</div><div style="font-weight:600">${supplier.paymentTerms}</div></div>
         <div><div class="flabel">Grand Total</div><div style="font-weight:700;font-size:16px">${t.grandTotal>0?fmt(t.grandTotal):'--'}</div></div>
       </div>
-      <button class="btn btn-dark" onclick="submitPO()"><i class="ti ti-file-text"></i> Generate PO PDF</button>
+      <button class="btn btn-dark" onclick="submitPO()"><i class="ti ti-${_poEditingId?'device-floppy':'file-text'}"></i> ${_poEditingId?'Save changes':'Generate PO PDF'}</button>
     </div>`}
   </div>`;
 }
@@ -3856,6 +3906,22 @@ async function submitPO(){
       return{productId:item.productId,brandName:item.brandName,vintage:item.vintage,type:item.type,bottleSize:item.bottleSize,bottlesPerCase:item.bottlesPerCase,description:item.description,quantityBottles:bottles,quantityCases:cases,casePrice:item.isNoCharge?null:item.casePrice,bottlePrice:item.isNoCharge?null:item.bottlePrice,lineTotal,isNoCharge:item.isNoCharge,sortOrder:idx};
     })
   };
+  if(_poEditingId){
+    try{
+      const url=TOASTED_BACKEND_URL+'/api/po/orders/'+_poEditingId;
+      const res=await fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)}).then(r=>r.json());
+      if(!res.ok){toast(res.error||'Failed to save changes');return}
+      const editedId=_poEditingId,editedNumber=_poEditingNumber;
+      toast('PO '+editedNumber+' updated');
+      await loadPOData(true);
+      _poEditingId=null;_poEditingNumber=null;_poSelectedSupplier=null;_poLineItems=[];
+      switchPOSubview('history');
+      if(confirm('PO '+editedNumber+' saved. Resend the updated version to the supplier now?')){
+        sendPOEmailToSupplier(editedId);
+      }
+    }catch(e){toast('Failed to save changes -- check connection');console.error(e);}
+    return;
+  }
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/po/orders',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify(payload)}).then(r=>r.json());
     if(!res.ok){toast(res.error||'Failed to create PO');return}
@@ -3901,6 +3967,7 @@ function filterPOHistory(){
     <td style="text-align:right;font-weight:600">${fmt(o.grandTotal)}</td>
     <td>${_poEmailBadge(o.emailStatus)}</td>
     <td style="white-space:nowrap;display:flex;gap:6px">
+      <button class="btn btn-sm btn-warning" onclick="openEditPO(${o.id})"><i class="ti ti-edit"></i> Edit</button>
       <button class="btn btn-sm btn-pdf" onclick="exportPOPdf(${o.id})"><i class="ti ti-file-download"></i> PDF</button>
       <button class="btn btn-sm" onclick="sendPOEmailToSupplier(${o.id})"><i class="ti ti-mail"></i> ${o.emailStatus==='sent'?'Resend':'Send'}</button>
     </td>
@@ -4201,7 +4268,7 @@ function _buildPOPdfDoc(order){
   };
 
   const headerY=MT+20;
-  const firstDataY=headerY+96;
+  const firstDataY=headerY+134;
   const contDataY=headerY+22;
   const pageBottom=612-32-14;
 
@@ -4263,10 +4330,14 @@ function _buildPOPdfDoc(order){
       doc.text('Delivery location:',ML+halfW+12,vendY+10);
       doc.setFontSize(9);doc.setTextColor(26,26,26);
       doc.text(order.supplierName,ML+10,vendY+27);
-      doc.setFontSize(8);doc.setFont('helvetica','normal');
+      if(order.supplierAddress){
+        doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(60,60,60);
+        doc.text(order.supplierAddress,ML+10,vendY+40,{maxWidth:halfW-16});
+      }
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(26,26,26);
       doc.text(order.deliveryAddress||COMPANY.address,ML+halfW+12,vendY+27,{maxWidth:halfW-16});
 
-      drawColHeaders(headerY+96-18);
+      drawColHeaders(headerY+134-18);
       y=firstDataY;
     } else {
       doc.setFontSize(7);doc.setFont('helvetica','italic');doc.setTextColor(136,136,136);
