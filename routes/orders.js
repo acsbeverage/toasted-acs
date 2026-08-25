@@ -81,6 +81,41 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// Fetch one order's full line-item detail on demand -- used by Confirm/Edit/Invoice, which
+// only ever need one order's items at a time, rather than requiring every order's items to
+// already be loaded in bulk. Matches the exact same item shape the bulk route above returns,
+// so the frontend can drop this straight into order.items with no other changes needed.
+router.get('/:id/items', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.user.role === 'admin';
+    const isCustomer = req.user.role === 'customer';
+    const order = await getOne('SELECT id, acct_id, rep_id FROM orders WHERE id=$1', [req.params.id]);
+    if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
+
+    if (isCustomer) {
+      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
+      if (!cust || cust.acct_id !== order.acct_id) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    } else if (!isAdmin) {
+      const acct = await getOne('SELECT rep FROM accounts WHERE id=$1', [order.acct_id]);
+      if (!acct || acct.rep !== req.user.id) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
+
+    const rows = await getAll('SELECT * FROM order_items WHERE order_id=$1 ORDER BY sort_order', [req.params.id]);
+    const items = rows.map(item => ({
+      sku: item.sku, cases: item.cases, bottles: item.bottles,
+      tier: item.tier, discountPct: parseFloat(item.discount_pct) || 0,
+      _fee: item.is_fee, feeAmt: item.fee_amt ? parseFloat(item.fee_amt) : undefined,
+      count: item.fee_count, _manual: item.is_manual,
+      rate: item.rate !== null ? parseFloat(item.rate) : undefined,
+      notes: item.notes || '',
+    }));
+    res.json({ ok: true, items });
+  } catch (err) {
+    console.error('Get order items error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.post('/', requireAuth, async (req, res) => {
   try {
     let { id, acct, rep, date, delivery, status, orderType, po, notes,
