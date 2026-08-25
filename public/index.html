@@ -8354,6 +8354,21 @@ function openReport(reportId){
   renderActiveReport(reportId);
 }
 
+// Shows a lightweight "data ready for export" card instead of a full on-screen table.
+// Used by every report except the A/R ones (RI1, RI2, RH2), which stay fully visible on
+// screen in addition to being exportable -- everything else only needs to be pulled as a
+// CSV/Excel file, so rendering potentially thousands of rows into the DOM is unnecessary
+// work. The underlying data is still fully computed either way, since export depends on it;
+// this only changes what actually gets displayed.
+function showReportReadyCard(el, reportLabel, rowCount, noun){
+  const label = rowCount===1 ? (noun||'row') : (noun?noun+'s':'rows');
+  el.innerHTML+=`<div class="card" style="padding:30px;text-align:center">
+    <i class="ti ti-file-spreadsheet" style="font-size:32px;color:var(--gold);display:block;margin-bottom:10px"></i>
+    <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">${reportLabel} data ready</div>
+    <div style="font-size:12px;color:var(--text2)">${rowCount} ${label} -- use Export CSV above to download</div>
+  </div>`;
+}
+
 async function renderActiveReport(reportId){
   const r = ACS_REPORTS.find(x=>x.id===reportId);
   if(!r) return;
@@ -8572,47 +8587,9 @@ function renderRA2(el, orders, producerFilter){
     if(c.num!==undefined)return typeof v==='number'?v.toFixed(c.num):v;
     return v;
   };
-  const PAGE_SIZE=200;
-  window._ra2Page=1;
-  window._ra2Rows=rows;
-  window._ra2Cols=cols;
-  window._ra2FmtCell=fmtCell;
-  el.innerHTML+=`
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">RA2 — Invoice Line Item (Detailed Sales)</span>
-      <span style="font-size:12px;color:var(--text2)">${rows.length} line items · ${fmt(grandTotal)} · ${grandLiters.toFixed(2)} L · ${grandGallons.toFixed(2)} gal</span>
-    </div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
-      <table class="tbl">
-        <thead><tr>${cols.map(c=>`<th${c.money||c.num!==undefined||c.pct?' style="text-align:right"':''}>${c.l}</th>`).join('')}</tr></thead>
-        <tbody id="ra2-tbody"></tbody>
-      </table>
-    </div>
-    <div id="ra2-pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border-top:1px solid var(--border)"></div>
-  </div>`;
-  renderRA2Page();
   window._lastReportRows = rows;
   window._lastReportCols = cols.map(c=>c.k);
-}
-function renderRA2Page(){
-  const rows=window._ra2Rows||[];const cols=window._ra2Cols||[];const fmtCell=window._ra2FmtCell;
-  const PAGE_SIZE=200;
-  const totalPages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE));
-  if(window._ra2Page>totalPages)window._ra2Page=totalPages;
-  const start=(window._ra2Page-1)*PAGE_SIZE;
-  const pageRows=rows.slice(start,start+PAGE_SIZE);
-  const tbody=document.getElementById('ra2-tbody');
-  if(tbody){
-    tbody.innerHTML=pageRows.length?pageRows.map(r=>`<tr>${cols.map(c=>`<td style="font-size:12px;${c.money||c.num!==undefined||c.pct?'text-align:right':''}${c.k==='invoice'?';color:var(--gold);font-weight:600':''}${c.k==='total'?';font-weight:600':''}">${fmtCell(r,c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" style="padding:40px;text-align:center;color:var(--text3)">No data for selected filters</td></tr>`;
-  }
-  const pag=document.getElementById('ra2-pagination');
-  if(pag){
-    pag.innerHTML=totalPages<=1?'':`
-      <button class="btn btn-sm" ${window._ra2Page<=1?'disabled':''} onclick="window._ra2Page--;renderRA2Page()"><i class="ti ti-chevron-left"></i> Prev</button>
-      <span style="font-size:13px;color:var(--text2)">Page ${window._ra2Page} of ${totalPages} (${rows.length} total line items)</span>
-      <button class="btn btn-sm" ${window._ra2Page>=totalPages?'disabled':''} onclick="window._ra2Page++;renderRA2Page()">Next <i class="ti ti-chevron-right"></i></button>`;
-  }
+  showReportReadyCard(el,'RA2 — Invoice Line Item (Detailed Sales)',rows.length,'line item');
 }
 
 // RA5 - Depletion by Producer
@@ -8675,45 +8652,10 @@ function renderRA5(el, orders, producerFilter){
   const summary=Object.values(prodMap).sort((a,b)=>b.cases-a.cases);
   const totalCases=rows.reduce((s,r)=>s+r.quantity,0);
 
-  el.innerHTML+=`
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="display:flex;gap:12px">
-      <div class="card" style="padding:12px 20px;text-align:center">
-        <div style="font-size:20px;font-weight:700;color:var(--gold)">${rows.length}</div>
-        <div style="font-size:11px;color:var(--text2)">Line Items</div>
-      </div>
-      <div class="card" style="padding:12px 20px;text-align:center">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${totalCases.toFixed(2)}</div>
-        <div style="font-size:11px;color:var(--text2)">Total Cases</div>
-      </div>
-      <div class="card" style="padding:12px 20px;text-align:center">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${summary.length}</div>
-        <div style="font-size:11px;color:var(--text2)">Producers</div>
-      </div>
-    </div>
-    <button class="btn btn-sm btn-dark" onclick="exportRA5CSV()"><i class="ti ti-download"></i> Export CSV</button>
-  </div>
-
-  <!-- Summary by producer -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-header"><span class="card-title">Summary by Producer</span></div>
-    <table class="tbl">
-      <thead><tr><th>Producer</th><th style="text-align:right">Line Items</th><th style="text-align:right">Total Cases</th><th style="text-align:right">% of Total</th></tr></thead>
-      <tbody>
-      ${summary.map(s=>`<tr>
-        <td style="font-weight:600">${s.producer||'Unknown'}</td>
-        <td style="text-align:right;font-size:12px">${s.lines}</td>
-        <td style="text-align:right;font-weight:600">${s.cases.toFixed(2)}</td>
-        <td style="text-align:right;font-size:12px;color:var(--text2)">${totalCases>0?(s.cases/totalCases*100).toFixed(1):0}%</td>
-      </tr>`).join('')}
-      </tbody>
-      <tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${totalCases.toFixed(2)}</td><td></td></tr></tfoot>
-    </table>
-  </div>`;
-
   window._ra5Rows=rows;
   window._lastReportRows=rows;
   window._lastReportCols=['wineName','wineCode','vintage','producer','account','accountRegion','salesRep','date','quantity','unitPrice','total','notes','invoice','poNumber','warehouse','warehouseCode','sampleOrder','billBackAmount','billBackTotal','priceLabel','abcNumber','shipStreet','shipCity','shipState','shipZip','fobPrice','accountKindPrimary','accountKindSecondary','accountId','bottleSize','packSize'];
+  showReportReadyCard(el,'RA5 — Depletion by Producer',rows.length,'line item');
 }
 
 function exportRA5CSV(){
@@ -8763,38 +8705,13 @@ function renderRA40(el, orders){
     .map(([entry,v])=>({entry,code:CRV_CODE_MAP[entry]||entry,sales:v.sales,qty:v.qty}))
     .sort((a,b)=>b.sales-a.sales);
   const companyName=(typeof COMPANY!=='undefined'&&COMPANY.name)?COMPANY.name:'ACS Beverage Co. LLC';
-
-  el.innerHTML+=`
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">RA40 — CRV Redemption Entry Sales</span>
-      <span style="font-size:12px;color:var(--text2)">${fmt(totalSales)} total CRV</span>
-    </div>
-    <table class="tbl">
-      <thead><tr><th>Supplier</th><th>Code</th><th style="text-align:right">Total Sales</th><th style="text-align:right">Total Quantity</th></tr></thead>
-      <tbody>
-        <tr><td style="font-weight:700">${companyName}</td><td></td><td style="text-align:right;font-weight:700">${fmt(totalSales)}</td><td style="text-align:right;font-weight:700">${totalQty.toLocaleString()}</td></tr>
-        ${rows.length?rows.map(r=>`<tr>
-          <td></td>
-          <td style="font-size:12px;color:var(--text2)">${r.code}</td>
-          <td style="text-align:right">${fmt(r.sales)}</td>
-          <td style="text-align:right">${r.qty.toLocaleString()}</td>
-        </tr>`).join(''):'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No CRV data for selected filters</td></tr>'}
-      </tbody>
-      <tfoot><tr>
-        <td style="padding:10px 12px;font-weight:700">Total</td><td></td>
-        <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalSales)}</td>
-        <td style="padding:10px 12px;text-align:right;font-weight:700">${totalQty.toLocaleString()}</td>
-      </tr></tfoot>
-    </table>
-  </div>`;
-
   window._lastReportRows=[
     {supplier:companyName, code:'', sales:totalSales.toFixed(2), qty:totalQty},
     ...rows.map(r=>({supplier:'', code:r.code, sales:r.sales.toFixed(2), qty:r.qty})),
     {supplier:'Total', code:'', sales:totalSales.toFixed(2), qty:totalQty},
   ];
   window._lastReportCols=['supplier','code','sales','qty'];
+  showReportReadyCard(el,'RA40 — CRV Redemption Entry Sales',rows.length,'CRV type');
 }
 
 // RB1 - Inventory by Supplier
@@ -8808,44 +8725,12 @@ function renderRB1(el, supplierFilter){
     supplierMap[supplier].totalStock+=p.stock||0;
   });
   const rows=Object.values(supplierMap).sort((a,b)=>a.supplier.localeCompare(b.supplier));
-  el.innerHTML+=`
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">RB1 — Inventory by Supplier</span>
-      <span style="font-size:12px;color:var(--text2)">${rows.length} suppliers</span>
-    </div>
-    <div style="overflow-x:auto">
-      <table class="tbl">
-        <thead><tr><th>Supplier / Producer</th><th style="text-align:right">SKUs</th><th style="text-align:right">Total Cases on Hand</th></tr></thead>
-        <tbody>
-        ${rows.map(r=>`
-          <tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-            <td style="font-weight:600">${r.supplier} <i class="ti ti-chevron-down" style="font-size:11px;color:var(--text3)"></i></td>
-            <td style="text-align:right;color:var(--text2)">${r.products.length}</td>
-            <td style="text-align:right;font-weight:600">${r.totalStock.toFixed(1)}</td>
-          </tr>
-          <tr style="display:none;background:var(--bg2)">
-            <td colspan="3" style="padding:0 24px 12px">
-              <table style="width:100%;border-collapse:collapse;font-size:12px">
-                <tr style="color:var(--text3);font-size:11px"><td>SKU</td><td>Product</td><td style="text-align:right">Stock (cases)</td><td style="text-align:right">Reorder Point</td></tr>
-                ${r.products.sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<tr>
-                  <td style="padding:3px 0;color:var(--text2)">${p.sku}</td>
-                  <td style="padding:3px 0">${p.name}</td>
-                  <td style="text-align:right;padding:3px 0;font-weight:600;color:${(p.stock||0)<=(p.reorder||6)?'var(--red)':'var(--green)'}">${(p.stock||0).toFixed(1)}</td>
-                  <td style="text-align:right;padding:3px 0;color:var(--text2)">${p.reorder||6}</td>
-                </tr>`).join('')}
-              </table>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>`;
   window._lastReportRows=rows.flatMap(r=>r.products.map(p=>({
     supplier:r.supplier, sku:p.sku, product:p.name,
     stock:(p.stock||0).toFixed(1), reorder:p.reorder||6,
   })));
   window._lastReportCols=['supplier','sku','product','stock','reorder'];
+  showReportReadyCard(el,'RB1 — Inventory by Supplier',rows.length,'supplier');
 }
 
 // RB2 - Inventory by Producer
@@ -8853,34 +8738,9 @@ function renderRB2(el, producerFilter){
   let products=PRODUCTS;
   if(producerFilter)products=products.filter(p=>p.producer===producerFilter);
   const sorted=products.sort((a,b)=>a.name.localeCompare(b.name));
-  el.innerHTML+=`
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">RB2 — Inventory by Producer</span>
-      <span style="font-size:12px;color:var(--text2)">${sorted.length} products</span>
-    </div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
-      <table class="tbl">
-        <thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Pack</th><th style="text-align:right">Stock (cs)</th><th style="text-align:right">Reorder Pt</th><th>Status</th></tr></thead>
-        <tbody>
-        ${sorted.map(p=>{
-          const low=(p.stock||0)<=(p.reorder||6);
-          return`<tr>
-            <td style="font-size:11px;color:var(--text2)">${p.sku}</td>
-            <td style="font-weight:600;font-size:12px">${p.name}</td>
-            <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
-            <td style="text-align:right;font-size:12px">${p.btl||12}</td>
-            <td style="text-align:right;font-weight:600;color:${low?'var(--red)':'var(--green)'}">${(p.stock||0).toFixed(1)}</td>
-            <td style="text-align:right;font-size:12px;color:var(--text2)">${p.reorder||6}</td>
-            <td><span style="font-size:11px;font-weight:600;color:${low?'var(--red)':'var(--green)'}">${low?'⚠ Low':'OK'}</span></td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>`;
   window._lastReportRows=sorted.map(p=>({sku:p.sku,name:p.name,producer:p.producer,pack:p.btl,stock:p.stock||0,reorder:p.reorder||6}));
   window._lastReportCols=['sku','name','producer','pack','stock','reorder'];
+  showReportReadyCard(el,'RB2 — Inventory by Producer',sorted.length,'product');
 }
 
 // RC12 - Samples
@@ -8933,39 +8793,9 @@ async function renderRC12(el, from, to, producerFilter){
   const grandSamplePrice=allLines.reduce((s,l)=>s+l.totalSamplePrice,0);
   const grandBillBack=allLines.reduce((s,l)=>s+l.totalSampleBillBack,0);
 
-  el.innerHTML+=`
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">RC12 — Samples</span>
-      <span style="font-size:12px;color:var(--text2)">${orders.length} sample orders · ${allLines.length} line items · ${fmt(grandSamplePrice)} notional value</span>
-    </div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
-      <table class="tbl">
-        <thead><tr><th>Account / Product</th><th>Wine Code</th><th>Supplier</th><th style="text-align:right">Qty (cs)</th><th style="text-align:right">Qty (btl)</th><th style="text-align:right">Default Price</th><th style="text-align:right">Sample Bill Back</th><th style="text-align:right">Total Bill Back</th><th style="text-align:right">Total Sample Price</th><th>Notes</th></tr></thead>
-        <tbody>
-        ${acctGroups.length?acctGroups.map(g=>{
-          const acctSamplePrice=g.lines.reduce((s,l)=>s+l.totalSamplePrice,0);
-          return `<tr style="background:var(--bg2)"><td colspan="10" style="font-weight:700;padding:10px 12px">${g.acct} <span style="font-weight:400;color:var(--text2);font-size:12px">(${g.rep}) -- ${fmt(acctSamplePrice)} notional</span></td></tr>`
-          + g.lines.map(l=>`<tr>
-            <td style="font-size:12px;padding-left:24px">${l.product}</td>
-            <td style="font-size:11px;color:var(--text2)">${l.sku}</td>
-            <td style="font-size:12px;color:var(--text2)">${l.producer}</td>
-            <td style="text-align:right;font-size:12px">${l.qtyCases.toFixed(2)}</td>
-            <td style="text-align:right;font-size:12px">${l.qtyBottles}</td>
-            <td style="text-align:right;font-size:12px">${fmt(l.defaultPrice)}</td>
-            <td style="text-align:right;font-size:12px">${fmt(l.sampleBillBack)}</td>
-            <td style="text-align:right;font-size:12px">${fmt(l.totalSampleBillBack)}</td>
-            <td style="text-align:right;font-weight:600">${fmt(l.totalSamplePrice)}</td>
-            <td style="font-size:11px;color:var(--text2)">${l.notes}</td>
-          </tr>`).join('');
-        }).join(''):`<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No sample orders found for the selected filters</td></tr>`}
-        </tbody>
-        ${allLines.length?`<tfoot><tr><td colspan="7" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(grandBillBack)}</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grandSamplePrice)}</td><td></td></tr></tfoot>`:''}
-      </table>
-    </div>
-  </div>`;
   window._lastReportRows=allLines;
   window._lastReportCols=['invoice','date','acct','rep','sku','product','producer','qtyCases','qtyBottles','defaultPrice','fobPrice','laidInCost','sampleBillBack','totalSampleBillBack','totalSamplePrice','totalFobPrice','notes'];
+  showReportReadyCard(el,'RC12 — Samples',allLines.length,'line item');
 }
 
 // RI2 - Open/Past Due
@@ -9131,104 +8961,9 @@ async function renderFINTECH(el, from, to){
   });
 
   rows.sort((a,b)=>a.acct.localeCompare(b.acct)||b.date.localeCompare(a.date));
-
-  el.innerHTML+=`
-  <!-- Summary Stats -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--gold)">${fintechAccounts.length}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Fintech Accounts</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--text)">${rows.length}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Invoices</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(totalRevenue)}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Revenue</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:${totalUnpaid>0?'var(--red)':'var(--green)'}">${fmt(totalUnpaid)}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Open Balance</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--red)">${fmt(rows.filter(r=>r.pastDue).reduce((s,r)=>s+r.total,0))}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Past Due</div>
-    </div>
-  </div>
-
-  <!-- Fintech Accounts List -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-header">
-      <span class="card-title"><i class="ti ti-credit-card" style="color:var(--gold);margin-right:6px"></i>Fintech Accounts</span>
-      <span style="font-size:12px;color:var(--text2)">${fintechAccounts.length} accounts</span>
-    </div>
-    <div style="overflow-x:auto">
-      <table class="tbl">
-        <thead><tr>
-          <th>Account</th><th>Rep</th><th>Terms</th>
-          <th style="text-align:right">Total Revenue</th>
-          <th style="text-align:right">Open Balance</th>
-          <th>Status</th>
-        </tr></thead>
-        <tbody>
-        ${fintechAccounts.map(a=>{
-          const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
-          const acctRows=rows.filter(r=>r.acctId===a.id);
-          const rev=acctRows.reduce((s,r)=>s+r.total,0);
-          const unpaid=acctRows.filter(r=>!r.paid).reduce((s,r)=>s+r.balanceDue,0);
-          const hasPastDue=acctRows.some(r=>r.pastDue);
-          return`<tr>
-            <td style="font-weight:600;cursor:pointer;color:var(--gold)" onclick="openAccountDetail('${a.id}')">${a.name}</td>
-            <td style="font-size:12px;color:var(--text2)">${rep.fname} ${rep.lname||''}</td>
-            <td style="font-size:12px">${a.terms||'Net 30'}</td>
-            <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
-            <td style="text-align:right;font-weight:600;color:${unpaid>0?'var(--red)':'var(--green)'}">${fmt(unpaid)}</td>
-            <td><span style="font-size:11px;font-weight:700;color:${hasPastDue?'var(--red)':unpaid>0?'var(--amber)':'var(--green)'}">${hasPastDue?'PAST DUE':unpaid>0?'OPEN':'CURRENT'}</span></td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Invoice Detail -->
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">Invoice Detail</span>
-      <span style="font-size:12px;color:var(--text2)">${rows.length} invoices</span>
-    </div>
-    <div style="overflow-x:auto;max-height:600px;overflow-y:auto">
-      <table class="tbl">
-        <thead><tr>
-          <th>Invoice</th><th>Account</th><th>Rep</th>
-          <th>Invoice Date</th><th>Delivery</th><th>Due Date</th>
-          <th style="text-align:right">Amount</th><th>Status</th><th>Paid Date</th>
-        </tr></thead>
-        <tbody>
-        ${rows.length?rows.map(r=>`<tr>
-          <td style="font-size:11px;color:var(--gold);cursor:pointer" onclick="viewInvoice('${r.invoice}')">${r.invoice}</td>
-          <td style="font-weight:600;font-size:12px">${r.acct}</td>
-          <td style="font-size:12px;color:var(--text2)">${r.rep}</td>
-          <td style="font-size:12px">${r.date}</td>
-          <td style="font-size:12px">${r.delivery}</td>
-          <td style="font-size:12px;color:${r.pastDue?'var(--red)':'var(--text)'}">${r.dueDate}</td>
-          <td style="text-align:right;font-weight:600">${fmt(r.total)}</td>
-          <td><span style="font-size:11px;font-weight:700;color:${r.paid?'var(--green)':r.pastDue?'var(--red)':'var(--amber)'}">${r.paid?'PAID':r.pastDue?'PAST DUE':'OPEN'}</span></td>
-          <td style="font-size:12px;color:var(--green)">${r.paidDate||'—'}</td>
-        </tr>`).join(''):`<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">No invoices for Fintech accounts in selected period</td></tr>`}
-        </tbody>
-        ${rows.length?`<tfoot><tr>
-          <td colspan="6" style="padding:10px 12px;font-weight:700">Total</td>
-          <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(totalRevenue)}</td>
-          <td colspan="2"></td>
-        </tr></tfoot>`:''}
-      </table>
-    </div>
-  </div>`;
-
   window._lastReportRows = rows;
   window._lastReportCols = ['invoice','acct','rep','date','delivery','dueDate','total','paid','paidDate'];
+  showReportReadyCard(el,'FINTECH',rows.length,'invoice');
 }
 
 // FINTECH Report end ──────────────────────────────────────────────────────────
@@ -9246,12 +8981,8 @@ function renderRA1(el, orders, producerFilter){
     if(!hasProducer&&producerFilter)return;
     rows.push({invoice:o.id,date:o.date,acct:acct.name,rep:rep.fname+' '+rep.lname,lines:items.length,total});
   });
-  const grand=rows.reduce((s,r)=>s+r.total,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA1 — Basic Sales</span><span style="font-size:12px;color:var(--text2)">${rows.length} invoices · ${fmt(grand)}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Invoice</th><th>Date</th><th>Account</th><th>Rep</th><th style="text-align:right">Line Items</th><th style="text-align:right">Total</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--gold)">${r.invoice}</td><td style="font-size:12px">${r.date}</td><td style="font-size:12px;font-weight:600">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="text-align:right;font-size:12px">${r.lines}</td><td style="text-align:right;font-weight:600">${fmt(r.total)}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody>${rows.length?`<tfoot><tr><td colspan="5" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td></tr></tfoot>`:''}</table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['invoice','date','acct','rep','lines','total'];
+  showReportReadyCard(el,'RA1 — Basic Sales',rows.length,'invoice');
 }
 
 // RA3 - Sales Comparison
@@ -9296,11 +9027,8 @@ async function renderRA3(el, producerFilter){
   const rows=allIds.map(id=>({acct:(m1[id]||m2[id])?.acct||id,p1:(m1[id]?.total||0),p2:(m2[id]?.total||0)}))
     .map(r=>({...r,diff:r.p1-r.p2,pct:r.p2>0?((r.p1-r.p2)/r.p2*100):0}))
     .sort((a,b)=>b.p1-a.p1);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA3 — Sales Comparison</span><span style="font-size:12px;color:var(--text2)">Period 1: ${from1||'all'} to ${to1||'now'} vs Period 2: ${from2||'prior'} to ${to2||''}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th style="text-align:right">Period 1</th><th style="text-align:right">Period 2</th><th style="text-align:right">Change</th><th style="text-align:right">%</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="text-align:right;font-weight:600">${fmt(r.p1)}</td><td style="text-align:right;color:var(--text2)">${fmt(r.p2)}</td><td style="text-align:right;color:${r.diff>=0?'var(--green)':'var(--red)'}">${r.diff>=0?'+':''}${fmt(r.diff)}</td><td style="text-align:right;font-size:12px;color:${r.diff>=0?'var(--green)':'var(--red)'}">${r.pct>=0?'+':''}${r.pct.toFixed(1)}%</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data for selected range</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['acct','p1','p2','diff','pct'];
+  showReportReadyCard(el,'RA3 — Sales Comparison',rows.length,'account');
 }
 
 // RA4 - Accounts with Sales Rep
@@ -9309,11 +9037,8 @@ function renderRA4(el){
     const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:'',email:''};
     return{acct:a.name,id:a.id,repName:rep.fname+' '+rep.lname,repEmail:rep.email||'',contact:a.contact||'',contactEmail:a.email||'',phone:a.phone||'',terms:a.terms||'Net 30'};
   }).sort((a,b)=>a.acct.localeCompare(b.acct));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA4 — Accounts with Sales Rep</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Account ID</th><th>Sales Rep</th><th>Rep Email</th><th>Contact</th><th>Contact Email</th><th>Phone</th><th>Terms</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:11px;color:var(--text2)">${r.id}</td><td style="font-size:12px">${r.repName}</td><td style="font-size:11px;color:var(--text2)">${r.repEmail}</td><td style="font-size:12px">${r.contact}</td><td style="font-size:11px;color:var(--text2)">${r.contactEmail}</td><td style="font-size:12px">${r.phone}</td><td style="font-size:12px">${r.terms}</td></tr>`).join('')}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['acct','id','repName','repEmail','contact','contactEmail','phone','terms'];
+  showReportReadyCard(el,'RA4 — Accounts with Sales Rep',rows.length,'account');
 }
 
 // RA6 - Depletion by Supplier (same as RA5 but labeled supplier)
@@ -9331,16 +9056,11 @@ function renderRA7(el, orders){
       matrix[p.producer][o.rep]=(matrix[p.producer][o.rep]||0)+itemLineTotal(item);
     });
   });
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA7 — Sales across Suppliers & Reps</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Supplier/Producer</th>${reps.map(r=>`<th style="text-align:right;font-size:11px">${r.fname}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
-  ${suppliers.map(s=>{const row=matrix[s];const tot=Object.values(row).reduce((a,b)=>a+b,0);if(tot===0)return'';
-    return`<tr><td style="font-weight:600;font-size:12px">${s}</td>${reps.map(r=>`<td style="text-align:right;font-size:12px;color:${row[r.id]>0?'var(--text)':'var(--text3)'}">${row[r.id]>0?fmt(row[r.id]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;
-  }).join('')}
-  </tbody></table></div></div>`;
   const flatRows=[];
   suppliers.forEach(s=>reps.forEach(r=>{if(matrix[s][r.id]>0)flatRows.push({supplier:s,rep:r.fname+' '+(r.lname||''),revenue:matrix[s][r.id].toFixed(2)});}));
   window._lastReportRows=flatRows;
   window._lastReportCols=['supplier','rep','revenue'];
+  showReportReadyCard(el,'RA7 — Sales across Suppliers & Reps',flatRows.length,'row');
 }
 
 // RA8 - Sales by Supplier across Accounts
@@ -9356,13 +9076,8 @@ function renderRA8(el, orders, supplierFilter){
       acctMap[o.acct].invoices.add(o.id);
     });
   });
-  const rows=Object.values(acctMap).sort((a,b)=>b.total-a.total);
-  const grand=rows.reduce((s,r)=>s+r.total,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA8 — Sales by Supplier across Accounts${supplierFilter?' — '+supplierFilter:''}</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts · ${fmt(grand)}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th style="text-align:right">Invoices</th><th style="text-align:right">Total</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="text-align:right;font-size:12px">${r.invoices.size}</td><td style="text-align:right;font-weight:600">${fmt(r.total)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${grand>0?(r.total/grand*100).toFixed(1):0}%</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody>${rows.length?`<tfoot><tr><td colspan="2" style="padding:10px 12px;font-weight:700">Total</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td><td></td></tr></tfoot>`:''}</table></div></div>`;
   window._lastReportRows=rows.map(r=>({acct:r.acct,invoices:r.invoices.size,total:r.total}));window._lastReportCols=['acct','invoices','total'];
+  showReportReadyCard(el,'RA8 — Sales by Supplier across Accounts',rows.length,'account');
 }
 
 // RA9 - Itemized Sales by Supplier across Accounts  
@@ -9381,13 +9096,8 @@ function renderRA10(el, orders, supplierFilter){
       skuMap[item.sku].revenue+=itemLineTotal(item);
     });
   });
-  const rows=Object.values(skuMap).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA10 — Sales by Supplier across SKUs${supplierFilter?' — '+supplierFilter:''}</span><span style="font-size:12px;color:var(--text2)">${rows.length} SKUs · ${fmt(grand)}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Bottles</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${r.bottles}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','cases','bottles','revenue'];
+  showReportReadyCard(el,'RA10 — Sales by Supplier across SKUs',rows.length,'SKU');
 }
 
 // RA11 - Sales for Account across SKUs (uses account filter from producer field)
@@ -9402,13 +9112,8 @@ function renderRA11(el, orders, acctFilter){
     });
   });
   const rows=Object.values(skuMap).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  const acctName=acctFilter?ACCOUNTS.find(a=>a.id===acctFilter)?.name||acctFilter:'All Accounts';
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA11 — Sales for ${acctName} across SKUs</span><span style="font-size:12px;color:var(--text2)">${rows.length} SKUs · ${fmt(grand)}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','cases','revenue'];
+  showReportReadyCard(el,'RA11 — Sales for Account across SKUs',rows.length,'SKU');
 }
 
 // RA12 - Sales by Supplier & Sales Reps
@@ -9426,12 +9131,8 @@ function renderRA12(el, orders, supplierFilter){
     });
   });
   const rows=Object.values(repMap).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA12 — Sales by Supplier & Sales Reps${supplierFilter?' — '+supplierFilter:''}</span><span style="font-size:12px;color:var(--text2)">${fmt(grand)}</span></div>
-  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;color:var(--text2)">${grand>0?(r.revenue/grand*100).toFixed(1):0}%</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div>`;
   window._lastReportRows=rows;window._lastReportCols=['rep','cases','revenue'];
+  showReportReadyCard(el,'RA12 — Sales by Supplier & Sales Reps',rows.length,'rep');
 }
 
 // RA13 - Single Product Sales by Reps
@@ -9446,13 +9147,8 @@ function renderRA13(el, orders, skuFilter){
     });
   });
   const rows=Object.values(repMap).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  const prodName=skuFilter?PRODUCTS.find(p=>p.sku===skuFilter)?.name||skuFilter:'All Products';
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA13 — ${prodName} Sales by Rep</span><span style="font-size:12px;color:var(--text2)">${fmt(grand)}</span></div>
-  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="3" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div>`;
   window._lastReportRows=rows;window._lastReportCols=['rep','cases','revenue'];
+  showReportReadyCard(el,'RA13 — Single Product Sales by Reps',rows.length,'rep');
 }
 
 // RA14 - Single Product Sales by Accounts
@@ -9466,13 +9162,8 @@ function renderRA14(el, orders, skuFilter){
     });
   });
   const rows=Object.values(acctMap).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  const prodName=skuFilter?PRODUCTS.find(p=>p.sku===skuFilter)?.name||skuFilter:'All Products';
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA14 — ${prodName} Sales by Account</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts · ${fmt(grand)}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${grand>0?(r.revenue/grand*100).toFixed(1):0}%</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['acct','cases','revenue'];
+  showReportReadyCard(el,'RA14 — Single Product Sales by Accounts',rows.length,'account');
 }
 
 // RA15 - Accounts with No Sales
@@ -9488,11 +9179,8 @@ function renderRA15(el, from, to){
     const lastOrder=ORDERS.filter(o=>o.acct===a.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
     return{acct:a.name,rep:rep.fname+' '+rep.lname,phone:a.phone||'',lastOrder:lastOrder?.date||'Never'};
   }).sort((a,b)=>a.acct.localeCompare(b.acct));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA15 — Accounts with No Sales</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts with no sales in period</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Sales Rep</th><th>Phone</th><th>Last Order</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="font-size:12px">${r.phone}</td><td style="font-size:12px;color:${r.lastOrder==='Never'?'var(--red)':'var(--text2)'}">${r.lastOrder}</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">All accounts have sales in this period</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['acct','rep','phone','lastOrder'];
+  showReportReadyCard(el,'RA15 — Accounts with No Sales',rows.length,'account');
 }
 
 // RA18 - Sales by Producers & Reps
@@ -9516,12 +9204,9 @@ function renderRA21(el, orders, producerFilter){
     });
   });
   const rows=Object.values(skuMap).sort((a,b)=>b.revenue-a.revenue).slice(0,50);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA21 — Top Products Sold</span><span style="font-size:12px;color:var(--text2)">Top ${rows.length} products by revenue</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>#</th><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Cases</th><th style="text-align:right">Accounts</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
-  ${rows.map((r,i)=>`<tr><td style="font-size:12px;color:var(--text3)">${i+1}</td><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.cases}</td><td style="text-align:right;font-size:12px">${r.accounts.size}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows.map((r,i)=>({rank:i+1,sku:r.sku,name:r.name,producer:r.producer,cases:r.cases,accounts:r.accounts.size,revenue:r.revenue}));
   window._lastReportCols=['rank','sku','name','producer','cases','accounts','revenue'];
+  showReportReadyCard(el,'RA21 — Top Products Sold',rows.length,'product');
 }
 
 // RA22 - Aggregate Totals by Supplier
@@ -9537,13 +9222,9 @@ function renderRA22(el, orders, supplierFilter){
     });
   });
   const rows=Object.values(map).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA22 — Aggregate Totals by Supplier</span><span style="font-size:12px;color:var(--text2)">${rows.length} suppliers · ${fmt(grand)}</span></div>
-  <table class="tbl"><thead><tr><th>Supplier/Producer</th><th style="text-align:right">Invoices</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600">${r.supplier}</td><td style="text-align:right">${r.invoices.size}</td><td style="text-align:right">${r.cases}</td><td style="text-align:right;font-weight:600;color:var(--gold)">${fmt(r.revenue)}</td></tr>`).join('')||'<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody>${rows.length?`<tfoot><tr><td style="padding:10px 12px;font-weight:700">Total</td><td></td><td></td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td></tr></tfoot>`:''}</table></div>`;
   window._lastReportRows=rows.map(r=>({supplier:r.supplier,invoices:r.invoices.size,cases:r.cases,revenue:r.revenue}));
   window._lastReportCols=['supplier','invoices','cases','revenue'];
+  showReportReadyCard(el,'RA22 — Aggregate Totals by Supplier',rows.length,'supplier');
 }
 
 // RA23 - Aggregate Totals by Account with Product Detail
@@ -9562,23 +9243,11 @@ function renderRA23(el, orders, producerFilter){
     });
   });
   const rows=Object.values(acctMap).filter(r=>r.revenue>0).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA23 — Aggregate by Account with Product Detail</span><span style="font-size:12px;color:var(--text2)">${rows.length} accounts · ${fmt(grand)}</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account / Product</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
-  ${rows.map(r=>`
-    <tr style="cursor:pointer;background:var(--bg2)" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-      <td style="font-weight:700">${r.acct} <i class="ti ti-chevron-down" style="font-size:11px"></i></td><td></td><td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.revenue)}</td>
-    </tr>
-    <tr style="display:none">
-      <td colspan="3" style="padding:0 24px 8px">
-        ${Object.values(r.products).sort((a,b)=>b.revenue-a.revenue).map(p=>`<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--border)"><span>${p.name}</span><span>${p.cases}cs &nbsp; <strong>${fmt(p.revenue)}</strong></span></div>`).join('')}
-      </td>
-    </tr>`).join('')||'<tr><td colspan="3" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows.flatMap(r=>Object.values(r.products).map(p=>({
     acct:r.acct, product:p.name, cases:p.cases, revenue:p.revenue.toFixed(2),
   })));
   window._lastReportCols=['acct','product','cases','revenue'];
+  showReportReadyCard(el,'RA23 — Aggregate by Account with Product Detail',rows.length,'account');
 }
 function renderRA24(el, orders, producerFilter){renderRA1(el,orders,producerFilter);}
 
@@ -9586,11 +9255,8 @@ function renderRA24(el, orders, producerFilter){renderRA1(el,orders,producerFilt
 function renderRA26(el, orders){
   const soldSkus=new Set(orders.flatMap(o=>o.items.map(i=>i.sku)));
   const rows=PRODUCTS.filter(p=>!soldSkus.has(p.sku)).map(p=>({sku:p.sku,name:p.name,producer:p.producer||'',cat:p.cat||'',stock:p.stock||0})).sort((a,b)=>a.name.localeCompare(b.name));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA26 — Products with No Sales</span><span style="font-size:12px;color:var(--text2)">${rows.length} products with no sales in period</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Category</th><th style="text-align:right">Stock</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="font-size:12px;color:var(--text2)">${r.cat}</td><td style="text-align:right;font-size:12px">${r.stock}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--text3)">All products have sales in this period</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','cat','stock'];
+  showReportReadyCard(el,'RA26 — Products with No Sales',rows.length,'product');
 }
 
 // RA28 - Depletion by Product
@@ -9627,11 +9293,8 @@ async function renderRA35(el, producerFilter){
     lastAcct:lastPurchase[p.sku]?.acct||'—',
     lastInvoice:lastPurchase[p.sku]?.invoice||'—',
   })).sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA35 — Products Last Purchased</span><span style="font-size:12px;color:var(--text2)">${rows.length} products</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Last Purchased</th><th>Account</th><th>Invoice</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="font-size:12px;color:${r.lastDate==='Never'?'var(--red)':'var(--text)'}">${r.lastDate}</td><td style="font-size:12px">${r.lastAcct}</td><td style="font-size:11px;color:var(--gold)">${r.lastInvoice}</td></tr>`).join('')}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','lastDate','lastAcct','lastInvoice'];
+  showReportReadyCard(el,'RA35 — Products Last Purchased',rows.length,'product');
 }
 
 // RA37 - Monthly Sales by Sales Rep
@@ -9645,14 +9308,11 @@ function renderRA37(el, orders){
     if(data[o.rep])data[o.rep].months[m]=(data[o.rep].months[m]||0)+orderTotal(o);
   });
   const rows=Object.values(data).filter(r=>Object.values(r.months).some(v=>v>0));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA37 — Monthly Sales by Sales Rep</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Sales Rep</th>${months.slice(-12).map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
-  ${rows.map(r=>{const tot=Object.values(r.months).reduce((a,b)=>a+b,0);return`<tr><td style="font-weight:600">${r.rep}</td>${months.slice(-12).map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]>0?'var(--text)':'var(--text3)'}">${r.months[m]>0?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="20" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   const flatRows=[];
   rows.forEach(r=>months.slice(-12).forEach(m=>{if(r.months[m]>0)flatRows.push({rep:r.rep,month:m,revenue:r.months[m].toFixed(2)});}));
   window._lastReportRows=flatRows;
   window._lastReportCols=['rep','month','revenue'];
+  showReportReadyCard(el,'RA37 — Monthly Sales by Sales Rep',flatRows.length,'row');
 }
 
 // RA38 - Detailed Sales with Accounts
@@ -9673,14 +9333,11 @@ function renderRA39(el, orders, supplierFilter){
     });
   });
   const rows=Object.values(suppMap).sort((a,b)=>a.supplier.localeCompare(b.supplier));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA39 — Monthly Sales by Supplier</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Supplier</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
-  ${rows.map(r=>{const tot=months.reduce((a,m)=>a+(r.months[m]||0),0);return`<tr><td style="font-weight:600">${r.supplier}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="15" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   const flatRows=[];
   rows.forEach(r=>months.forEach(m=>{if(r.months[m])flatRows.push({supplier:r.supplier,month:m,revenue:r.months[m].toFixed(2)});}));
   window._lastReportRows=flatRows;
   window._lastReportCols=['supplier','month','revenue'];
+  showReportReadyCard(el,'RA39 — Monthly Sales by Supplier',flatRows.length,'row');
 }
 
 // RA41 - Top Products by Sales Rep
@@ -9698,15 +9355,6 @@ function renderRA41(el, orders, producerFilter){
     });
   });
   const rows=Object.values(repMap).filter(r=>Object.keys(r.products).length>0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA41 — Top Products by Sales Rep</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl">
-  ${rows.map(r=>{
-    const top=Object.values(r.products).sort((a,b)=>b.revenue-a.revenue).slice(0,10);
-    return`<thead><tr><th colspan="3" style="background:var(--navy);color:#fff;padding:10px 12px">${r.rep}</th></tr>
-    <tr><th>Product</th><th style="text-align:right">Cases</th><th style="text-align:right">Revenue</th></tr></thead>
-    <tbody>${top.map(p=>`<tr><td style="font-size:12px">${p.name}</td><td style="text-align:right;font-size:12px">${p.cases}</td><td style="text-align:right;font-weight:600">${fmt(p.revenue)}</td></tr>`).join('')}</tbody>`;
-  }).join('')}
-  </table></div></div>`;
   const flatRows=[];
   rows.forEach(r=>{
     Object.values(r.products).sort((a,b)=>b.revenue-a.revenue).slice(0,10).forEach(p=>{
@@ -9715,6 +9363,7 @@ function renderRA41(el, orders, producerFilter){
   });
   window._lastReportRows=flatRows;
   window._lastReportCols=['rep','product','cases','revenue'];
+  showReportReadyCard(el,'RA41 — Top Products by Sales Rep',flatRows.length,'row');
 }
 
 // RA42 - Sales by Producer
@@ -9734,14 +9383,11 @@ function renderRA44(el, orders, producerFilter){
     });
   });
   const rows=Object.entries(skuMap).map(([sku,v])=>({sku,...v,total:Object.values(v.months).reduce((a,b)=>a+b,0)})).sort((a,b)=>b.total-a.total).slice(0,50);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RA44 — Sales by Product: Monthly</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(r.total)}</td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   const flatRows=[];
   rows.forEach(r=>months.forEach(m=>{if(r.months[m])flatRows.push({sku:r.sku,name:r.name,month:m,revenue:r.months[m].toFixed(2)});}));
   window._lastReportRows=flatRows;
   window._lastReportCols=['sku','name','month','revenue'];
+  showReportReadyCard(el,'RA44 — Sales by Product: Monthly',flatRows.length,'row');
 }
 
 // RB6 - Velocity Estimate
@@ -9770,11 +9416,8 @@ async function renderRB6(el, producerFilter){
     const weeksLeft=velMonth>0?(stock/(velMonth/4.3)):999;
     return{sku:p.sku,name:p.name,producer:p.producer||'',stock,velMonth,weeksLeft:weeksLeft<999?weeksLeft.toFixed(1):'∞'};
   }).filter(r=>r.stock>0||r.velMonth>0).sort((a,b)=>parseFloat(a.weeksLeft)-parseFloat(b.weeksLeft));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RB6 — Velocity Estimate</span><span style="font-size:12px;color:var(--text2)">Based on last 30 days sales</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Stock (cs)</th><th style="text-align:right">Velocity/mo</th><th style="text-align:right">Weeks Left</th><th>Status</th></tr></thead><tbody>
-  ${rows.map(r=>{const low=parseFloat(r.weeksLeft)<4;return`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.stock.toFixed(1)}</td><td style="text-align:right;font-size:12px">${r.velMonth.toFixed(1)}</td><td style="text-align:right;font-weight:600;color:${low?'var(--red)':'var(--green)'}">${r.weeksLeft}</td><td><span style="font-size:11px;font-weight:700;color:${low?'var(--red)':'var(--green)'}">${low?'⚠ Low':'OK'}</span></td></tr>`;}).join('')||'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3)">No inventory data</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','stock','velMonth','weeksLeft'];
+  showReportReadyCard(el,'RB6 — Velocity Estimate',rows.length,'product');
 }
 
 // RB7 - Inventory Stock Status
@@ -9788,12 +9431,8 @@ function renderRB9(el, producerFilter){
     const value=(p.stock||0)*price;
     return{sku:p.sku,name:p.name,producer:p.producer||'',stock:p.stock||0,price,value};
   }).filter(r=>r.stock>0).sort((a,b)=>b.value-a.value);
-  const grand=rows.reduce((s,r)=>s+r.value,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RB9 — Total Dollars On Hand</span><span style="font-size:12px;color:var(--text2)">${rows.length} products · ${fmt(grand)} total value</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Stock (cs)</th><th style="text-align:right">Case Price</th><th style="text-align:right">Value</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-size:12px">${r.stock.toFixed(1)}</td><td style="text-align:right;font-size:12px">${fmt(r.price)}</td><td style="text-align:right;font-weight:600">${fmt(r.value)}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--text3)">No inventory on hand</td></tr>'}
-  </tbody>${rows.length?`<tfoot><tr><td colspan="5" style="padding:10px 12px;font-weight:700">Total Value</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(grand)}</td></tr></tfoot>`:''}</table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','stock','price','value'];
+  showReportReadyCard(el,'RB9 — Total Dollars On Hand',rows.length,'product');
 }
 
 // RBOUTS - Inventory Not Available
@@ -9801,11 +9440,8 @@ function renderRBOUTS(el, producerFilter){
   const rows=PRODUCTS.filter(p=>(!producerFilter||p.producer===producerFilter)&&(p.stock||0)<=0)
     .map(p=>({sku:p.sku,name:p.name,producer:p.producer||'',stock:p.stock||0,reorder:p.reorder||6}))
     .sort((a,b)=>a.name.localeCompare(b.name));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RB - OUTS (Inventory Not Available)</span><span style="font-size:12px;color:var(--red)">${rows.length} products out of stock</span></div>
-  <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th style="text-align:right">Stock</th><th style="text-align:right">Reorder Point</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-size:11px;color:var(--text2)">${r.sku}</td><td style="font-weight:600;font-size:12px;color:var(--red)">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.producer}</td><td style="text-align:right;font-weight:700;color:var(--red)">${r.stock}</td><td style="text-align:right;font-size:12px">${r.reorder}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--green)">All products are in stock!</td></tr>'}
-  </tbody></table></div>`;
   window._lastReportRows=rows;window._lastReportCols=['sku','name','producer','stock','reorder'];
+  showReportReadyCard(el,'RB - OUTS (Inventory Not Available)',rows.length,'product');
 }
 
 // RC2 - Customer Activity by Month
@@ -9822,22 +9458,13 @@ function renderRC2(el, orders){
     data[o.rep].months[m].revenue+=orderTotal(o);
     data[o.rep].months[m].accounts.add(o.acct);
   });
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC2 — Customer Activity by Month</span></div>
-  ${Object.values(data).map(r=>`
-  <div style="padding:12px 18px;border-bottom:1px solid var(--border)">
-    <div style="font-weight:700;margin-bottom:8px">${r.rep}</div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <tr>${months.map(m=>`<th style="padding:4px 8px;text-align:center;color:var(--text2)">${m}</th>`).join('')}</tr>
-      <tr>${months.map(m=>`<td style="padding:4px 8px;text-align:center">${r.months[m]?r.months[m].orders+' orders':'-'}</td>`).join('')}</tr>
-      <tr>${months.map(m=>`<td style="padding:4px 8px;text-align:center;font-weight:600;color:var(--gold)">${r.months[m]?fmt(r.months[m].revenue):'-'}</td>`).join('')}</tr>
-    </table>
-  </div>`).join('')}</div>`;
   const flatRows=[];
   Object.values(data).forEach(r=>months.forEach(m=>{
     if(r.months[m])flatRows.push({rep:r.rep,month:m,orders:r.months[m].orders,accounts:r.months[m].accounts.size,revenue:r.months[m].revenue.toFixed(2)});
   }));
   window._lastReportRows=flatRows;
   window._lastReportCols=['rep','month','orders','accounts','revenue'];
+  showReportReadyCard(el,'RC2 — Customer Activity by Month',flatRows.length,'row');
 }
 
 // RC3 - Unloved Accounts
@@ -9851,11 +9478,8 @@ function renderRC3(el){
     const daysSince=lastOrder?Math.floor((Date.now()-new Date(lastOrder.date))/(1000*60*60*24)):999;
     return{acct:a.name,rep:rep.fname+' '+rep.lname,lastOrder:lastOrder?.date||'Never',daysSince,phone:a.phone||''};
   }).sort((a,b)=>b.daysSince-a.daysSince);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC3 — Unloved Accounts</span><span style="font-size:12px;color:var(--red)">${rows.length} accounts with no orders in 90 days</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Sales Rep</th><th>Phone</th><th>Last Order</th><th style="text-align:right">Days Since</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="font-size:12px">${r.phone}</td><td style="font-size:12px;color:${r.lastOrder==='Never'?'var(--red)':'var(--text2)'}">${r.lastOrder}</td><td style="text-align:right;font-weight:600;color:${r.daysSince>180?'var(--red)':r.daysSince>90?'var(--amber)':'var(--text)'}">${r.daysSince===999?'Never':r.daysSince+'d'}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--green)">All accounts have recent activity!</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['acct','rep','phone','lastOrder','daysSince'];
+  showReportReadyCard(el,'RC3 — Unloved Accounts',rows.length,'account');
 }
 
 // RC5 - Sales Summary by Month
@@ -9869,14 +9493,11 @@ function renderRC5(el, orders){
     acctMap[o.acct].months[m]=(acctMap[o.acct].months[m]||0)+orderTotal(o);
   });
   const rows=Object.values(acctMap).sort((a,b)=>a.acct.localeCompare(b.acct));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC5 — Sales Summary by Month</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th>${months.map(m=>`<th style="text-align:right;font-size:11px">${m}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
-  ${rows.map(r=>{const tot=months.reduce((a,m)=>a+(r.months[m]||0),0);return`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td>${months.map(m=>`<td style="text-align:right;font-size:12px;color:${r.months[m]?'var(--text)':'var(--text3)'}">${r.months[m]?fmt(r.months[m]):'—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--gold)">${fmt(tot)}</td></tr>`;}).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No data</td></tr>'}
-  </tbody></table></div></div>`;
   const flatRows=[];
   rows.forEach(r=>months.forEach(m=>{if(r.months[m])flatRows.push({acct:r.acct,month:m,revenue:r.months[m].toFixed(2)});}));
   window._lastReportRows=flatRows;
   window._lastReportCols=['acct','month','revenue'];
+  showReportReadyCard(el,'RC5 — Sales Summary by Month',flatRows.length,'row');
 }
 
 // RC6 - Commissions Calculator
@@ -10029,12 +9650,8 @@ function renderRC10(el, orders){
     const revenue=repOrders.reduce((s,o)=>s+orderTotal(o),0);
     return{rep:u.fname+' '+u.lname,orders:repOrders.length,accounts:new Set(repOrders.map(o=>o.acct)).size,revenue};
   }).sort((a,b)=>b.revenue-a.revenue);
-  const grand=rows.reduce((s,r)=>s+r.revenue,0);
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RC10 — Sales by Sales Rep</span><span style="font-size:12px;color:var(--text2)">${fmt(grand)} total</span></div>
-  <table class="tbl"><thead><tr><th>Sales Rep</th><th style="text-align:right">Orders</th><th style="text-align:right">Accounts</th><th style="text-align:right">Revenue</th><th style="text-align:right">% of Total</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600">${r.rep}</td><td style="text-align:right;font-size:12px">${r.orders}</td><td style="text-align:right;font-size:12px">${r.accounts}</td><td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td><td style="text-align:right;font-size:12px;color:var(--text2)">${grand>0?(r.revenue/grand*100).toFixed(1):0}%</td></tr>`).join('')}
-  </tbody></table></div>`;
   window._lastReportRows=rows;window._lastReportCols=['rep','orders','accounts','revenue'];
+  showReportReadyCard(el,'RC10 — Sales by Sales Rep',rows.length,'rep');
 }
 
 // RF1 - Aggregate Sales
@@ -10046,11 +9663,8 @@ function renderRH1(el){
     const rep=USERS.find(u=>u.id===a.rep)||{fname:'',lname:''};
     return{acct:a.name,rep:rep.fname+' '+rep.lname,contact:a.contact||'',email:a.email||'',phone:a.phone||''};
   }).sort((a,b)=>a.acct.localeCompare(b.acct));
-  el.innerHTML+=`<div class="card"><div class="card-header"><span class="card-title">RH1 — Account Resale (Missing ABC#)</span><span style="font-size:12px;color:var(--amber)">${rows.length} accounts missing license/resale #</span></div>
-  <div style="overflow-x:auto;max-height:600px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Sales Rep</th><th>Contact</th><th>Email</th><th>Phone</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr><td style="font-weight:600;font-size:12px">${r.acct}</td><td style="font-size:12px;color:var(--text2)">${r.rep}</td><td style="font-size:12px">${r.contact}</td><td style="font-size:12px;color:var(--text2)">${r.email}</td><td style="font-size:12px">${r.phone}</td></tr>`).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--green)">All accounts have license numbers!</td></tr>'}
-  </tbody></table></div></div>`;
   window._lastReportRows=rows;window._lastReportCols=['acct','rep','contact','email','phone'];
+  showReportReadyCard(el,'RH1 — Account Resale (Missing ABC#)',rows.length,'account');
 }
 
 // RH2 - Account A/R History Detail
