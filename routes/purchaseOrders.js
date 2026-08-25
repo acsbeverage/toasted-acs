@@ -15,11 +15,22 @@ const NOTIFY_EMAILS = (process.env.PO_CC_EMAILS || 'accounting@acsbeverage.com,j
 router.get('/suppliers', requireAdmin, async (req, res) => {
   try {
     const rows = await getAll('SELECT * FROM po_suppliers ORDER BY name');
-    res.json({ ok: true, suppliers: rows.map(r => ({
-      id: r.id, name: r.name, paymentTerms: r.payment_terms,
-      contactName: r.contact_name || '', contactEmail: r.contact_email || '',
-      contactPhone: r.contact_phone || '', address: r.address || ''
-    })) });
+    const contactRows = await getAll('SELECT * FROM po_supplier_contacts ORDER BY is_primary DESC, sort_order, id');
+    const contactsBySupplier = {};
+    contactRows.forEach(c => {
+      if (!contactsBySupplier[c.supplier_id]) contactsBySupplier[c.supplier_id] = [];
+      contactsBySupplier[c.supplier_id].push(c);
+    });
+    res.json({ ok: true, suppliers: rows.map(r => {
+      const contacts = contactsBySupplier[r.id] || [];
+      const primary = contacts[0]; // already sorted primary-first
+      return {
+        id: r.id, name: r.name, paymentTerms: r.payment_terms,
+        contactName: primary?.name || '', contactEmail: primary?.email || '',
+        contactPhone: primary?.phone || '', address: r.address || '',
+        contactCount: contacts.length,
+      };
+    }) });
   } catch (err) {
     console.error('List suppliers error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -28,12 +39,12 @@ router.get('/suppliers', requireAdmin, async (req, res) => {
 
 router.post('/suppliers', requireAdmin, async (req, res) => {
   try {
-    const { name, paymentTerms, contactName, contactEmail, contactPhone, address } = req.body;
+    const { name, paymentTerms, address } = req.body;
     if (!name) return res.status(400).json({ ok: false, error: 'Supplier name required' });
     const row = await getOne(
-      `INSERT INTO po_suppliers (name,payment_terms,contact_name,contact_email,contact_phone,address)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [name, paymentTerms || 'Net 30', contactName || '', contactEmail || '', contactPhone || '', address || '']
+      `INSERT INTO po_suppliers (name,payment_terms,address)
+       VALUES ($1,$2,$3) RETURNING id`,
+      [name, paymentTerms || 'Net 30', address || '']
     );
     res.json({ ok: true, id: row.id });
   } catch (err) {
@@ -44,10 +55,10 @@ router.post('/suppliers', requireAdmin, async (req, res) => {
 
 router.patch('/suppliers/:id', requireAdmin, async (req, res) => {
   try {
-    const { name, paymentTerms, contactName, contactEmail, contactPhone, address } = req.body;
+    const { name, paymentTerms, address } = req.body;
     await query(
-      `UPDATE po_suppliers SET name=$1,payment_terms=$2,contact_name=$3,contact_email=$4,contact_phone=$5,address=$6 WHERE id=$7`,
-      [name, paymentTerms || 'Net 30', contactName || '', contactEmail || '', contactPhone || '', address || '', req.params.id]
+      `UPDATE po_suppliers SET name=$1,payment_terms=$2,address=$3 WHERE id=$4`,
+      [name, paymentTerms || 'Net 30', address || '', req.params.id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -62,6 +73,65 @@ router.delete('/suppliers/:id', requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete supplier error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+// ── SUPPLIER CONTACTS ────────────────────────────────────────────────────────
+router.get('/suppliers/:id/contacts', requireAdmin, async (req, res) => {
+  try {
+    const rows = await getAll('SELECT * FROM po_supplier_contacts WHERE supplier_id=$1 ORDER BY is_primary DESC, sort_order, id', [req.params.id]);
+    res.json({ ok: true, contacts: rows.map(r => ({
+      id: r.id, supplierId: r.supplier_id, name: r.name || '', role: r.role || '',
+      email: r.email || '', phone: r.phone || '', isPrimary: r.is_primary,
+    })) });
+  } catch (err) {
+    console.error('List supplier contacts error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/suppliers/:id/contacts', requireAdmin, async (req, res) => {
+  try {
+    const { name, role, email, phone, isPrimary } = req.body;
+    if (!name && !email && !phone) return res.status(400).json({ ok: false, error: 'At least a name, email, or phone is required' });
+    // Only one contact can be primary at a time -- demote any existing primary first.
+    if (isPrimary) await query('UPDATE po_supplier_contacts SET is_primary=FALSE WHERE supplier_id=$1', [req.params.id]);
+    const row = await getOne(
+      `INSERT INTO po_supplier_contacts (supplier_id, name, role, email, phone, is_primary)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [req.params.id, name || '', role || '', email || '', phone || '', !!isPrimary]
+    );
+    res.json({ ok: true, id: row.id });
+  } catch (err) {
+    console.error('Create supplier contact error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.patch('/supplier-contacts/:id', requireAdmin, async (req, res) => {
+  try {
+    const { name, role, email, phone, isPrimary } = req.body;
+    const contact = await getOne('SELECT supplier_id FROM po_supplier_contacts WHERE id=$1', [req.params.id]);
+    if (!contact) return res.status(404).json({ ok: false, error: 'Contact not found' });
+    if (isPrimary) await query('UPDATE po_supplier_contacts SET is_primary=FALSE WHERE supplier_id=$1', [contact.supplier_id]);
+    await query(
+      `UPDATE po_supplier_contacts SET name=$1, role=$2, email=$3, phone=$4, is_primary=$5 WHERE id=$6`,
+      [name || '', role || '', email || '', phone || '', !!isPrimary, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Update supplier contact error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.delete('/supplier-contacts/:id', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM po_supplier_contacts WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete supplier contact error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
