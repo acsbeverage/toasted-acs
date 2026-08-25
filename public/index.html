@@ -4347,7 +4347,7 @@ async function sendPOEmailToSupplier(id){
 // -- UNCONFIRMED ----------------------------------------------------------------
 const UNCONF_PAGE_SIZE=20;
 let _unconfPage=1;
-let _unconfSort='date_desc';
+let _unconfSort='delivery_asc';
 function renderUnconfirmed(){
   const isAdmin=currentUser.role==='admin';
   const mine=ORDERS.filter(o=>o.status==='unconfirmed'); // ORDERS is already correctly scoped by the backend to this user
