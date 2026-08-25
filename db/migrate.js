@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { query, getOne } = require('./index');
+const { query, getOne, getAll } = require('./index');
 
 async function migrate() {
   console.log('Running migrations...');
@@ -248,6 +248,37 @@ async function migrate() {
     address TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
+
+  // Multiple contacts per supplier -- a supplier commonly has more than one person to reach
+  // (sales rep, accounting, etc.), which a single contact_name/email/phone on po_suppliers
+  // itself can't represent.
+  await query(`CREATE TABLE IF NOT EXISTS po_supplier_contacts (
+    id SERIAL PRIMARY KEY,
+    supplier_id INTEGER REFERENCES po_suppliers(id) ON DELETE CASCADE,
+    name TEXT, role TEXT, email TEXT, phone TEXT,
+    is_primary BOOLEAN DEFAULT FALSE,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_po_supplier_contacts_supplier ON po_supplier_contacts(supplier_id)`);
+
+  // One-time migration -- carry over each supplier's existing single contact (if any) as
+  // their first, primary contact in the new table, so nothing already entered is lost.
+  const suppliersWithContacts = await getAll(
+    `SELECT id, contact_name, contact_email, contact_phone FROM po_suppliers
+     WHERE (contact_name IS NOT NULL AND contact_name != '')
+        OR (contact_email IS NOT NULL AND contact_email != '')
+        OR (contact_phone IS NOT NULL AND contact_phone != '')`
+  );
+  for (const s of suppliersWithContacts) {
+    const exists = await getOne('SELECT id FROM po_supplier_contacts WHERE supplier_id=$1 LIMIT 1', [s.id]);
+    if (exists) continue;
+    await query(
+      `INSERT INTO po_supplier_contacts (supplier_id, name, email, phone, is_primary, sort_order)
+       VALUES ($1,$2,$3,$4,TRUE,0)`,
+      [s.id, s.contact_name || '', s.contact_email || '', s.contact_phone || '']
+    );
+  }
 
   await query(`CREATE TABLE IF NOT EXISTS po_products (
     id SERIAL PRIMARY KEY,
