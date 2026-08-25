@@ -9960,82 +9960,16 @@ function renderRC6(el, orders){
 
   const grandRevenue=Object.values(repData).reduce((s,r)=>s+r.totalRevenue,0);
   const grandCommission=Object.values(repData).reduce((s,r)=>s+r.totalCommission,0);
+  const totalLines=Object.values(repData).reduce((s,r)=>s+r.lines.length,0);
 
-  // Summary cards
+  // Commission figures are sensitive -- data is still fully computed for export below, but
+  // nothing is rendered on screen beyond a simple status confirming it's ready.
   el.innerHTML+=`
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--green)">${fmt(grandRevenue)}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Revenue</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--gold)">${fmt(grandCommission)}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Total Commission</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:20px;font-weight:700;color:var(--text)">${selectedReps.length}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Reps</div>
-    </div>
+  <div class="card" style="padding:30px;text-align:center">
+    <i class="ti ti-file-spreadsheet" style="font-size:32px;color:var(--gold);display:block;margin-bottom:10px"></i>
+    <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">Commission data ready for ${selectedReps.length} rep${selectedReps.length!==1?'s':''}</div>
+    <div style="font-size:12px;color:var(--text2)">${totalLines} line item${totalLines!==1?'s':''} -- use Export Excel above to download</div>
   </div>`;
-
-  // Detailed table grouped by rep
-  Object.values(repData).forEach(rd=>{
-    if(!rd.lines.length)return;
-    const rep=rd.rep;
-    el.innerHTML+=`
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-header" style="background:var(--navy)">
-        <span class="card-title" style="color:#fff">${rep.fname} ${rep.lname||''}</span>
-        <span style="font-size:12px;color:rgba(255,255,255,0.7)">
-          ${rd.lines.length} line items &nbsp;·&nbsp; 
-          Revenue: ${fmt(rd.totalRevenue)} &nbsp;·&nbsp; 
-          Commission: <strong style="color:var(--gold)">${fmt(rd.totalCommission)}</strong> 
-          (${(rep.commission||5)}%)
-        </span>
-      </div>
-      <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
-        <table class="tbl">
-          <thead><tr>
-            <th>Supplier</th>
-            <th>Delivery Date</th>
-            <th>Paid Date</th>
-            <th>Account</th>
-            <th>Wine</th>
-            <th style="text-align:right">Qty (cs)</th>
-            <th style="text-align:right">Line Amount</th>
-            <th>Order Date</th>
-            <th style="text-align:right">Commission</th>
-            <th style="text-align:right">Rate</th>
-            <th>Invoice #</th>
-            <th style="text-align:right">Discount %</th>
-          </tr></thead>
-          <tbody>
-          ${rd.lines.map(l=>`<tr>
-            <td style="font-size:11px;color:var(--text2)">${l.supplier}</td>
-            <td style="font-size:12px">${l.deliveryDate}</td>
-            <td style="font-size:12px;color:${l.paidDate?'var(--green)':'var(--text3)'}">${l.paidDate||'Unpaid'}</td>
-            <td style="font-size:12px;font-weight:600">${l.account}</td>
-            <td style="font-size:12px">${l.wine}</td>
-            <td style="text-align:right;font-size:12px">${l.quantity.toFixed(2)}</td>
-            <td style="text-align:right;font-weight:600">${fmt(l.lineItemAmount)}</td>
-            <td style="font-size:12px">${l.orderDate}</td>
-            <td style="text-align:right;font-weight:600;color:var(--gold)">${fmt(l.commission)}</td>
-            <td style="text-align:right;font-size:12px;color:var(--text2)">${(l.rate*100).toFixed(0)}%</td>
-            <td style="font-size:11px;color:var(--gold)">${l.invoice}</td>
-            <td style="text-align:right;font-size:12px">${l.discountPct>0?l.discountPct+'%':'--'}</td>
-          </tr>`).join('')}
-          </tbody>
-          <tfoot><tr>
-            <td colspan="6" style="padding:10px 12px;font-weight:700">Subtotal — ${rep.fname} ${rep.lname||''}</td>
-            <td style="padding:10px 12px;text-align:right;font-weight:700">${fmt(rd.totalRevenue)}</td>
-            <td></td>
-            <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--gold)">${fmt(rd.totalCommission)}</td>
-            <td colspan="3"></td>
-          </tr></tfoot>
-        </table>
-      </div>
-    </div>`;
-  });
 
   // Store data for Excel export
   window._rc6Data = repData;
