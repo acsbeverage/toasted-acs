@@ -4330,7 +4330,7 @@ function _buildPOPdfDoc(order){
       doc.setFillColor(61,61,61);doc.rect(ML+6,vendY,halfW-6,14,'F');
       doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
       doc.text('Vendor',ML+10,vendY+10);
-      doc.rect(ML+halfW+8,vendY,halfW-2,14,'F');
+      doc.setFillColor(61,61,61);doc.rect(ML+halfW+8,vendY,halfW-2,14,'F');
       doc.text('Ship To:',ML+halfW+12,vendY+10);
       doc.setFontSize(9);doc.setTextColor(26,26,26);
       doc.text(order.supplierName,ML+10,vendY+27);
