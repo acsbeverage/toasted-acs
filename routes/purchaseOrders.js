@@ -373,11 +373,18 @@ router.post('/orders/:id/send-email', requireAdmin, async (req, res) => {
     if (!pdfBase64) return res.status(400).json({ ok: false, error: 'PDF data required' });
 
     const po = await getOne(`
-      SELECT po.*, s.name as supplier_name, s.contact_email
+      SELECT po.*, s.name as supplier_name
       FROM purchase_orders po LEFT JOIN po_suppliers s ON po.supplier_id = s.id
       WHERE po.id=$1`, [req.params.id]);
     if (!po) return res.status(404).json({ ok: false, error: 'PO not found' });
-    if (!po.contact_email) return res.status(400).json({ ok: false, error: 'This supplier has no contact email set -- add one in Suppliers & Products first' });
+
+    // Send to every saved contact that has an email -- not just a single one.
+    const contacts = await getAll(
+      `SELECT email FROM po_supplier_contacts WHERE supplier_id=$1 AND email IS NOT NULL AND email != '' ORDER BY is_primary DESC, sort_order, id`,
+      [po.supplier_id]
+    );
+    const toEmails = contacts.map(c => c.email);
+    if (!toEmails.length) return res.status(400).json({ ok: false, error: 'This supplier has no contacts with an email set -- add one in Suppliers & Products first' });
     if (!process.env.SENDGRID_API_KEY) return res.status(500).json({ ok: false, error: 'Email is not configured on the server' });
 
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -386,7 +393,7 @@ router.post('/orders/:id/send-email', requireAdmin, async (req, res) => {
 
     try {
       await sgMail.send({
-        to: po.contact_email,
+        to: toEmails,
         cc: NOTIFY_EMAILS,
         from: { email: FROM_EMAIL, name: FROM_NAME },
         subject: `Purchase Order ${po.po_number} — ACS Beverage Co.`,
@@ -416,11 +423,11 @@ router.post('/orders/:id/send-email', requireAdmin, async (req, res) => {
         }]
       });
       await query('UPDATE purchase_orders SET email_status=$1, email_sent_at=NOW() WHERE id=$2', ['sent', req.params.id]);
-      res.json({ ok: true });
+      res.json({ ok: true, sentTo: toEmails });
     } catch (sendErr) {
       console.error('Send PO email error:', sendErr.response?.body || sendErr.message);
       await query('UPDATE purchase_orders SET email_status=$1 WHERE id=$2', ['failed', req.params.id]);
-      res.status(500).json({ ok: false, error: 'Email failed to send -- check the supplier contact email is valid' });
+      res.status(500).json({ ok: false, error: 'Email failed to send -- check the supplier contact email(s) are valid' });
     }
   } catch (err) {
     console.error('Send PO email error:', err.message);
