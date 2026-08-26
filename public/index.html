@@ -4108,14 +4108,15 @@ async function savePOSupplier(id){
   }catch(e){toast('Failed to save -- check connection');}
 }
 async function deletePOSupplier(id){
-  if(!confirm('Delete this supplier? Its products and contacts will also be removed.'))return;
+  if(!confirm('Delete this supplier? Its products and contacts will also be removed from view.'))return;
   try{
-    await fetch(TOASTED_BACKEND_URL+'/api/po/suppliers/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}});
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/suppliers/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to delete supplier');return}
     toast('Supplier deleted');
     _poDetailSupplierId=null;
     await loadPOData(true);
     renderPOSuppliers();
-  }catch(e){toast('Failed to delete');}
+  }catch(e){toast('Failed to delete -- check connection');}
 }
 
 function openPOProductForm(supplierId,id){
