@@ -4998,7 +4998,7 @@ function renderHistory(){
     ${orderSortSelectHtml('hist-sort',"_histSort=this.value;_histPage=1;filterHistory()",'date_desc')}
   </div>
   <div class="card"><div class="card-header" style="flex-wrap:wrap;gap:10px"><span class="card-title" id="hist-count">${mine.length} orders</span>
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span id="hist-selected-count" style="font-size:12px;color:var(--text2)"></span><button class="btn btn-sm" onclick="selectAllHistory(true)"><i class="ti ti-checks"></i> Select all</button><button class="btn btn-sm" onclick="selectAllHistory(false)">Deselect all</button><button class="btn btn-sm btn-pdf" onclick="exportSelectedInvoicesPDF()"><i class="ti ti-file-download"></i> Export invoices as PDF</button></div></div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span id="hist-selected-count" style="font-size:12px;color:var(--text2)"></span><button class="btn btn-sm" onclick="selectAllHistory(true)"><i class="ti ti-checks"></i> Select all</button><button class="btn btn-sm" onclick="selectAllHistory(false)">Deselect all</button><button class="btn btn-sm btn-pdf" onclick="exportSelectedInvoicesPDF()"><i class="ti ti-file-download"></i> Export invoices as PDF</button><button class="btn btn-sm" onclick="exportSidekickCrossdockCSV()"><i class="ti ti-file-download"></i> Export Sidekick Crossdock CSV</button></div></div>
   <div id="hist-table-view"><table class="tbl"><thead><tr><th style="width:32px"><input type="checkbox" id="hist-chk-all" onchange="selectAllHistory(this.checked)" style="cursor:pointer;width:15px;height:15px"/></th><th>Order ID</th><th>Account</th>${isAdmin?'<th>Rep</th>':''}<th>Order date</th><th>Delivery</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
   <tbody id="hist-body"></tbody></table></div>
   <div id="hist-cards-view" style="display:none;padding:14px"></div>
@@ -11550,6 +11550,84 @@ async function exportSelectedInvoicesPDF(){
   }
   sharedDoc.save('Invoices-'+today()+'.pdf');
   toast(orders.length+' invoice'+(orders.length!==1?'s':'')+' combined into one PDF');
+}
+// Sidekick Crossdock CSV export -- exact column structure and field mapping confirmed
+// directly from a real Sidekick export file. "Owner Num" is a fixed, generic account number
+// that never changes. One row per line item (each product, plus each fee) per order.
+const SIDEKICK_OWNER_NUM='533342559';
+const SIDEKICK_CSV_COLS=['Owner Num','Deliver Date','Delivery / Pickup','Order Category','Order Type','Order Num','Invoice Num','Misc Charge Item','Name','Item Number','Qty / Case','Case Qty','Case Price','Sold By','Account Ref','Ship To Name','Ship To Addr 1','Ship To Addr 2','Ship To City','Ship To State','Ship To Zip','Phone','Bot Price','Bot Qty'];
+function _sidekickFeeLabel(item){
+  if(item.sku===DELIVERY_FEE_SKU)return'Delivery Fee';
+  if(item.sku===BROKEN_CASE_SKU)return'Broken Case Fee';
+  if(item.sku===CRV_SKU)return item.label||'CA CRV';
+  return item.notes||'Misc Fee';
+}
+async function exportSidekickCrossdockCSV(){
+  const ids=getSelectedHistoryIds();
+  if(!ids.length){toast('Select at least one order to export');return}
+  let orders=ids.map(id=>ORDERS.find(x=>x.id===id)).filter(Boolean);
+  if(!orders.length){toast('Selected orders could not be found');return}
+  toast('Building Sidekick Crossdock CSV for '+orders.length+' order'+(orders.length!==1?'s':'')+'...');
+
+  const rows=[];
+  for(let o of orders){
+    o=await ensureOrderItemsLoaded(o.id)||o;
+    const acct=acctById(o.acct)||{};
+    const rep=userById(o.rep)||{};
+    (o.items||[]).forEach(item=>{
+      const base={
+        ownerNum:SIDEKICK_OWNER_NUM,
+        deliverDate:o.delivery||'',
+        deliveryPickup:'Delivery',
+        orderCategory:'delivery',
+        orderType:'Standard',
+        orderNum:o.id,
+        invoiceNum:o.id,
+        soldBy:rep.email||'',
+        accountRef:acct.externalIdentifier1||'',
+        shipToName:acct.name||'',
+        shipToAddr1:acct.shipStreet||'',
+        shipToAddr2:acct.shipStreet2||'',
+        shipToCity:acct.shipCity||'',
+        shipToState:acct.shipState||'',
+        shipToZip:acct.shipZip||'',
+        phone:acct.phone||'',
+      };
+      if(item._fee){
+        rows.push({...base,
+          miscChargeItem:'Misc Fee', name:_sidekickFeeLabel(item), itemNumber:'',
+          qtyPerCase:'', caseQty:'', casePrice:'',
+          botPrice:(item.feeAmt||0).toFixed(2), botQty:1,
+        });
+      } else {
+        const p=prodBySku(item.sku);if(!p)return;
+        const caseQty=(item.cases||0)+(item.bottles||0)/(p.btl||1);
+        rows.push({...base,
+          miscChargeItem:'', name:p.name, itemNumber:p.sku,
+          qtyPerCase:p.btl, caseQty:caseQty, casePrice:itemLineTotal(item).toFixed(2),
+          botPrice:'', botQty:'',
+        });
+      }
+    });
+  }
+
+  if(!rows.length){toast('No line items found in the selected orders');return}
+
+  const escCsv=(v)=>{
+    const s=(v===undefined||v===null)?'':String(v);
+    return (s.includes(',')||s.includes('"')||s.includes('\n')) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  };
+  const keys=['ownerNum','deliverDate','deliveryPickup','orderCategory','orderType','orderNum','invoiceNum','miscChargeItem','name','itemNumber','qtyPerCase','caseQty','casePrice','soldBy','accountRef','shipToName','shipToAddr1','shipToAddr2','shipToCity','shipToState','shipToZip','phone','botPrice','botQty'];
+  const csv=[SIDEKICK_CSV_COLS.map(escCsv).join(',')]
+    .concat(rows.map(r=>keys.map(k=>escCsv(r[k])).join(',')))
+    .join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='sidekick_crossdock_'+today().replace(/-/g,'')+'.csv';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},500);
+  toast(rows.length+' line item'+(rows.length!==1?'s':'')+' exported from '+orders.length+' order'+(orders.length!==1?'s':''));
 }
 function togglePdfMenu(id,event){
   event.stopPropagation();
