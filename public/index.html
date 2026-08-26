@@ -3741,6 +3741,22 @@ async function loadPONextNumber(){
     if(res.ok) window._poNextNumberPreview=res.poNumber;
   }catch(e){}
 }
+// One-time admin action to set where PO numbering picks up from -- e.g. continuing right
+// after the last number a previous system issued, rather than restarting at 1.
+async function setPONextNumber(){
+  const currentPreview=window._poNextNumberPreview||'ACS ---';
+  const input=prompt('Set the next PO number to be issued (numeric part only).\n\nCurrent next number: '+currentPreview,'');
+  if(input===null)return; // cancelled
+  const next=parseInt(input.replace(/\D/g,''),10);
+  if(!Number.isInteger(next)||next<1){toast('Enter a valid positive number');return}
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/next-number',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({next})}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to set PO number');return}
+    window._poNextNumberPreview=res.poNumber;
+    toast('Next PO number set to '+res.poNumber);
+    renderPONew();
+  }catch(e){toast('Failed to set PO number -- check connection');}
+}
 
 async function renderPO(){
   document.getElementById('main-content').innerHTML=`
@@ -3774,7 +3790,7 @@ async function renderPONew(){
     return;
   }
   wrap.innerHTML=`
-  <div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Select supplier</span><span style="font-size:12px;color:var(--text2)">Next PO: <strong style="font-family:monospace">${window._poNextNumberPreview||'ACS ---'}</strong></span></div>
+  <div class="card" style="margin-bottom:14px"><div class="card-header"><span class="card-title">Select supplier</span><span style="font-size:12px;color:var(--text2)">Next PO: <strong style="font-family:monospace">${window._poNextNumberPreview||'ACS ---'}</strong> <button class="btn btn-sm" style="margin-left:8px;padding:2px 8px;font-size:11px" onclick="setPONextNumber()" title="Set the starting PO number, e.g. to continue from a previous system">Set starting #</button></span></div>
     <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap">
       ${PO_SUPPLIERS.map(s=>`<button class="btn ${_poSelectedSupplier===s.id?'btn-dark':''}" onclick="selectPOSupplier(${s.id})">${s.name}<div style="font-size:10px;font-weight:400;opacity:0.7">${s.paymentTerms}</div></button>`).join('')||`<div style="color:var(--text3);font-size:13px">No suppliers yet -- <a href="#" onclick="switchPOSubview('suppliers');return false" style="color:var(--gold)">add one</a></div>`}
     </div>
@@ -13323,40 +13339,80 @@ function qboFetchCustomers(){
 }
 
 // ── FETCH ITEMS ───────────────────────────────────────────────────────────────
-function qboFetchItems(){
+async function qboFetchItems(){
   if(!QBO_STATE.connected){toast('Connect to QuickBooks first');return;}
   const days=_qboFetchDaysParam('qbo-fetch-items-range');
   const updateQty=document.getElementById('qbo-fetch-items-qty')&&document.getElementById('qbo-fetch-items-qty').checked;
   toast('Fetching items from last '+days+' day'+(days!==1?'s':'')+'...');
   _qboFetchLog('Fetching items from last '+days+' days'+(updateQty?' (updating qty)':'')+'...','info');
-  qboFetch('/api/qbo/items?days='+days)
-    .then(data=>{
-      const items=data.items||[];
-      _qboFetchLog('Found '+items.length+' item'+(items.length!==1?'s':'')+' in QBO','ok');
-      let updated=0;
-      items.forEach(item=>{
-        // Match by SKU (stored in QBO as item name or SKU field)
-        const prod=PRODUCTS.find(p=>p.sku===item.Sku||p.sku===item.Name||p.name===item.Name||(p.name&&item.Name&&p.name.toLowerCase()===item.Name.toLowerCase()));
-        if(prod){
-          if(updateQty&&item.QtyOnHand!==undefined){
-            prod.stock=parseFloat(item.QtyOnHand)||prod.stock;
-            _qboFetchLog('Updated qty: '+prod.name+' -> '+prod.stock+' cases','ok');
-          } else {
-            _qboFetchLog('Matched: '+prod.name,'ok');
+  try{
+    const data=await qboFetch('/api/qbo/items?days='+days);
+    const items=data.items||[];
+    _qboFetchLog('Found '+items.length+' item'+(items.length!==1?'s':'')+' in QBO','ok');
+    let updated=0,created=0;
+    for(const item of items){
+      // Match by SKU (stored in QBO as item name or SKU field)
+      const prod=PRODUCTS.find(p=>p.sku===item.Sku||p.sku===item.Name||p.name===item.Name||(p.name&&item.Name&&p.name.toLowerCase()===item.Name.toLowerCase()));
+      if(prod){
+        if(updateQty&&item.QtyOnHand!==undefined){
+          const newStock=parseFloat(item.QtyOnHand);
+          if(!isNaN(newStock)){
+            try{
+              await saveProductStockToDB(prod.sku,newStock,prod.reorder);
+              prod.stock=newStock;
+              _qboFetchLog('Updated qty: '+prod.name+' -> '+prod.stock+' cases','ok');
+            }catch(e){
+              _qboFetchLog('Failed to save qty for '+prod.name+': '+e.message,'err');
+            }
           }
-          updated++;
         } else {
-          _qboFetchLog('No match for QBO item: '+item.Name,'warn');
+          _qboFetchLog('Matched: '+prod.name,'ok');
         }
-      });
-      QBO_STATE.lastItemFetch=today()+' '+new Date().toLocaleTimeString();
-      _qboFetchLog('Done: '+updated+' item'+(updated!==1?'s':'')+' updated','ok');
-      toast('Items fetched: '+updated+' product'+(updated!==1?'s':'')+' updated');
-    })
-    .catch(e=>{
-      _qboFetchLog('Error: '+e.message,'err');
-      toast('Fetch failed: '+e.message);
-    });
+        updated++;
+      } else {
+        // No existing match -- this is a genuinely new item from QBO, so create it as a new
+        // product in Toasted rather than just logging a warning and silently dropping it.
+        const newSku=item.Sku||item.Name;
+        const newName=item.Name||item.FullyQualifiedName||newSku;
+        if(!newSku||!newName){
+          _qboFetchLog('Skipped QBO item with no usable name/SKU','warn');
+          continue;
+        }
+        try{
+          await saveNewProductToDB({sku:newSku,name:newName,producer:'',cat:'Spirits',btl:6,image:''});
+          const newProd={sku:newSku,name:newName,producer:'',cat:'Spirits',btl:6,stock:0,reorder:6,
+            prices:{frontline:0,mix12:0,acs3:0,brand3:0,brand5:0},extraTiers:[],image:''};
+          PRODUCTS.push(newProd); // must exist in PRODUCTS before saveProductToDB, which looks it up by SKU
+          if(item.UnitPrice!==undefined){
+            const price=parseFloat(item.UnitPrice);
+            if(!isNaN(price)&&price>0){
+              newProd.prices.frontline=price/6; // stored per-bottle; assumes a 6-pack until edited
+              try{ await saveProductToDB(newSku); }
+              catch(e){/* price save is best-effort -- the product itself is already created */}
+            }
+          }
+          if(updateQty&&item.QtyOnHand!==undefined){
+            const qty=parseFloat(item.QtyOnHand);
+            if(!isNaN(qty)){
+              newProd.stock=qty;
+              try{ await saveProductStockToDB(newSku,qty,6); }catch(e){/* best-effort */}
+            }
+          }
+          created++;
+          _qboFetchLog('Created new product: '+newName,'ok');
+        }catch(e){
+          _qboFetchLog('Failed to create product for QBO item '+item.Name+': '+e.message,'err');
+        }
+      }
+    }
+    QBO_STATE.lastItemFetch=today()+' '+new Date().toLocaleTimeString();
+    _qboFetchLog('Done: '+updated+' matched, '+created+' created','ok');
+    toast('Items fetched: '+updated+' updated, '+created+' new product'+(created!==1?'s':'')+' added');
+    if(_currentPage==='products'||_currentPage==='catalog')_dispatchPageRender(_currentPage);
+  }catch(e){
+    _qboFetchLog('Error: '+e.message,'err');
+    toast('Fetch failed: '+e.message);
+  }
 }
 
 // ── FETCH CONFIG DATA ─────────────────────────────────────────────────────────
