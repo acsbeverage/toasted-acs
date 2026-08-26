@@ -2403,15 +2403,20 @@ window._copyNavDiagnosticLog=function(){
   const text=sessionStorage.getItem('_navDiagLog')||'[]';
   navigator.clipboard.writeText(text).then(()=>alert('Diagnostic log copied -- paste it back to support.')).catch(()=>alert('Could not copy -- open devtools console and run: sessionStorage.getItem(\'_navDiagLog\')'));
 };
+// Deliberately not reacting to browser back/forward navigation (popstate) at all. This is an
+// internal business tool, not a content site -- letting the browser's back gesture drive
+// in-app navigation meant an accidental trackpad swipe or mouse side-button could silently
+// pull someone out of whatever screen or form they were actively working in, with zero
+// warning and no way to know why. The URL hash still updates on every real in-app navigation
+// (via history.pushState in showPage), which is all "restore last page on refresh" needs,
+// since that only reads the hash once, at initial load -- it was never dependent on this
+// listener existing.
 window.addEventListener('popstate', function(e){
-  _logNavDiagnostic('popstate',{stateFromEvent:e.state});
-  if(e.state&&e.state.page){
-    showPage(e.state.page, false);
-  } else {
-    // No state (e.g. navigated past the very first Toasted entry) -- fall back to dashboard
-    // rather than leaving the app.
-    showPage('dashboard', false);
-  }
+  _logNavDiagnostic('popstate','ignored -- back/forward navigation does not drive in-app page changes');
+  // The browser already changed the URL hash on its own; put it back to match what's still
+  // actually on screen, so the address bar doesn't end up out of sync with the visible page.
+  // replaceState (not pushState) so this doesn't keep growing the history stack every time.
+  history.replaceState({page:_currentPage}, '', '#'+_currentPage);
 });
 
 // -- DASHBOARD -----------------------------------------------------------------
