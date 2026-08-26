@@ -11584,7 +11584,7 @@ async function exportSidekickCrossdockCSV(){
         orderNum:o.id,
         invoiceNum:o.id,
         soldBy:rep.email||'',
-        accountRef:acct.externalIdentifier1||'',
+        accountRef:acct.id||'',
         shipToName:acct.name||'',
         shipToAddr1:acct.shipStreet||'',
         shipToAddr2:acct.shipStreet2||'',
