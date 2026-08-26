@@ -210,6 +210,26 @@ router.get('/next-number', requireAdmin, async (req, res) => {
   }
 });
 
+// One-time admin action to set where PO numbering continues from -- e.g. picking up right
+// after the last number issued by a previous system, rather than restarting at 1.
+router.post('/next-number', requireAdmin, async (req, res) => {
+  try {
+    const next = parseInt(req.body.next, 10);
+    if (!Number.isInteger(next) || next < 1) {
+      return res.status(400).json({ ok: false, error: 'A valid positive number is required' });
+    }
+    const current = await getOne('SELECT next_seq FROM po_sequence WHERE id=1');
+    if (current && next < current.next_seq) {
+      return res.status(400).json({ ok: false, error: `Cannot set to ${next} -- that is lower than the current next number (${current.next_seq}) and would risk reusing an already-issued PO number.` });
+    }
+    await query('UPDATE po_sequence SET next_seq=$1 WHERE id=1', [next]);
+    res.json({ ok: true, poNumber: `ACS ${String(next).padStart(3, '0')}` });
+  } catch (err) {
+    console.error('Set next PO number error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 // ── PURCHASE ORDERS ───────────────────────────────────────────────────────────
 router.get('/orders', requireAdmin, async (req, res) => {
   try {
