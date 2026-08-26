@@ -14,7 +14,7 @@ const NOTIFY_EMAILS = (process.env.PO_CC_EMAILS || 'accounting@acsbeverage.com,j
 // ── SUPPLIERS ─────────────────────────────────────────────────────────────────
 router.get('/suppliers', requireAdmin, async (req, res) => {
   try {
-    const rows = await getAll('SELECT * FROM po_suppliers ORDER BY name');
+    const rows = await getAll('SELECT * FROM po_suppliers WHERE is_active=TRUE ORDER BY name');
     const contactRows = await getAll('SELECT * FROM po_supplier_contacts ORDER BY is_primary DESC, sort_order, id');
     const contactsBySupplier = {};
     contactRows.forEach(c => {
@@ -69,7 +69,14 @@ router.patch('/suppliers/:id', requireAdmin, async (req, res) => {
 
 router.delete('/suppliers/:id', requireAdmin, async (req, res) => {
   try {
-    await query('DELETE FROM po_suppliers WHERE id=$1', [req.params.id]);
+    // Soft-delete, not a real DELETE -- a supplier with any existing purchase orders can't be
+    // hard-deleted at all (purchase_orders.supplier_id has no cascade behavior, so Postgres
+    // rejects it with a foreign key violation), and even if it could, doing so would corrupt
+    // those POs' vendor info. This hides the supplier from active use while preserving history,
+    // matching the same pattern already used for po_products.
+    const existing = await getOne('SELECT id FROM po_suppliers WHERE id=$1', [req.params.id]);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Supplier not found' });
+    await query('UPDATE po_suppliers SET is_active=FALSE WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete supplier error:', err.message);
