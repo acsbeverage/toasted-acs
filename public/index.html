@@ -4416,10 +4416,6 @@ async function exportPOPdf(id){
 async function sendPOEmailToSupplier(id){
   const order=await _fetchPOOrder(id);
   if(!order)return;
-  if(!order.supplierContactEmail){
-    toast('This supplier has no contact email set -- add one in Suppliers & Products first');
-    return;
-  }
   toast('Sending PO to '+order.supplierName+'...');
   const doc=_buildPOPdfDoc(order);
   const pdfBase64=doc.output('datauristring').split(',')[1];
@@ -4430,7 +4426,8 @@ async function sendPOEmailToSupplier(id){
       body:JSON.stringify({pdfBase64})
     }).then(r=>r.json());
     if(!res.ok){toast(res.error||'Failed to send email');return}
-    toast('PO emailed to '+order.supplierContactEmail);
+    const recipients=res.sentTo&&res.sentTo.length?res.sentTo.join(', '):order.supplierName;
+    toast('PO emailed to '+recipients);
     await loadPOData(true);
     if(_poSubview==='history')renderPOHistory();
   }catch(e){toast('Failed to send -- check connection');}
