@@ -246,8 +246,10 @@ async function migrate() {
     payment_terms TEXT DEFAULT 'Net 30',
     contact_name TEXT, contact_email TEXT, contact_phone TEXT,
     address TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
+  await query(`ALTER TABLE po_suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`);
 
   // Multiple contacts per supplier -- a supplier commonly has more than one person to reach
   // (sales rep, accounting, etc.), which a single contact_name/email/phone on po_suppliers
