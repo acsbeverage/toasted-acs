@@ -1761,18 +1761,10 @@ function renderPortalShop(){
     </div>`:''}
 
     <div class="portal-card">
-      <div class="portal-card-title">Know what you want?</div>
-      <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="portal-prod-search" placeholder="Search by product name or SKU to add it directly..." oninput="onProdSearch(this.value)" onblur="setTimeout(closeProdDD,200)"/><div class="dropdown-box" id="prod-dd"></div></div>
-    </div>
-
-    <div class="portal-card">
       <div class="portal-card-title">Shop products</div>
       <div class="shop-cat-row" id="shop-cat-row">
         <button class="shop-cat-pill${_shopActiveCat?'':' active'}" data-cat="" onclick="filterShopGrid(this)">All</button>
         ${getShopRowKeys(mainInventory()).map(k=>`<button class="shop-cat-pill${_shopActiveCat===k?' active':''}" data-cat="${k}" onclick="filterShopGrid(this)">${k}</button>`).join('')}
-      </div>
-      <div style="margin-bottom:16px">
-        <div class="search-wrap"><i class="ti ti-search si"></i><input class="search-input" id="shop-search" placeholder="Search products..." oninput="filterShopGrid()"/></div>
       </div>
       <div id="shop-grid-sections"></div>
     </div>
@@ -1878,7 +1870,6 @@ function shopCardHtml(p){
   return`<div class="shop-card" onclick="openQuickView('${p.sku.replace(/'/g,"\\'")}')">
     <div class="shop-card-img-wrap">
       ${p.image?`<img src="${p.image}" alt="${p.name}"/>`:`<i class="ti ti-bottle"></i>`}
-      <button class="shop-card-add" onclick="event.stopPropagation();shopQuickAdd('${p.sku.replace(/'/g,"\\'")}')" title="Add 1 case"><i class="ti ti-plus"></i></button>
     </div>
     <div class="shop-card-body">
       <div class="shop-card-producer">${p.producer||''}</div>
@@ -1946,19 +1937,6 @@ function filterShopGrid(pillEl){
   wrap.innerHTML=prods.length
     ? `<div class="shop-grid">${prods.map(shopCardHtml).join('')}</div>`
     : '<div style="text-align:center;padding:36px;color:#aaa;font-size:13px">No products match -- try a different search or category</div>';
-}
-
-// Adds 1 full case directly from the grid card's quick-add button, without opening quick-view
-function shopQuickAdd(sku){
-  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
-  const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
-  if(ex){ex.cases=(ex.cases||0)+1;}
-  else{
-    const freeItem=isSampleAcct(currentOrder.acct)?{discountPct:100}:{};
-    currentOrder.items.unshift({sku,cases:1,bottles:0,tier:'frontline',...freeItem});
-  }
-  syncFees();renderLineItems();
-  toast(p.name+' added to order');
 }
 
 window._qvSku=null;
@@ -3050,13 +3028,14 @@ function renderLineItems(){
 
   // -- DESKTOP TABLE VIEW --------------------------------------------------
   const stickyDeleteTh=`<th style="position:sticky;right:0;background:#fafafa;box-shadow:-2px 0 4px rgba(0,0,0,0.06)"></th>`;
+  const stockTh=currentCustomer?'':'<th>In stock</th>';
   const tableHtml=`<div style="overflow-x:auto"><table class="tbl">
-  <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>In stock</th><th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th>${stickyDeleteTh}</tr></thead>
+  <thead><tr><th>Product</th><th>SKU</th><th>Producer</th>${stockTh}<th>Pricing tier</th><th>Price</th><th>Cases</th><th>+ Loose</th><th>Total btl</th><th>Disc %</th><th>Notes</th><th>Line total</th>${stickyDeleteTh}</tr></thead>
   <tbody>`+
   currentOrder.items.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
       return`<tr style="background:#F5F3FF">
-        <td colspan="11" style="font-size:12px;color:#5B4FA0;font-weight:500">
+        <td colspan="${currentCustomer?10:11}" style="font-size:12px;color:#5B4FA0;font-weight:500">
           <i class="ti ti-truck-delivery" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
           Delivery fee
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveDelivery()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:'<span style="font-size:11px;color:var(--text3);margin-left:6px">(standard)</span>'}
@@ -3071,7 +3050,7 @@ function renderLineItems(){
         ?`removeLineItem(${idx})`
         :`waiveBrokenCase()`;
       return`<tr style="background:#FFF8E8">
-        <td colspan="11" style="font-size:12px;color:var(--amber);font-weight:500">
+        <td colspan="${currentCustomer?10:11}" style="font-size:12px;color:var(--amber);font-weight:500">
           <i class="ti ti-puzzle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
           Broken case fee${isManual?' (manual)':' -- '+item.count+' line item'+(item.count!==1?'s':'')+' with loose bottles'} × $${(item.feeAmt||BROKEN_CASE_FEE_AMT).toFixed(2)}
           <span style="font-size:11px;color:var(--text3);margin-left:8px"><button onclick="${removeAction}" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>
@@ -3082,7 +3061,7 @@ function renderLineItems(){
     }
     if(item.sku===CRV_SKU){
       return`<tr style="background:#E8F8F5">
-        <td colspan="11" style="font-size:12px;color:#0D7A5F;font-weight:500">
+        <td colspan="${currentCustomer?10:11}" style="font-size:12px;color:#0D7A5F;font-weight:500">
           <i class="ti ti-recycle" style="font-size:13px;vertical-align:-2px;margin-right:6px"></i>
           CRV -- ${item.bottles} bottle${item.bottles!==1?'s':''} × $${(item.rate||0).toFixed(2)} (${item.label||'CA CRV'})
           ${isAdmin?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Admin: <button onclick="waiveCRV()" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;text-decoration:underline">Remove</button></span>`:''}
@@ -3097,7 +3076,7 @@ function renderLineItems(){
       <td style="font-weight:500">${p.name}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.sku}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.producer}</td>
-      <td>${stockChip(p)}</td>
+      ${currentCustomer?'':`<td>${stockChip(p)}</td>`}
       <td><select class="inline-sel" onchange="updateItemTier(${idx},this.value)" ${currentCustomer?'disabled title="Pricing is automatically applied based on your order volume"':''}>${buildTierOptions(p,item,false,currentOrder.acct)}</select></td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">
         <div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div>
@@ -3147,7 +3126,7 @@ function renderLineItems(){
     return`<div class="li-card">
       <button class="li-trash" onclick="removeLineItem(${idx})"><i class="ti ti-trash"></i></button>
       <div class="li-name">${p.name}</div>
-      <div class="li-meta">${p.sku} · ${p.producer} · ${stockChip(p)}</div>
+      <div class="li-meta">${p.sku} · ${p.producer}${currentCustomer?'':' · '+stockChip(p)}</div>
 
       <label class="li-label">Price</label>
       <div class="li-row">
