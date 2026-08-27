@@ -2072,6 +2072,7 @@ function submitPortalOrder(){
 // -- UPDATE LOGIN HINT to include customer demo ---------------------------------
 function doLogout(){
   currentUser=null;
+  currentOrder={acct:null,items:[],date:'',delivery:'',po:'',notes:'',orderType:'standard'};
   window._authToken=null;
   localStorage.removeItem('_toastedToken');
   localStorage.removeItem('_toastedUser');
@@ -2780,16 +2781,18 @@ function renderAdminDashboard(){
 
 // -- NEW ORDER -----------------------------------------------------------------
 function renderNewOrder(){
-  currentOrder={acct:null,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
+  if(!currentOrder.items.length){
+    currentOrder={acct:null,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
+  }
   document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">New order -- number assigned on submit</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
     <div style="margin-bottom:14px">
       <label class="flabel">Order type</label>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-        <label class="order-type-pill" id="otp-standard"><input type="radio" name="order-type" value="standard" checked onchange="setOrderType('standard')"/><i class="ti ti-clipboard-list"></i> Standard order</label>
-        <label class="order-type-pill" id="otp-sample"><input type="radio" name="order-type" value="sample" onchange="setOrderType('sample')"/><i class="ti ti-flask"></i> Sample order</label>
-        <label class="order-type-pill" id="otp-draft"><input type="radio" name="order-type" value="draft" onchange="setOrderType('draft')"/><i class="ti ti-file-text"></i> Draft order</label>
+        <label class="order-type-pill" id="otp-standard"><input type="radio" name="order-type" value="standard" ${(currentOrder.orderType||'standard')==='standard'?'checked':''} onchange="setOrderType('standard')"/><i class="ti ti-clipboard-list"></i> Standard order</label>
+        <label class="order-type-pill" id="otp-sample"><input type="radio" name="order-type" value="sample" ${currentOrder.orderType==='sample'?'checked':''} onchange="setOrderType('sample')"/><i class="ti ti-flask"></i> Sample order</label>
+        <label class="order-type-pill" id="otp-draft"><input type="radio" name="order-type" value="draft" ${currentOrder.orderType==='draft'?'checked':''} onchange="setOrderType('draft')"/><i class="ti ti-file-text"></i> Draft order</label>
       </div>
       <div id="order-type-note" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
     </div>
@@ -2804,10 +2807,10 @@ function renderNewOrder(){
         </div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;grid-column:span 2">
-        <div style="justify-self:start"><label class="flabel">Order date</label><input type="date" class="finput-pill" id="o-date" value="${today()}" onchange="currentOrder.date=this.value"/></div>
-        <div style="justify-self:start"><label class="flabel">Delivery date</label><input type="date" class="finput-pill" id="o-del" value="${nextValidDeliveryDate(today())}" onchange="currentOrder.delivery=this.value"/></div>
+        <div style="justify-self:start"><label class="flabel">Order date</label><input type="date" class="finput-pill" id="o-date" value="${currentOrder.date||today()}" onchange="currentOrder.date=this.value"/></div>
+        <div style="justify-self:start"><label class="flabel">Delivery date</label><input type="date" class="finput-pill" id="o-del" value="${currentOrder.delivery||nextValidDeliveryDate(today())}" onchange="currentOrder.delivery=this.value"/></div>
       </div>
-      <div style="justify-self:start"><label class="flabel">PO number (optional)</label><input type="text" class="finput-pill" id="o-po" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
+      <div style="justify-self:start"><label class="flabel">PO number (optional)</label><input type="text" class="finput-pill" id="o-po" value="${(currentOrder.po||'').replace(/"/g,'&quot;')}" placeholder="PO-4421" onchange="currentOrder.po=this.value"/></div>
     </div>
     <div id="acct-info" style="display:none;margin-top:12px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);font-size:12px;color:var(--text2);border:1px solid var(--border)"></div>
     <div id="acct-pastdue-banner"></div>
@@ -2827,7 +2830,8 @@ function renderNewOrder(){
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="addBrokenCaseFee()" title="Add $1.50 broken case fee" style="font-size:12px"><i class="ti ti-puzzle"></i> + Broken Case Fee</button><button class="btn btn-dark" id="order-submit-btn" onclick="submitOrder()">Submit order &#x2197;</button></div>
   </div></div>`;
-  setOrderType('standard');
+  setOrderType(currentOrder.orderType||'standard');
+  if(currentOrder.acct)selectOrderAcct(currentOrder.acct);
 }
 function setOrderType(type){
   currentOrder.orderType=type;
@@ -3331,6 +3335,7 @@ async function submitOrder(){
     const draft={id,acct:currentOrder.acct,rep:orderRep,date:currentOrder.date,delivery:currentOrder.delivery,po:currentOrder.po||'',notes:currentOrder.notes||'',savedAt:today(),items:currentOrder.items.map(x=>({...x}))};
     DRAFT_ORDERS.push(draft);
     saveDraftToDB(draft);
+    currentOrder={acct:null,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
     toast('Draft saved to Draft Orders');
     setTimeout(()=>showPage('drafts'),1000);
     return;
@@ -3358,6 +3363,7 @@ async function submitOrder(){
   updateBadges();
   sendOrderNotification(id, placedByLabel, currentUser.email||'');
   toast(id+(isSample?' (sample) submitted -- awaiting confirmation':' submitted -- awaiting confirmation'));
+  currentOrder={acct:null,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
   openOrderSummaryModal(id);
 }
 function closeOrderSummaryModal(){
@@ -6243,7 +6249,6 @@ function renderCatalog(){
     const tbody=document.getElementById('catalog-body');if(!tbody)return;
     document.getElementById('catalog-count').textContent=allProds.length+' product'+(allProds.length!==1?'s':'');
     tbody.innerHTML=prods.map(p=>{
-      const fl=(p.prices?.frontline||0)*p.btl;
       const inStock=p.stock>0;
       return`<tr>
         <td style="font-weight:500">${p.name}</td>
@@ -6251,7 +6256,7 @@ function renderCatalog(){
         <td style="font-size:12px;color:var(--text2)">${p.producer||'--'}</td>
         <td>${catBadge(p.cat)}</td>
         <td style="text-align:center;font-size:12px">${p.btl}/cs</td>
-        <td style="font-weight:600">${fl>0?fmt(fl)+'/cs':'--'}</td>
+        <td><select class="inline-sel" id="cat-tier-${p.sku.replace(/'/g,"\\'")}" style="font-size:12px">${buildTierOptions(p,{tier:'frontline'},true,currentOrder.acct)}</select></td>
         <td>${stockChip(p)}</td>
         <td><button class="btn btn-sm btn-success" onclick="addProductToOrder('${p.sku}')" ${!inStock?'title="Out of stock"':''}>
           <i class="ti ti-plus"></i> Add to order</button></td>
@@ -6268,6 +6273,7 @@ function renderCatalog(){
   window._catalogRenderBody=renderBody;
 
   document.getElementById('main-content').innerHTML=`
+  <div id="catalog-cart-bar" style="display:none;position:sticky;top:0;z-index:5;background:#222;color:#fff;border-radius:var(--radius);padding:10px 16px;margin-bottom:14px;align-items:center;justify-content:space-between;gap:12px"></div>
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end">
     <div style="flex:1;min-width:200px">
       <div class="flabel" style="margin-bottom:4px">Search</div>
@@ -6284,28 +6290,43 @@ function renderCatalog(){
     <span id="catalog-count" style="font-size:12px;color:var(--text2);align-self:flex-end">${PRODUCTS.length} products</span>
   </div>
   <div class="card"><div style="overflow-x:auto"><table class="tbl">
-    <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>Category</th><th>Pack</th><th>Frontline</th><th>Stock</th><th></th></tr></thead>
+    <thead><tr><th>Product</th><th>SKU</th><th>Producer</th><th>Category</th><th>Pack</th><th>Pricing</th><th>Stock</th><th></th></tr></thead>
     <tbody id="catalog-body"></tbody>
   </table></div>
   <div id="catalog-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
   </div>`;
 
   renderBody();
+  updateCatalogCartBar();
   document.getElementById('cat-search').addEventListener('input',function(){_q=this.value.toLowerCase();window._catalogPage=1;renderBody();});
   document.getElementById('cat-cat').addEventListener('change',function(){_cat=this.value;window._catalogPage=1;renderBody();});
 }
+// Reflects the in-progress order's current state on the Products page -- safe to call from
+// anywhere; no-ops entirely if the bar isn't on the page (e.g. a different screen).
+function updateCatalogCartBar(){
+  const bar=document.getElementById('catalog-cart-bar');if(!bar)return;
+  const prodItems=currentOrder.items.filter(x=>!x._fee);
+  if(!prodItems.length){bar.style.display='none';return}
+  const acct=acctById(currentOrder.acct);
+  const total=currentOrder.items.reduce((s,x)=>s+itemLineTotal(x),0);
+  bar.style.display='flex';
+  bar.innerHTML=`<span style="font-size:13px"><i class="ti ti-shopping-cart" style="vertical-align:-2px;margin-right:6px"></i><strong>${prodItems.length}</strong> item${prodItems.length!==1?'s':''} in current order${acct?' for '+acct.name:''} -- <strong>${fmt(total)}</strong></span>
+  <button class="btn btn-sm btn-dark" style="background:#D4967D;border-color:#D4967D" onclick="showPage('neworder')">Review order <i class="ti ti-arrow-right"></i></button>`;
+}
 
 function addProductToOrder(sku){
-  // Jump to new order with this product pre-added
-  showPage('neworder');
-  setTimeout(()=>{
-    const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
-    if(!currentOrder.items.find(x=>x.sku===sku)){
-      currentOrder.items.push({sku,cases:0,bottles:0,tier:'frontline',discountPct:0});
-      syncFees();renderLineItems();
-      toast(p.name+' added to order');
-    }
-  },200);
+  const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  const tierSel=document.getElementById('cat-tier-'+sku);
+  const tier=tierSel?tierSel.value:'frontline';
+  const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
+  if(ex){
+    ex.cases=(ex.cases||0)+1;
+  } else {
+    currentOrder.items.push({sku,cases:1,bottles:0,tier,discountPct:0});
+  }
+  syncFees();
+  updateCatalogCartBar();
+  toast(p.name+' added to order');
 }
 
 function renderUsers(){
