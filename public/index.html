@@ -4673,8 +4673,10 @@ async function openSendInvoiceModal(orderId){
   if(acct.email)recipients.push({email:acct.email,label:acct.contact?acct.contact+' (Main)':'Main Account Email',isPrimary:true});
   contacts.forEach(c=>{if(c.email&&!recipients.find(r=>r.email===c.email))recipients.push({email:c.email,label:c.name+(c.title?' -- '+c.title:''),isPrimary:c.isPrimary});});
 
+  const rep=userById(acct.rep);
+  const repLine=rep?('Your sales rep: '+rep.fname+(rep.lname?' '+rep.lname:'')+(rep.email?' ('+rep.email+')':'')+'\n\n'):'';
   const defaultSubject='Invoice #'+o.id+' from '+COMPANY.name;
-  const defaultBody='Hi,\n\nPlease find attached your invoice for order #'+o.id+', delivering '+o.delivery+'.\n\nThank you for your business!\n\n'+COMPANY.name;
+  const defaultBody='Hi,\n\nPlease find attached your invoice for order #'+o.id+', delivering '+o.delivery+'.\n\nThank you for your business!\n\n'+repLine+COMPANY.name;
 
   body.innerHTML=`
     <div class="modal-title">Send Invoice</div>
