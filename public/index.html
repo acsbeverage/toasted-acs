@@ -1903,6 +1903,14 @@ function getShopRowKeys(all){
   SHOP_CATEGORIES.filter(c=>c!=='Spirits').forEach(cat=>{ if(all.some(p=>productMatchesRowKey(p,cat))) keys.push(cat); });
   return keys;
 }
+// Products with an image sort first, no-image products pushed to the end -- alphabetical
+// within each group. Computed fresh on every render (not a stored/static order), so a
+// product automatically moves back up as soon as an image is added to it later.
+function _shopImageFirstSort(a,b){
+  const aHasImg=a.image?0:1, bHasImg=b.image?0:1;
+  if(aHasImg!==bHasImg)return aHasImg-bHasImg;
+  return (a.name||'').localeCompare(b.name||'');
+}
 function filterShopGrid(pillEl){
   if(pillEl){
     document.querySelectorAll('.shop-cat-pill').forEach(b=>b.classList.remove('active'));
@@ -1919,7 +1927,7 @@ function filterShopGrid(pillEl){
   if(!_shopActiveCat&&!q){
     const rowKeys=getShopRowKeys(all);
     const sections=rowKeys.map(key=>{
-      const prods=all.filter(p=>productMatchesRowKey(p,key)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+      const prods=all.filter(p=>productMatchesRowKey(p,key)).sort(_shopImageFirstSort);
       if(!prods.length)return'';
       return`<div style="margin-bottom:26px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
@@ -1934,7 +1942,7 @@ function filterShopGrid(pillEl){
   }
 
   // A row filter or search is active -- show one flat, complete grid of matches
-  const prods=all.filter(p=>(!_shopActiveCat||productMatchesRowKey(p,_shopActiveCat))&&matchesQ(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const prods=all.filter(p=>(!_shopActiveCat||productMatchesRowKey(p,_shopActiveCat))&&matchesQ(p)).sort(_shopImageFirstSort);
   wrap.innerHTML=prods.length
     ? `<div class="shop-grid">${prods.map(shopCardHtml).join('')}</div>`
     : '<div style="text-align:center;padding:36px;color:#aaa;font-size:13px">No products match -- try a different search or category</div>';
