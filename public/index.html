@@ -4688,12 +4688,12 @@ async function openSendInvoiceModal(orderId){
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="send-timing" value="now"/> Send Now</label>
     </div>
 
-    <label class="flabel">Recipients ${recipients.length?'':'-- none found'}</label>
+    <label class="flabel">Recipients ${recipients.length?'':'-- none on file'}</label>
     <div style="margin-bottom:16px">
       ${recipients.length?recipients.map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
         <input type="checkbox" class="send-invoice-recipient" value="${r.email.replace(/"/g,'&quot;')}" checked style="width:16px;height:16px"/>
         ${r.label} (${r.email})${r.isPrimary?' <span class="tier-pill" style="font-size:10px">Primary</span>':''}
-      </label>`).join(''):'<div style="font-size:12px;color:var(--red)">This account has no email on file and no contacts with an email. Add one on the account page first, or skip sending.</div>'}
+      </label>`).join(''):'<div style="font-size:12px;color:var(--text2)">This account has no email on file. Confirm &amp; Send will proceed without emailing an invoice -- add an email on the account page to enable this later.</div>'}
     </div>
 
     <label class="flabel">Subject</label>
@@ -4706,7 +4706,7 @@ async function openSendInvoiceModal(orderId){
       <button class="btn" onclick="downloadInvoice('${orderId}')"><i class="ti ti-printer"></i> Print / Download</button>
       <div style="flex:1"></div>
       <button class="btn" onclick="skipSendInvoice()">Skip</button>
-      <button class="btn btn-dark" id="send-invoice-btn" onclick="confirmSendInvoice('${orderId}')" ${recipients.length?'':'disabled'}><i class="ti ti-send"></i> Confirm &amp; Send</button>
+      <button class="btn btn-dark" id="send-invoice-btn" onclick="confirmSendInvoice('${orderId}')"><i class="ti ti-send"></i> Confirm &amp; Send</button>
     </div>
   `;
 }
@@ -4717,11 +4717,18 @@ function skipSendInvoice(){
 function confirmSendInvoice(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   const recipients=[...document.querySelectorAll('.send-invoice-recipient:checked')].map(el=>el.value);
-  if(!recipients.length){alert('Select at least one recipient');return}
+  const originatingPage=_currentPage; // this send can take a few seconds -- only refresh this page later if the user is still on it
+  if(!recipients.length){
+    // No email on file for this account -- proceed with confirming the order rather than
+    // blocking the admin entirely; there's simply nothing to email.
+    toast('Order confirmed -- no email on file, so no invoice was sent');
+    closeModal('modal-send-invoice');
+    updatePageAfterConfirm(originatingPage);
+    return;
+  }
   const subject=document.getElementById('send-invoice-subject').value.trim();
   const bodyText=document.getElementById('send-invoice-body-text').value;
   const timing=document.querySelector('input[name="send-timing"]:checked').value;
-  const originatingPage=_currentPage; // this send can take a few seconds -- only refresh this page later if the user is still on it
 
   const btn=document.getElementById('send-invoice-btn');
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Generating invoice...';
