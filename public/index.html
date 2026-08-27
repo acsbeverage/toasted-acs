@@ -945,20 +945,25 @@ const itemPrice=(p,tier)=>{
 function applyPortalBrandFamilyTiers(){
   if(!currentCustomer)return;
   const groupTotals={};
+  const groupSolidCases={}; // whole cases only, per producer -- loose bottles don't count toward this
   currentOrder.items.filter(i=>!i._fee).forEach(item=>{
     const p=prodBySku(item.sku);if(!p)return;
     const producer=p.producer||'';
     const caseEquiv=(item.cases||0)+(item.bottles||0)/(p.btl||1);
     groupTotals[producer]=(groupTotals[producer]||0)+caseEquiv;
+    groupSolidCases[producer]=(groupSolidCases[producer]||0)+(item.cases||0);
   });
   currentOrder.items.filter(i=>!i._fee).forEach(item=>{
     const p=prodBySku(item.sku);if(!p)return;
     const isStandardTier=TIERS.some(t=>t.id===item.tier);
     if(!isStandardTier||item._manual)return; // don't touch custom lanes or manual overrides
-    const groupTotal=groupTotals[p.producer||'']||0;
+    const producer=p.producer||'';
+    const groupTotal=groupTotals[producer]||0;
+    const hasSolidCase=(groupSolidCases[producer]||0)>=1;
     let bestTier='frontline';
     if(groupTotal>=5&&itemPrice(p,'brand5')>0)bestTier='brand5';
     else if(groupTotal>=3&&itemPrice(p,'brand3')>0)bestTier='brand3';
+    else if(hasSolidCase&&itemPrice(p,'acs3')>0)bestTier='acs3';
     item.tier=bestTier;
   });
 }
