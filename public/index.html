@@ -935,6 +935,33 @@ const itemPrice=(p,tier)=>{
   const t=(p.extraTiers||[]).find(x=>x.name===tier);
   return t?(t.price||0):0;
 };
+// Customer portal only: automatically applies "3 Case Brand Family" / "5 Case Brand Family"
+// pricing once the cart's total case-equivalent quantity across all SKUs from the same
+// producer crosses that threshold -- customers shouldn't have to know these tiers exist or
+// manually pick the right one themselves. Only ever touches items still on one of the 5
+// standard tiers; a custom, account-specific negotiated lane or an admin-set manual price is
+// left alone, since those represent a more specific arrangement than a generic volume rule
+// should override.
+function applyPortalBrandFamilyTiers(){
+  if(!currentCustomer)return;
+  const groupTotals={};
+  currentOrder.items.filter(i=>!i._fee).forEach(item=>{
+    const p=prodBySku(item.sku);if(!p)return;
+    const producer=p.producer||'';
+    const caseEquiv=(item.cases||0)+(item.bottles||0)/(p.btl||1);
+    groupTotals[producer]=(groupTotals[producer]||0)+caseEquiv;
+  });
+  currentOrder.items.filter(i=>!i._fee).forEach(item=>{
+    const p=prodBySku(item.sku);if(!p)return;
+    const isStandardTier=TIERS.some(t=>t.id===item.tier);
+    if(!isStandardTier||item._manual)return; // don't touch custom lanes or manual overrides
+    const groupTotal=groupTotals[p.producer||'']||0;
+    let bestTier='frontline';
+    if(groupTotal>=5&&itemPrice(p,'brand5')>0)bestTier='brand5';
+    else if(groupTotal>=3&&itemPrice(p,'brand3')>0)bestTier='brand3';
+    item.tier=bestTier;
+  });
+}
 // Finds this account's most recent past order line for a specific product, so the tier
 // dropdown can show "last used" -- reps don't have to remember or hunt down which tier/price
 // they used with this account last time.
@@ -3000,6 +3027,7 @@ function updatePortalCartButton(){
   btn.style.display='inline-flex';
 }
 function renderLineItems(){
+  applyPortalBrandFamilyTiers(); // portal-only; no-ops entirely outside the customer portal
   updatePortalCartButton(); // update regardless of whether the line-items table itself exists on this page
   const wrap=document.getElementById('line-items-wrap');if(!wrap)return;
   const prodItems=currentOrder.items.filter(x=>!x._fee);
@@ -3057,7 +3085,7 @@ function renderLineItems(){
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.sku}</td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">${p.producer}</td>
       <td>${stockChip(p)}</td>
-      <td><select class="inline-sel" onchange="updateItemTier(${idx},this.value)">${buildTierOptions(p,item,false,currentOrder.acct)}</select></td>
+      <td><select class="inline-sel" onchange="updateItemTier(${idx},this.value)" ${currentCustomer?'disabled title="Pricing is automatically applied based on your order volume"':''}>${buildTierOptions(p,item,false,currentOrder.acct)}</select></td>
       <td style="color:var(--text2);font-size:12px;white-space:nowrap">
         <div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div>
         <div style="font-size:11px;color:var(--text3)">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>
@@ -3110,7 +3138,7 @@ function renderLineItems(){
 
       <label class="li-label">Price</label>
       <div class="li-row">
-        <select class="finput" style="font-size:16px;padding:12px 10px;min-height:46px;border-radius:10px" onchange="updateItemTier(${idx},this.value)">
+        <select class="finput" style="font-size:16px;padding:12px 10px;min-height:46px;border-radius:10px" onchange="updateItemTier(${idx},this.value)" ${currentCustomer?'disabled title="Pricing is automatically applied based on your order volume"':''}>
           ${buildTierOptions(p,item,true,currentOrder.acct)}
         </select>
       </div>
