@@ -2783,6 +2783,16 @@ function renderAdminDashboard(){
 function renderNewOrder(){
   if(!currentOrder.items.length){
     currentOrder={acct:null,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
+  } else {
+    // Preserving an in-progress order (e.g. items added from the Products page) -- but its
+    // date/delivery may still be empty from the global default, since nothing ever set them.
+    // The displayed input falls back visually, but submission reads this real state directly,
+    // so it must actually be filled in here, not just shown as a fallback in the HTML.
+    if(!currentOrder.date)currentOrder.date=today();
+    if(!currentOrder.delivery)currentOrder.delivery=nextValidDeliveryDate(today());
+    if(currentOrder.po===undefined)currentOrder.po='';
+    if(currentOrder.notes===undefined)currentOrder.notes='';
+    if(!currentOrder.orderType)currentOrder.orderType='standard';
   }
   document.getElementById('topbar-right').innerHTML=`<span style="font-size:12px;color:var(--text3);font-weight:500">New order -- number assigned on submit</span>`;
   document.getElementById('main-content').innerHTML=`
