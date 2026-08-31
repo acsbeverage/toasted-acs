@@ -11850,7 +11850,7 @@ function openProductPricing(sku){
             <span style="color:#888;font-size:12px">$</span>
             ${isAdminUser?`<input type="number" step="0.01" min="0" value="${casePrice>0?casePrice.toFixed(2):''}"
               placeholder="0.00" style="width:90px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-weight:600"
-              onchange="setPricingPageCasePrice('${sku}','${t.id}',this.value,${p.btl})"
+              onchange="setPricingPageCasePrice('${sku}','${t.id}',this.value,${p.btl},this)"
               title="Case price"/>`:`<span style="font-weight:600;font-size:14px">${casePrice>0?casePrice.toFixed(2):'--'}</span>`}
           </div>
           <div style="font-size:11px;color:#888;margin-top:2px">${casePrice>0?'$'+(casePrice/p.btl).toFixed(2)+'/btl':''}</div>
@@ -11880,7 +11880,7 @@ function openProductPricing(sku){
             <input type="number" step="0.01" min="0" value="${da>0?da.toFixed(2):''}"
               placeholder="0.00"
               style="width:80px;padding:6px 8px;border:1.5px solid ${da>0?'#7B6BA0':'#ddd'};border-radius:6px;font-size:13px;color:${da>0?'#5a4a90':'#888'}"
-              onchange="setPricingPageDA('${sku}','${t.id}',this.value)"
+              onchange="setPricingPageDA('${sku}','${t.id}',this.value,this)"
               title="Dollar allowance per case (admin only)"/>
           </div>
         </td>`:''}
@@ -12248,12 +12248,11 @@ function flashSaved(inputEl){
   inputEl.insertAdjacentElement('afterend',flash);
   setTimeout(()=>flash.remove(),1800);
 }
-function setPricingPageCasePrice(sku,tierId,val,btl){
+function setPricingPageCasePrice(sku,tierId,val,btl,inp){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const casePrice=parseFloat(val)||0;
   p.prices[tierId]=casePrice>0?parseFloat((casePrice/btl).toFixed(4)):0;
   updatePPNet(sku,tierId,btl);
-  const inp=event.target;
   if(inp){
     const btlEl=inp.parentElement.nextElementSibling;
     if(btlEl)btlEl.textContent=casePrice>0?'$'+(casePrice/btl).toFixed(2)+'/btl':'';
@@ -12284,16 +12283,15 @@ function setPricingPageComm(sku,tierId,val,inputEl){
   }).catch(e=>toast('Could not save -- '+e.message));
 }
 
-function setPricingPageDA(sku,tierId,val){
+function setPricingPageDA(sku,tierId,val,el){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   if(!p.da)p.da={};
   const da=parseFloat(val)||0;
   p.da[tierId]=da;
   updatePPNet(sku,tierId,p.btl);
-  const target=event.target;
   saveProductToDB(sku).then(()=>{
     toast('DA support updated & saved');
-    flashSaved(target);
+    if(el)flashSaved(el);
   }).catch(e=>toast('Could not save DA -- '+e.message));
 }
 
