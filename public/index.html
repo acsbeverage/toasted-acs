@@ -1215,8 +1215,8 @@ function closeModal(id){document.getElementById(id).classList.remove('open')}
 // -- AUTH ----------------------------------------------------------------------
 // ── DATABASE SAVE HELPERS ─────────────────────────────────────────────────────
 function saveOrderStatusToDB(orderId, updates){
-  if(!TOASTED_BACKEND_URL||!window._authToken) return;
-  fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
+  if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve();
+  return fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(updates)
@@ -4654,16 +4654,16 @@ function doReprintLabels(){
   closeModal('modal-reprint-labels');
   printShippingLabel(orderId,count);
 }
-function doConfirm(){
+async function doConfirm(){
   const o=ORDERS.find(x=>x.id===confirmingOrderId);if(!o)return;
   o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
-  saveOrderStatusToDB(o.id,{status:'confirmed'});
+  await saveOrderStatusToDB(o.id,{status:'confirmed'});
   updateBadges();
 
   if(!o.labelsPrinted){
     printShippingLabel(o.id);
     o.labelsPrinted=true;
-    saveOrderStatusToDB(o.id,{labelsPrinted:true});
+    await saveOrderStatusToDB(o.id,{labelsPrinted:true});
   } else if(confirm('Labels were already printed for '+o.id+'. Print them again?')){
     printShippingLabel(o.id);
   }
@@ -5023,7 +5023,7 @@ function renderEditTotal(){
   else qtyLabel='0 items';
   document.getElementById('edit-total').textContent=`${qtyLabel} \u00b7 ${fmt(total)}`;
 }
-function saveEditOrder(){
+async function saveEditOrder(){
   const o=ORDERS.find(x=>x.id===editingOrderId);if(!o)return;
   if(!window._editItems.length){alert('Please add at least one product.');return}
   o.date=document.getElementById('edit-date').value;o.delivery=document.getElementById('edit-delivery').value;
@@ -5031,7 +5031,7 @@ function saveEditOrder(){
   o.items=window._editItems.map(x=>({...x}));
   o.waiveDelivery=!!_editingWaiveFlags.waiveDelivery;o.waiveBrokenCase=!!_editingWaiveFlags.waiveBrokenCase;o.waiveCRV=!!_editingWaiveFlags.waiveCRV;
   o.isSample=document.getElementById('edit-is-sample').checked;o.orderType=o.isSample?'sample':(o.orderType==='sample'?'standard':o.orderType);
-  saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,isSample:o.isSample,orderType:o.orderType});
+  await saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,isSample:o.isSample,orderType:o.orderType});
   closeModal('modal-edit-order');toast('Order updated');
   const active=document.querySelector('.nav-item.active');if(active){const p=active.id.replace('nav-','');showPage(p)}
 }
@@ -7633,13 +7633,13 @@ function selectAllDeliveries(check){
   document.querySelectorAll('.deliv-chk').forEach(c=>c.checked=check);
   const ca=document.getElementById('chk-all');if(ca)ca.checked=check;
 }
-function markSelectedDelivered(){
+async function markSelectedDelivered(){
   const ids=getSelectedDeliveryIds();
   if(!ids.length){toast('Select at least one order first');return}
-  ids.forEach(id=>{
+  for(const id of ids){
     const o=ORDERS.find(x=>x.id===id);
-    if(o){o.status='delivered';o.deliveredAt=today();saveOrderStatusToDB(id,{status:'delivered'});}
-  });
+    if(o){o.status='delivered';o.deliveredAt=today();await saveOrderStatusToDB(id,{status:'delivered'});}
+  }
   updateBadges();
   toast(ids.length+' order'+(ids.length!==1?'s':'')+' marked as delivered');
   renderDeliveries();
@@ -11165,16 +11165,16 @@ function renderARTable(){
   }).join('')||`<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--text3)">No invoices match the current filters</td></tr>`;
 }
 
-function markARPaid(orderId){
+async function markARPaid(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   o.paid=true;o.paidAt=today();
-  saveOrderStatusToDB(orderId,{paid:true,paidDate:today()});
+  await saveOrderStatusToDB(orderId,{paid:true,paidDate:today()});
   updateBadges();toast(orderId+' marked as paid');renderARTable();
 }
-function markARUnpaid(orderId){
+async function markARUnpaid(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   o.paid=false;o.paidAt=null;
-  saveOrderStatusToDB(orderId,{paid:false,paidDate:null});
+  await saveOrderStatusToDB(orderId,{paid:false,paidDate:null});
   updateBadges();toast(orderId+' marked as open');renderARTable();
 }
 
@@ -11291,13 +11291,13 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 // -- UNCONFIRM ORDER -----------------------------------------------------------
-function unconfirmOrder(orderId){
+async function unconfirmOrder(orderId){
   if(!confirm('Move order '+orderId+' back to unconfirmed? The PDF invoice will be locked until re-confirmed.'))return;
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   o.status='unconfirmed';
   delete o.confirmedBy;delete o.confirmedAt;
   delete o.deliveredAt;
-  saveOrderStatusToDB(orderId,{status:'unconfirmed'});
+  await saveOrderStatusToDB(orderId,{status:'unconfirmed'});
   updateBadges();
   toast(orderId+' moved back to unconfirmed');
   const active=document.querySelector('.nav-item.active');
