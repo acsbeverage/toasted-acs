@@ -7464,6 +7464,12 @@ function _buildInvoicePDF(o,callback,sharedDoc){(async()=>{
   y+=9;
   doc.setFontSize(6.5);doc.setTextColor(130,130,130);
   doc.text('Signature confirms receipt of goods described above, complete and free of visible damage. Report discrepancies immediately.',ML,y,{maxWidth:CW});
+  y+=14;
+
+  // == PORTAL PROMOTION =======================================================
+  checkPageBreak(14);
+  doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(160,40,40);
+  doc.text('NEW: Place orders online, or view your order history anytime -- visit your portal at acsbeverageco.com or toasted.acsbeverageco.com',ML,y,{maxWidth:CW});
 
   // == PAGE FOOTERS ===========================================================
   drawPageFooter();
@@ -11559,6 +11565,7 @@ function _renderInvoiceHTML(orderId, b64){
         <div class="sig-note">Signature confirms receipt of goods described above, complete and free of visible damage. Report discrepancies immediately upon receipt.</div>
       </div>
 
+      <div style="text-align:center;color:#a02828;font-weight:700;font-size:11px;margin-top:14px">NEW: Place orders online, or view your order history anytime -- visit your portal at acsbeverageco.com or toasted.acsbeverageco.com</div>
       <div class="footer-note">${COMPANY.name} · ${COMPANY.address} · ${COMPANY.email}</div>
     </div>
     </body></html>`;
