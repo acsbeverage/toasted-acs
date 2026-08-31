@@ -7433,11 +7433,6 @@ function _buildInvoicePDF(o,callback,sharedDoc){(async()=>{
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
   doc.text('Full Cases: '+totalRawCases+'cs',ML,y);
   if(totalRawBottles>0) doc.text('Loose Bottles: '+totalRawBottles+' btl',ML,y+11);
-  if(o.notes){
-    const notesY=totalRawBottles>0?y+22:y+11;
-    doc.setFontSize(7.5);
-    doc.text('Notes: '+o.notes,ML,notesY,{maxWidth:CW*0.5});
-  }
 
   // Right: totals box - lines only, no fill
   const totX=PW-MR-175;
@@ -11546,8 +11541,7 @@ function _renderInvoiceHTML(orderId, b64){
       <div class="totals-row">
         <div class="totals-summary">
           <strong>Full Cases:</strong> ${totalRawCases}cs<br>
-          ${totalRawBottles>0?`<strong>Loose Bottles:</strong> ${totalRawBottles} btl<br>`:''} 
-          ${o.notes?'<strong>Notes:</strong> '+o.notes:''}
+          ${totalRawBottles>0?`<strong>Loose Bottles:</strong> ${totalRawBottles} btl`:''}
         </div>
         <div class="totals-box">
           <div class="total-label">Total Due</div>
