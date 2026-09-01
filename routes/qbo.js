@@ -101,7 +101,8 @@ async function ensureFreshToken() {
 }
 
 // ─── AUTHENTICATED QBO API CALL ──────────────────────────────────────────
-async function qboApi(method, path, body) {
+const RETRYABLE_STATUSES = [502, 503, 504]; // transient upstream/gateway issues, not real errors
+async function qboApi(method, path, body, attempt = 1) {
   const conn = await ensureFreshToken();
   const url = `${apiBase(conn.environment)}${path}`;
   const res = await fetch(url, {
@@ -117,6 +118,15 @@ async function qboApi(method, path, body) {
   let data = {};
   try { data = JSON.parse(rawText); } catch (e) { /* not JSON -- fall through, rawText still logged below */ }
   if (!res.ok) {
+    // Transient upstream failure -- QBO's own servers were momentarily overloaded, not an
+    // actual problem with this request. A short delay and retry resolves this most of the
+    // time without the user ever needing to know it happened.
+    if (RETRYABLE_STATUSES.includes(res.status) && attempt < 3) {
+      const delayMs = attempt * 1000; // 1s, then 2s
+      console.error(`QBO API ${res.status} on ${method} ${path.split('?')[0]} -- retrying in ${delayMs}ms (attempt ${attempt + 1}/3)`);
+      await new Promise(r => setTimeout(r, delayMs));
+      return qboApi(method, path, body, attempt + 1);
+    }
     const msg = data.Fault?.Error?.[0]?.Message || data.Fault?.Error?.[0]?.Detail;
     if (!msg) {
       // The error didn't match QBO's usual Fault shape (common for 401/403s that come from
