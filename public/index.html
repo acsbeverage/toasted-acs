@@ -12876,6 +12876,7 @@ function qboCheckStatus(){
     QBO_STATE.connected=!!data.connected;
     QBO_STATE.companyName=data.companyName||'';
     QBO_STATE.realmId=data.realmId||'';
+    QBO_STATE.statusError=data.error||'';
     if(data.environment)QBO_STATE.environment=data.environment;
     renderQBOStatusBadge();
     return data;
@@ -12890,7 +12891,7 @@ function renderQBOStatusBadge(){
   if(QBO_STATE.connected){
     el.innerHTML=`<span style="color:var(--green);font-weight:600;font-size:13px"><i class="ti ti-circle-check" style="vertical-align:-2px;margin-right:4px"></i>Connected to QuickBooks Online</span><span style="color:var(--text2);font-size:12px;margin-left:8px">${QBO_STATE.companyName}</span>`;
   } else {
-    el.innerHTML=`<span style="color:var(--amber);font-size:12px"><i class="ti ti-alert-circle" style="vertical-align:-2px;margin-right:4px"></i>Not connected to QuickBooks</span>`;
+    el.innerHTML=`<span style="color:var(--amber);font-size:12px"><i class="ti ti-alert-circle" style="vertical-align:-2px;margin-right:4px"></i>${QBO_STATE.statusError||'Not connected to QuickBooks'}</span>`;
   }
 }
 
