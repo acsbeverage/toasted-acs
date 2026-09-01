@@ -7,6 +7,8 @@ const sgMail = require('@sendgrid/mail');
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
 const FROM_NAME  = process.env.FROM_NAME  || 'Toasted — ACS Beverage Co.';
+const SIGNUP_NOTIFY_EMAILS = (process.env.SIGNUP_NOTIFY_EMAILS || 'accounting@acsbeverage.com,kevin@acsbeverage.com')
+  .split(',').map(e => e.trim()).filter(Boolean);
 
 router.post('/login', async (req, res) => {
   try {
@@ -150,6 +152,24 @@ router.post('/signup', async (req, res) => {
     const newUser = { id, fname, lname, email: emailLower, role: 'customer', acct_id: acct.id };
     const token = signToken({ ...newUser, role: 'customer' });
     res.json({ ok: true, token, user: { ...newUser, acctId: acct.id } });
+
+    // Notify staff -- fire-and-forget, so a SendGrid hiccup can never delay or break the
+    // customer's own signup, which has already succeeded and been responded to above.
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    sgMail.send({
+      to: SIGNUP_NOTIFY_EMAILS,
+      from: { email: FROM_EMAIL, name: FROM_NAME },
+      subject: 'New customer portal signup: ' + acct.name,
+      text: `A new customer has created a Toasted portal account.\n\n` +
+            `Name: ${fname} ${lname}\nEmail: ${emailLower}\nAccount: ${acct.name}\nCustomer #: ${custNum.trim()}`,
+      html: `<div style="font-family:system-ui;max-width:500px">
+        <p>A new customer has created a Toasted portal account.</p>
+        <p><strong>Name:</strong> ${fname} ${lname}<br>
+        <strong>Email:</strong> ${emailLower}<br>
+        <strong>Account:</strong> ${acct.name}<br>
+        <strong>Customer #:</strong> ${custNum.trim()}</p>
+      </div>`,
+    }).catch(e => console.error('Signup notification email failed:', e.message));
   } catch (err) {
     console.error('Signup error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
