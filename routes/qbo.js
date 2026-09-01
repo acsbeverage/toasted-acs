@@ -241,7 +241,19 @@ router.get('/status', requireAdmin, async (req, res) => {
   try {
     const conn = await getConnection();
     if (!conn || !conn.access_token) return res.json({ connected: false });
-    res.json({ connected: true, companyName: conn.company_name || '', realmId: conn.realm_id, environment: conn.environment });
+    // A stored token existing doesn't mean it still actually works -- QuickBooks refresh
+    // tokens expire after ~100 days of inactivity, and access can also be revoked directly
+    // from the Intuit account side at any time. Actually attempt a refresh (if due) and a
+    // lightweight live call, so this reports the real, current state rather than just
+    // whatever was last saved.
+    try {
+      const fresh = await ensureFreshToken();
+      await qboApi('GET', `/v3/company/${fresh.realm_id}/companyinfo/${fresh.realm_id}?minorversion=65`);
+      res.json({ connected: true, companyName: conn.company_name || '', realmId: conn.realm_id, environment: conn.environment });
+    } catch (verifyErr) {
+      console.error('QBO connection verification failed:', verifyErr.message);
+      res.json({ connected: false, error: 'Connection expired or was revoked -- please reconnect' });
+    }
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
