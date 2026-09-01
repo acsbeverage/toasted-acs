@@ -340,13 +340,13 @@ router.patch('/:id', requireAuth, async (req, res) => {
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
     if (paid !== undefined)         { updates.push(`paid=$${idx++}`);            values.push(paid); }
-    if (paidDate !== undefined)     { updates.push(`paid_date=$${idx++}`);       values.push(paidDate); }
+    if (paidDate !== undefined && paidDate !== '')     { updates.push(`paid_date=$${idx++}`);       values.push(paidDate); }
     if (paidAmount !== undefined)   { updates.push(`paid_amount=$${idx++}`);     values.push(paidAmount); }
     if (qboInvoiceId !== undefined) { updates.push(`qbo_invoice_id=$${idx++}`); values.push(qboInvoiceId); }
     if (qboSyncedAt !== undefined)  { updates.push(`qbo_synced_at=$${idx++}`);  values.push(qboSyncedAt); }
     if (qboPaymentId !== undefined) { updates.push(`qbo_payment_id=$${idx++}`); values.push(qboPaymentId); }
-    if (date !== undefined)         { updates.push(`date=$${idx++}`);           values.push(date); }
-    if (delivery !== undefined)     { updates.push(`delivery=$${idx++}`);       values.push(delivery); }
+    if (date !== undefined && date !== '')         { updates.push(`date=$${idx++}`);           values.push(date); }
+    if (delivery !== undefined && delivery !== '') { updates.push(`delivery=$${idx++}`);       values.push(delivery); }
     if (po !== undefined)           { updates.push(`po=$${idx++}`);             values.push(po); }
     if (notes !== undefined)        { updates.push(`notes=$${idx++}`);          values.push(notes); }
     if (labelsPrinted !== undefined){ updates.push(`labels_printed=$${idx++}`); values.push(labelsPrinted); }
@@ -407,7 +407,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('Update order error:', err.message);
-    res.status(500).json({ ok: false, error: 'Server error' });
+    res.status(500).json({ ok: false, error: 'Could not save order changes: ' + err.message });
   }
 });
 
