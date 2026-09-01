@@ -5026,7 +5026,7 @@ function renderEditTotal(){
 async function saveEditOrder(){
   const o=ORDERS.find(x=>x.id===editingOrderId);if(!o)return;
   if(!window._editItems.length){alert('Please add at least one product.');return}
-  o.date=document.getElementById('edit-date').value;o.delivery=document.getElementById('edit-delivery').value;
+  o.date=document.getElementById('edit-date').value||o.date;o.delivery=document.getElementById('edit-delivery').value||o.delivery;
   o.po=document.getElementById('edit-po').value;o.notes=document.getElementById('edit-notes').value;
   o.items=window._editItems.map(x=>({...x}));
   o.waiveDelivery=!!_editingWaiveFlags.waiveDelivery;o.waiveBrokenCase=!!_editingWaiveFlags.waiveBrokenCase;o.waiveCRV=!!_editingWaiveFlags.waiveCRV;
