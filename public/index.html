@@ -40,7 +40,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .err{color:var(--red);font-size:12px;margin-top:8px;display:none}
 
 /* APP SHELL */
-.app{display:flex;height:100vh}
+.app{display:flex;height:100vh;height:100dvh}
 .sidebar{width:210px;min-width:210px;background:var(--navy);display:flex;flex-direction:column;overflow:hidden}
 .sidebar-nav{flex:1;overflow-y:auto;overflow-x:hidden;min-height:0}
 .sidebar-nav::-webkit-scrollbar{width:5px}
@@ -211,7 +211,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 @media(max-width:768px){
   #portal-acct-name{display:none}
   .hamburger{display:flex}
-  .sidebar{position:fixed;left:0;top:0;height:100vh;z-index:300;transform:translateX(-100%);transition:transform 0.22s ease;width:210px!important;min-width:210px!important}
+  .sidebar{position:fixed;left:0;top:0;height:100vh;height:100dvh;z-index:300;transform:translateX(-100%);transition:transform 0.22s ease;width:210px!important;min-width:210px!important}
   .sidebar.mobile-open{transform:translateX(0)}
   .content{padding:12px 14px}
   .topbar{padding:0 12px}
