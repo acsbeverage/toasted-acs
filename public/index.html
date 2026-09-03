@@ -457,7 +457,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div class="nav-item nav-item-neworder" onclick="showPage('neworder')" id="nav-neworder"><i class="ti ti-plus"></i> New Order</div>
     <div class="nav-item" onclick="showPage('drafts')" id="nav-drafts"><i class="ti ti-file-text"></i> Draft Orders <span class="nav-badge" id="drafts-badge" style="display:none">0</span></div>
     <div class="nav-item" onclick="showPage('tastings')" id="nav-tastings"><i class="ti ti-glass"></i> Tastings <span class="nav-badge" id="tastings-badge" style="display:none">0</span></div>
-    <div class="nav-item admin-only hidden" onclick="showPage('unconfirmed')" id="nav-unconfirmed"><i class="ti ti-clock"></i> Unconfirmed <span class="nav-badge" id="unconf-badge">0</span></div>
+    <div class="nav-item" onclick="showPage('unconfirmed')" id="nav-unconfirmed"><i class="ti ti-clock"></i> Unconfirmed <span class="nav-badge" id="unconf-badge">0</span></div>
     <div class="nav-item admin-only hidden" onclick="showPage('deliveries')" id="nav-deliveries"><i class="ti ti-truck-delivery"></i> Deliveries <span class="nav-badge" id="deliv-badge" style="display:none">0</span></div>
     <div class="nav-item" onclick="showPage('history')" id="nav-history"><i class="ti ti-history"></i> Order History</div>
     <div class="nav-item admin-only hidden" onclick="showPage('exportorders')" id="nav-exportorders"><i class="ti ti-file-export"></i> Export Orders</div>
@@ -4523,7 +4523,7 @@ function filterUnconfirmed(){
   document.getElementById('unconf-page-total').style.display=sortedAll.length?'':'none';
 
   document.getElementById('unconf-body').innerHTML=unconf.map(o=>{const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;return`<tr class="alert-row"><td style="font-weight:600;color:var(--gold);${canEdit?'cursor:pointer':''}" ${canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''}>${o.id}</td><td><div style="font-weight:500">${acct?acct.name:'--'}</div><div style="font-size:11px;color:var(--text2)">${acct?acct.lic:''}</div></td><td>${rep?rep.fname+' '+rep.lname:'--'}</td><td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td style="font-size:12px;color:var(--text2)">${o.notes||'--'}</td>
-    <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button></td></tr>`}).join('');
+    <td style="display:flex;gap:6px">${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}${isAdmin?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button><button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i> Delete</button>`:''}</td></tr>`}).join('');
 
   document.getElementById('unconf-cards-view').innerHTML=unconf.map(o=>{
     const acct=acctById(o.acct);const rep=userById(o.rep);const canEdit=isAdmin||o.rep===currentUser.id;
@@ -4542,8 +4542,8 @@ function filterUnconfirmed(){
       ${o.notes?`<div style="font-size:12px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">${o.notes}</div>`:''}
       <div class="order-card-actions">
         ${canEdit?`<button class="btn btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
-        <button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>
-        <button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>
+        ${isAdmin?`<button class="btn btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>
+        <button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="deleteOrder('${o.id}')"><i class="ti ti-trash"></i></button>`:''}
       </div>
     </div>`;
   }).join('');
