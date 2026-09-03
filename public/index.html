@@ -615,7 +615,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div style="font-weight:700;font-size:13px;color:#2CA01C;margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">QuickBooks Online</div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><input type="checkbox" id="a-create-in-qb" style="width:16px;height:16px"/><label for="a-create-in-qb" style="font-size:13px;cursor:pointer">Create / Update in QuickBooks after saving?</label></div>
 
-    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-account')">Cancel</button><button class="btn btn-dark" id="acct-modal-save-btn" onclick="saveAccount()">Create Account</button></div>
+    <div class="modal-footer"><button class="btn" id="acct-modal-delete-btn" style="display:none;background:var(--red);color:#fff;border-color:var(--red);margin-right:auto" onclick="deleteAccount()"><i class="ti ti-trash"></i> Delete Account</button><button class="btn" onclick="closeModal('modal-account')">Cancel</button><button class="btn btn-dark" id="acct-modal-save-btn" onclick="saveAccount()">Create Account</button></div>
   </div>
 </div>
 <div class="modal-bg" id="modal-change-pw">
@@ -877,7 +877,7 @@ const nextValidDeliveryDate=(fromDateStr)=>{
   return `${yy}-${mm}-${dd}`;
 };
 const tierName=id=>{const t=TIERS.find(x=>x.id===id);return t?t.name:id};
-const myAccounts=()=>currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id);
+const myAccounts=()=>(currentUser.role==='admin'?ACCOUNTS:ACCOUNTS.filter(a=>a.rep===currentUser.id)).filter(a=>a.isActive!==false);
 const itemTotalBottles=item=>{const p=PRODUCTS.find(y=>y.sku===item.sku);return(item.cases||0)*((p&&p.btl)||12)+(item.bottles||0);};
 // Parses a bottle size string ("750ml", "1.75L", "375 ml", "1L") into liters. Defaults to 750ml when unset/unparseable.
 function autoDetectPackFromName(){
@@ -6437,6 +6437,7 @@ function openAddAccount(){
   _editingAccountId=null;
   document.getElementById('acct-modal-title').textContent='Add Account';
   document.getElementById('acct-modal-save-btn').textContent='Create Account';
+  document.getElementById('acct-modal-delete-btn').style.display='none';
   document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${u.fname} ${u.lname}</option>`).join('');
   ['a-name','a-code','a-corp-group','a-lic','a-contact','a-phone','a-email',
    'a-ship-street','a-ship-street2','a-ship-city','a-ship-state','a-ship-zip','a-ship-county',
@@ -6474,6 +6475,7 @@ function openEditAccountFull(acctId){
   _editingAccountId=acctId;
   document.getElementById('acct-modal-title').textContent='Edit Account -- '+a.name;
   document.getElementById('acct-modal-save-btn').textContent='Save Changes';
+  document.getElementById('acct-modal-delete-btn').style.display='';
   document.getElementById('a-rep').innerHTML=USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}" ${u.id===a.rep?'selected':''}>${u.fname} ${u.lname}</option>`).join('');
 
   const setVal=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val||'';};
@@ -6586,6 +6588,19 @@ async function saveDraftContactsFor(acctId){
       body:JSON.stringify({contacts:window._draftContacts})
     });
   }catch(e){console.error('Could not save additional contacts:',e.message);}
+}
+async function deleteAccount(){
+  if(!_editingAccountId)return;
+  const a=ACCOUNTS.find(x=>x.id===_editingAccountId);if(!a)return;
+  if(!confirm('Delete '+a.name+'? This hides the account from active use everywhere -- reps, order screens, the customer portal -- but all of its past orders and history are kept intact. This cannot be easily undone from within Toasted.'))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+encodeURIComponent(_editingAccountId),{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to delete account');return}
+    toast(a.name+' deleted');
+    closeModal('modal-account');
+    await loadAllDataFromBackend();
+    if(_currentPage==='accounts')_dispatchPageRender('accounts');
+  }catch(e){toast('Failed to delete -- check connection');}
 }
 function saveAccount(){
   const name=document.getElementById('a-name').value.trim();
