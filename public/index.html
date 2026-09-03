@@ -8849,6 +8849,7 @@ function renderRA5(el, orders, producerFilter){
       const billBackAmount=isStandardTierItem
         ? (p.da&&p.da[item.tier])||0                                             // already stored per-case
         : ((p.extraTiers||[]).find(t=>t.name===item.tier)?.da||0)*(p.btl||1);    // stored per-bottle -- convert to per-case
+      const billBackAmountRounded=parseFloat(billBackAmount.toFixed(2));
       rows.push({
         wineName:p.name,
         wineCode:item.sku,
@@ -8867,8 +8868,8 @@ function renderRA5(el, orders, producerFilter){
         warehouse:'ACS Warehouse',
         warehouseCode:acct.warehouseCode||'',
         sampleOrder:o.isSample?'Yes':'',
-        billBackAmount:billBackAmount,
-        billBackTotal:billBackAmount*qty,
+        billBackAmount:billBackAmountRounded,
+        billBackTotal:parseFloat((billBackAmountRounded*qty).toFixed(2)),
         priceLabel:tierName(item.tier),
         abcNumber:acct.lic||acct.abcNum||'',
         shipStreet:acct.shipStreet||'',
@@ -9117,9 +9118,11 @@ function exportReportCSV(reportId){
   const rows=window._lastReportRows||[];
   const cols=window._lastReportCols||[];
   if(!rows.length){toast('No data to export');return;}
+  const CURRENCY_COLS=['billBackAmount','billBackTotal']; // always show exactly 2 decimals, matching standard billback/currency formatting
   const header=cols.join(',');
   const body=rows.map(r=>cols.map(c=>{
     const v=r[c];
+    if(CURRENCY_COLS.includes(c)&&typeof v==='number')return v.toFixed(2);
     if(typeof v==='string'&&v.includes(','))return'"'+v+'"';
     return v??'';
   }).join(',')).join('\n');
