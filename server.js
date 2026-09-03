@@ -33,8 +33,8 @@ app.use('/api',        require('./routes/data'));
 
 // Checks hourly for any scheduled report that's due and actually sends it -- this is what
 // makes "Scheduled Reports" genuinely automated rather than something someone has to
-// remember to trigger by hand. Runs on the hour rather than a longer interval so a schedule
-// set for a specific time of day fires reasonably close to it.
+// remember to trigger by hand. Every schedule fires at the same fixed 8am time, so hourly
+// checks are more than sufficient precision.
 cron.schedule('0 * * * *', () => {
   console.log('Checking for due scheduled reports...');
   runDueSchedules();
