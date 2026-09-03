@@ -40,8 +40,10 @@ async function migrate() {
     bill_street TEXT, bill_city TEXT, bill_state TEXT, bill_zip TEXT,
     terms TEXT DEFAULT 'Net 30',
     rep TEXT, qbo_id TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`);
 
   await query(`CREATE TABLE IF NOT EXISTS account_code_sequence (id INTEGER PRIMARY KEY DEFAULT 1, next_seq INTEGER DEFAULT 100001)`);
   await query(`INSERT INTO account_code_sequence (id, next_seq) VALUES (1, 100001) ON CONFLICT (id) DO NOTHING`);
