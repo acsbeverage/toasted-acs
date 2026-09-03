@@ -30,6 +30,10 @@ router.post('/login', async (req, res) => {
     if (cust) {
       const valid = await bcrypt.compare(password, cust.pw_hash);
       if (!valid) return res.status(401).json({ ok: false, error: 'Invalid email or password' });
+      const acct = await getOne('SELECT is_active FROM accounts WHERE id=$1', [cust.acct_id]);
+      if (!acct || acct.is_active === false) {
+        return res.status(403).json({ ok: false, error: 'This account has been deactivated -- please contact your sales rep or accounting@acsbeverage.com' });
+      }
       const token = signToken({ ...cust, role: 'customer' });
       return res.json({ ok: true, token, user: {
         id: cust.id, fname: cust.fname, lname: cust.lname,
