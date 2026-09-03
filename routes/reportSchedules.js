@@ -51,18 +51,17 @@ function resolveDateRange(sched) {
 // from re-firing on every subsequent hourly check: previously, if the real send happened
 // earlier in the day than the configured time (which the timezone bug above caused), the
 // plain "next <= now" comparison could fail to advance to the following week at all.
-function calcNextSend(freq, dayOfWeek, dayOfMonth, time, afterSend) {
+function calcNextSend(freq, dayOfWeek, dayOfMonth, afterSend) {
   const now = nowPacific();
-  const [hh, mm] = (time || '08:00').split(':').map(Number);
   let next = new Date(now);
   if (freq === 'monthly') {
     next.setDate(dayOfMonth || 1);
-    next.setHours(hh || 8, mm || 0, 0, 0);
+    next.setHours(8, 0, 0, 0);
     const landsToday = afterSend && dateOnlyStr(next) === dateOnlyStr(now);
     if (next <= now || landsToday) next.setMonth(next.getMonth() + 1);
   } else {
     const targetDow = dayOfWeek ?? 1;
-    next.setHours(hh || 8, mm || 0, 0, 0);
+    next.setHours(8, 0, 0, 0);
     let daysUntil = (targetDow - next.getDay() + 7) % 7;
     if (daysUntil === 0 && (next <= now || afterSend)) daysUntil = freq === 'biweekly' ? 14 : 7;
     next.setDate(next.getDate() + daysUntil);
@@ -275,7 +274,7 @@ router.post('/', requireAdmin, async (req, res) => {
   try {
     const s = req.body;
     const id = s.id || 'sch_' + Date.now();
-    const nextSend = calcNextSend(s.freq, s.dayOfWeek, s.dayOfMonth, s.time);
+    const nextSend = calcNextSend(s.freq, s.dayOfWeek, s.dayOfMonth);
     await query(
       `INSERT INTO report_schedules (id,name,type,date_range,custom_from,custom_to,freq,day_of_week,day_of_month,send_time,recipients,producers,active,last_sent,next_send)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
@@ -299,7 +298,7 @@ router.patch('/:id', requireAdmin, async (req, res) => {
     const sched = await getOne('SELECT * FROM report_schedules WHERE id=$1', [req.params.id]);
     if (!sched) return res.status(404).json({ ok: false, error: 'Schedule not found' });
     const newActive = active !== undefined ? active : sched.active;
-    const nextSend = newActive ? calcNextSend(sched.freq, sched.day_of_week, sched.day_of_month, sched.send_time) : sched.next_send;
+    const nextSend = newActive ? calcNextSend(sched.freq, sched.day_of_week, sched.day_of_month) : sched.next_send;
     await query('UPDATE report_schedules SET active=$1, next_send=$2 WHERE id=$3', [newActive, nextSend, req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -325,7 +324,7 @@ router.post('/:id/run', requireAdmin, async (req, res) => {
     const sched = mapRow(row);
     const result = await sendScheduleNow(sched);
     if (!result.ok) return res.status(400).json(result);
-    const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, sched.time, true);
+    const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, true);
     await query('UPDATE report_schedules SET last_sent=$1, next_send=$2 WHERE id=$3', [todayStr(), nextSend, req.params.id]);
     res.json({ ok: true, ...result });
   } catch (err) {
@@ -342,16 +341,16 @@ async function runDueSchedules() {
       [todayStr()]
     );
     const nowHour = nowPacific().getHours();
+    const SCHEDULED_SEND_HOUR = 8; // every scheduled report fires at a fixed 8am, no per-schedule time
     for (const row of due) {
       const sched = mapRow(row);
       // next_send is date-only, so a schedule due today would otherwise fire at whatever
-      // hour first happens to catch it after midnight, not the hour the user configured.
-      // Only send once we've actually reached that hour.
-      const [schedHour] = (sched.time || '08:00').split(':').map(Number);
-      if (nowHour < schedHour) continue;
+      // hour first happens to catch it after midnight. Only send once we've actually
+      // reached the fixed 8am send hour.
+      if (nowHour < SCHEDULED_SEND_HOUR) continue;
       try {
         const result = await sendScheduleNow(sched);
-        const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, sched.time, true);
+        const nextSend = calcNextSend(sched.freq, sched.dayOfWeek, sched.dayOfMonth, true);
         if (result.ok) {
           await query('UPDATE report_schedules SET last_sent=$1, next_send=$2 WHERE id=$3', [todayStr(), nextSend, sched.id]);
           console.log(`Scheduled report sent: ${sched.name} (${sched.type}) -- ${result.recipientCount} recipient(s)`);
