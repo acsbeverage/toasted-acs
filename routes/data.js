@@ -28,7 +28,7 @@ router.get('/accounts', requireAuth, async (req, res) => {
       phone: r.phone, email: r.email, address: r.address,
       shipStreet: r.ship_street, shipCity: r.ship_city, shipState: r.ship_state, shipZip: r.ship_zip,
       billStreet: r.bill_street, billCity: r.bill_city, billState: r.bill_state, billZip: r.bill_zip,
-      terms: r.terms, rep: r.rep, qboId: r.qbo_id,paymentProvider: r.payment_provider||'',
+      terms: r.terms, rep: r.rep, qboId: r.qbo_id, isActive: r.is_active !== false, paymentProvider: r.payment_provider||'',
 onlinePayments: r.online_payments||'No',
 redemption: r.redemption||'No',
 taxId: r.tax_id||'',
@@ -231,6 +231,22 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('Update account error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.delete('/accounts/:id', requireAdmin, async (req, res) => {
+  try {
+    // Soft-delete, not a real DELETE -- a genuine delete would either fail outright (any
+    // order, draft, or tasting ever placed for this account references it) or, if forced
+    // through, permanently destroy real order and payment history. This hides the account
+    // from active use everywhere while preserving everything underneath it.
+    const existing = await getOne('SELECT id FROM accounts WHERE id=$1', [req.params.id]);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Account not found' });
+    await query('UPDATE accounts SET is_active=FALSE WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete account error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
