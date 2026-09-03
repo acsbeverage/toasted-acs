@@ -336,6 +336,12 @@ router.patch('/:id', requireAuth, async (req, res) => {
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
             date, delivery, po, notes, items, labelsPrinted, partialPaidAmount,
             waiveDelivery, waiveBrokenCase, waiveCRV, isSample, orderType } = req.body;
+    // Confirming an order is a deliberate, admin-only gatekeeping step -- reps can still edit
+    // their own orders' other details through this same route, just not move the status itself
+    // into confirmed.
+    if (status === 'confirmed' && req.user.role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only an admin can confirm an order' });
+    }
     const updates = [], values = [];
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
