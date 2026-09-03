@@ -8845,8 +8845,10 @@ function renderRA5(el, orders, producerFilter){
       if(producerFilter&&p.producer!==producerFilter)return;
       const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
       const unitPrice=itemUnitPrice(item,p)*(p.btl||1);
-      const daRate=(p.da&&p.da[item.tier])||(p.extraTiers||[]).find(t=>t.name===item.tier)?.da||0;
-      const billBackAmount=daRate*(p.btl||1);
+      const isStandardTierItem=TIERS.some(t=>t.id===item.tier);
+      const billBackAmount=isStandardTierItem
+        ? (p.da&&p.da[item.tier])||0                                             // already stored per-case
+        : ((p.extraTiers||[]).find(t=>t.name===item.tier)?.da||0)*(p.btl||1);    // stored per-bottle -- convert to per-case
       rows.push({
         wineName:p.name,
         wineCode:item.sku,
