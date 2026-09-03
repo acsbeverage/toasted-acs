@@ -10618,7 +10618,7 @@ function renderScheduledReports(){
         </div>
         <div>
           <label class="flabel">Send time</label>
-          <input type="time" class="finput" id="sched-time" value="08:00"/>
+          <div class="finput" style="display:flex;align-items:center;color:var(--text2);background:var(--bg2,#f7f7f7)">8:00 AM (fixed for all scheduled reports)</div>
         </div>
         <div id="sched-producers-wrap" style="grid-column:1/-1">
           <label class="flabel">Producers to include</label>
@@ -10706,7 +10706,6 @@ function openSchedModal(id, presetReportId){
     document.getElementById('sched-freq').value=s.freq;
     document.getElementById('sched-dow').value=s.dayOfWeek||1;
     document.getElementById('sched-dom').value=s.dayOfMonth||1;
-    document.getElementById('sched-time').value=s.time||'08:00';
     window._schedRecipients=s.recipients.map(r=>({...r}));
     const selected=s.producers||[];
     document.querySelectorAll('.sched-prod-chk').forEach(c=>{
@@ -10718,7 +10717,6 @@ function openSchedModal(id, presetReportId){
     document.getElementById('sched-range').value='rolling30';
     document.getElementById('sched-freq').value='weekly';
     document.getElementById('sched-dow').value='1';
-    document.getElementById('sched-time').value='08:00';
     window._schedRecipients=[];
     document.querySelectorAll('.sched-prod-chk').forEach(c=>c.checked=true);
   }
@@ -10791,7 +10789,7 @@ function saveSchedule(){
     freq,
     dayOfWeek:parseInt(document.getElementById('sched-dow').value)||1,
     dayOfMonth:parseInt(document.getElementById('sched-dom').value)||1,
-    time:document.getElementById('sched-time').value||'08:00',
+    time:'08:00',
     recipients:[...window._schedRecipients],
     producers:selectedProducers,
     active:true,
