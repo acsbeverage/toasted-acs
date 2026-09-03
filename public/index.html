@@ -1407,6 +1407,7 @@ function doLogin(){
       localStorage.setItem('_toastedCustUser',JSON.stringify(data.user));
       document.getElementById('view-login').classList.add('hidden');
       document.getElementById('view-portal').classList.remove('hidden');
+      startLivePortalPolling();
       loadPortalData().then(()=>{
         const acct=acctById(currentCustomer.acctId);
         document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
@@ -1430,6 +1431,7 @@ function doLogin(){
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
     updateBadges();
     if(u.role==='admin')qboCheckStatus();
+    startLivePolling();
     loadAllDataFromBackend().then(()=>showPage('dashboard'));
   }).catch(err=>{
     console.error('Login error:',err);
@@ -1480,6 +1482,7 @@ function doPortalSignup(){
     localStorage.setItem('_toastedCustUser',JSON.stringify(data.user));
     document.getElementById('view-login').classList.add('hidden');
     document.getElementById('view-portal').classList.remove('hidden');
+    startLivePortalPolling();
     loadPortalData().then(()=>{
       const acct=acctById(currentCustomer.acctId);
       document.getElementById('portal-acct-name').textContent=acct?acct.name:fname+' '+lname;
@@ -1494,6 +1497,7 @@ function doPortalSignup(){
 document.getElementById('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 document.getElementById('login-pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 function doPortalLogout(){
+  stopLivePortalPolling();
   currentCustomer=null;
   window._authToken=null;
   localStorage.removeItem('_toastedCustToken');
@@ -1524,7 +1528,17 @@ async function triggerBackgroundPortalRefresh(page){
   }catch(e){console.error('Background portal refresh failed:',e.message);}
   finally{_bgPortalRefreshInFlight=false;}
 }
+let _livePortalPollInterval=null;
+function startLivePortalPolling(){
+  stopLivePortalPolling();
+  _livePortalPollInterval=setInterval(()=>{triggerBackgroundPortalRefresh(_currentPortalPage);},LIVE_POLL_INTERVAL);
+}
+function stopLivePortalPolling(){
+  if(_livePortalPollInterval){clearInterval(_livePortalPollInterval);_livePortalPollInterval=null;}
+}
+let _currentPortalPage='shop';
 function showPortalPage(page){
+  _currentPortalPage=page;
   document.querySelectorAll('.portal-nav-btn').forEach(b=>b.classList.remove('active'));
   const btn=document.getElementById('pnav-'+page);if(btn)btn.classList.add('active');
   if(page!=='shop' && page!=='cart')localStorage.setItem('_toastedPortalPage',page);
@@ -2070,6 +2084,7 @@ function submitPortalOrder(){
 
 // -- UPDATE LOGIN HINT to include customer demo ---------------------------------
 function doLogout(){
+  stopLivePolling();
   currentUser=null;
   currentOrder={acct:null,items:[],date:'',delivery:'',po:'',notes:'',orderType:'standard'};
   window._authToken=null;
@@ -2091,6 +2106,7 @@ function doLogout(){
       currentCustomer=JSON.parse(custUser);
       document.getElementById('view-login').classList.add('hidden');
       document.getElementById('view-portal').classList.remove('hidden');
+      startLivePortalPolling();
       loadPortalData().then(()=>{
         const acct=acctById(currentCustomer.acctId);
         document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
@@ -2122,6 +2138,7 @@ function doLogout(){
     if(rl)rl.textContent=u.role==='admin'?'Administrator':'Sales Rep';
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
     if(u.role==='admin')qboCheckStatus();
+    startLivePolling();
     const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','logistics','fetchqbo','docs','users','pricing','settings','import','reports','ar','products','po'];
     const hashParts=(location.hash||'').replace('#','').split('/');
     const hashPage=hashParts[0];
@@ -2381,6 +2398,24 @@ async function triggerBackgroundRefresh(page){
   }catch(e){console.error('Background refresh failed:',e.message);}
   finally{_bgRefreshInFlight=false;}
 }
+
+// Keeps the currently-viewed page's data live while someone's logged in -- without this,
+// a change made by one person (confirming an order, marking something delivered, etc.) would
+// never appear for anyone else already sitting on that same screen, no matter how long they
+// waited; only navigating away and back, or a full manual reload, ever picked it up. Reuses
+// the same triggerBackgroundRefresh used for nav-triggered refreshes, so it inherits all of
+// its existing safety checks (never disrupts an in-progress order/tasting being built, never
+// re-renders while someone's actively typing).
+let _livePollInterval=null;
+const LIVE_POLL_INTERVAL=30000; // every 30s -- comfortably above the 20s minimum refresh gap above
+function startLivePolling(){
+  stopLivePolling(); // defensive -- never stack up more than one interval
+  _livePollInterval=setInterval(()=>{triggerBackgroundRefresh(_currentPage);},LIVE_POLL_INTERVAL);
+}
+function stopLivePolling(){
+  if(_livePollInterval){clearInterval(_livePollInterval);_livePollInterval=null;}
+}
+
 
 function showPage(page, pushState=true){
   _logNavDiagnostic('showPage',{page,pushState,fromPage:_currentPage,stack:(new Error()).stack.split('\n').slice(1,4).join(' | ')});
