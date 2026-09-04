@@ -8862,7 +8862,8 @@ function renderRA5(el, orders, producerFilter){
         quantity:qty,
         unitPrice:unitPrice,
         total:itemLineTotal(item),
-        notes:item.notes||o.notes||'',
+        notes:item.notes||'',
+        deliveryNotes:o.notes||'',
         invoice:o.id,
         poNumber:o.po||'',
         warehouse:'ACS Warehouse',
@@ -8896,27 +8897,16 @@ function renderRA5(el, orders, producerFilter){
   const summary=Object.values(prodMap).sort((a,b)=>b.cases-a.cases);
   const totalCases=rows.reduce((s,r)=>s+r.quantity,0);
 
-  window._ra5Rows=rows;
   window._lastReportRows=rows;
-  window._lastReportCols=['wineName','wineCode','vintage','producer','account','accountRegion','salesRep','date','quantity','unitPrice','total','notes','invoice','poNumber','warehouse','warehouseCode','sampleOrder','billBackAmount','billBackTotal','priceLabel','abcNumber','shipStreet','shipCity','shipState','shipZip','fobPrice','accountKindPrimary','accountKindSecondary','accountId','bottleSize','packSize'];
+  window._lastReportCols=['wineName','wineCode','vintage','producer','account','accountRegion','salesRep','date','quantity','unitPrice','total','notes','deliveryNotes','invoice','poNumber','warehouse','warehouseCode','sampleOrder','billBackAmount','billBackTotal','priceLabel','abcNumber','shipStreet','shipCity','shipState','shipZip','fobPrice','accountKindPrimary','accountKindSecondary','accountId','bottleSize','packSize'];
   showReportReadyCard(el,'RA5 — Depletion by Producer',rows.length,'line item');
 }
 
-function exportRA5CSV(){
-  const rows=window._ra5Rows||[];
-  if(!rows.length){toast('No data to export');return;}
-  const from=window._rptFrom||'';const to=window._rptTo||'';
-  const cols=['Wine Name','Wine Code','Vintage','Producer','Account','Account Region','Sales Rep','Date','Quantity','Unit Price','Total','Notes','Invoice Number','PO Number','Warehouse','Warehouse Code','Sample Order','Bill Back Amount','Bill Back Total','Price Label','ABC Number','Shipping Street','Shipping City','Shipping State','Shipping Zip Code','FOB Price','Account Kind (Primary)','Account Kind (Secondary)','Account ID','Bottle Size','Pack Size'];
-  const data=rows.map(r=>[r.wineName,r.wineCode,r.vintage,r.producer,r.account,r.accountRegion,r.salesRep,r.date,r.quantity.toFixed(4),r.unitPrice.toFixed(2),r.total.toFixed(2),r.notes,r.invoice,r.poNumber,r.warehouse,r.warehouseCode,r.sampleOrder,r.billBackAmount.toFixed(2),r.billBackTotal.toFixed(2),r.priceLabel,r.abcNumber,r.shipStreet,r.shipCity,r.shipState,r.shipZip,r.fobPrice.toFixed(2),r.accountKindPrimary,r.accountKindSecondary,r.accountId,r.bottleSize,r.packSize]);
-  const csv=[cols,...data].map(r=>r.map(v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.download=`RA5_Depletions_${from}_${to}.csv`;
-  document.body.appendChild(a);a.click();
-  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
-  toast('RA5 exported!');
-}
+// NOTE: RA5/RA6 export goes through the generic exportReportCSV() function via
+// window._lastReportRows/_lastReportCols, set above. (A separate, hardcoded exportRA5CSV
+// function used to exist here but was dead code -- never called from any button -- and had
+// silently drifted out of sync with the real column list, which caused confusion when
+// diagnosing report formatting issues. Removed rather than left as a trap.)
 
 // RA40 - CRV
 const CRV_HIGH=0.10, CRV_LOW=0.05;
