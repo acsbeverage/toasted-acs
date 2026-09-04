@@ -1529,6 +1529,8 @@ async function triggerBackgroundPortalRefresh(page){
   finally{_bgPortalRefreshInFlight=false;}
 }
 let _livePortalPollInterval=null;
+let _livePollInterval=null;
+const LIVE_POLL_INTERVAL=30000; // every 30s -- shared by both the main-app and portal live-polling loops below
 function startLivePortalPolling(){
   stopLivePortalPolling();
   _livePortalPollInterval=setInterval(()=>{triggerBackgroundPortalRefresh(_currentPortalPage);},LIVE_POLL_INTERVAL);
@@ -2406,8 +2408,6 @@ async function triggerBackgroundRefresh(page){
 // the same triggerBackgroundRefresh used for nav-triggered refreshes, so it inherits all of
 // its existing safety checks (never disrupts an in-progress order/tasting being built, never
 // re-renders while someone's actively typing).
-let _livePollInterval=null;
-const LIVE_POLL_INTERVAL=30000; // every 30s -- comfortably above the 20s minimum refresh gap above
 function startLivePolling(){
   stopLivePolling(); // defensive -- never stack up more than one interval
   _livePollInterval=setInterval(()=>{triggerBackgroundRefresh(_currentPage);},LIVE_POLL_INTERVAL);
