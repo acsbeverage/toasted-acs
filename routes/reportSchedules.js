@@ -83,11 +83,16 @@ async function buildRA5(from, to, producers, producerLabel) {
   const rows = await getAll(
     `SELECT p.name as wine_name, p.sku as wine_code, p.vintage, p.producer, p.cat, p.btl, p.bottle_size,
             p.fob_price, p.comm_frontline,
+            p.price_frontline, p.price_mix12, p.price_acs3, p.price_brand3, p.price_brand5,
             p.da_frontline, p.da_mix12, p.da_acs3, p.da_brand3, p.da_brand5,
             a.name as account_name, a.lic as abc_number, a.ship_street, a.ship_city, a.ship_state, a.ship_zip, a.id as account_id,
             u.fname as rep_fname, u.lname as rep_lname,
             o.id as invoice_number, o.po as po_number, o.date, o.is_sample, o.notes as order_notes,
-            oi.cases, oi.bottles, oi.rate, oi.tier, oi.notes as line_notes, oi.discount_pct,
+            oi.cases, oi.bottles, oi.rate, oi.tier, oi.notes as line_notes, oi.discount_pct, oi.is_manual,
+            (SELECT ptp.price FROM product_tier_prices ptp
+             WHERE ptp.sku = oi.sku AND ptp.tier_name = oi.tier
+               AND (ptp.account_id = o.acct_id OR ptp.account_id IS NULL)
+             ORDER BY ptp.account_id NULLS LAST LIMIT 1) as custom_price,
             (SELECT ptp.da_amount FROM product_tier_prices ptp
              WHERE ptp.sku = oi.sku AND ptp.tier_name = oi.tier
                AND (ptp.account_id = o.acct_id OR ptp.account_id IS NULL)
@@ -104,13 +109,17 @@ async function buildRA5(from, to, producers, producerLabel) {
     [from || null, to || null, (producers && producers.length) ? producers : null]
   );
 
+  const STANDARD_PRICE_COL = {
+    frontline: 'price_frontline', mix12: 'price_mix12', acs3: 'price_acs3',
+    brand3: 'price_brand3', brand5: 'price_brand5',
+  };
   const STANDARD_DA_COL = {
     frontline: 'da_frontline', mix12: 'da_mix12', acs3: 'da_acs3',
     brand3: 'da_brand3', brand5: 'da_brand5',
   };
   const headers = [
     'Wine Name', 'Wine Code', 'Vintage', producerLabel || 'Producer', 'Account', 'Sales Rep', 'Date',
-    'Quantity', 'Unit Price', 'Total', 'Notes', 'Invoice Number', 'PO Number',
+    'Quantity', 'Unit Price', 'Total', 'Notes', 'Delivery Notes', 'Invoice Number', 'PO Number',
     'Warehouse', 'Sample Order', 'Bill Back Amount', 'Bill Back Total',
     'Price Label', 'ABC Number',
     'Shipping Street', 'Shipping City', 'Shipping State', 'Shipping Zip Code',
@@ -118,22 +127,46 @@ async function buildRA5(from, to, producers, producerLabel) {
   ];
   const out = rows.map(r => {
     const qty = (r.cases || 0) + (r.bottles || 0) / (r.btl || 1); // case-equivalent, matching the fractional format the real report uses
-    const unitPrice = parseFloat(r.rate || 0) * (r.btl || 1); // per-case price
+    const isStandardTier = !!STANDARD_PRICE_COL[r.tier];
+
+    // Unit price: a manual override always wins; otherwise prefer a matching custom pricing
+    // lane, then fall back to the product's own standard-tier price. This mirrors the
+    // frontend's itemUnitPrice/itemPrice functions exactly -- the previous version here only
+    // ever read the stored per-item rate, which the database leaves null for every normal,
+    // non-manual order line, silently zeroing out the vast majority of orders.
+    let pricePerBottle;
+    if (r.is_manual && r.rate !== null && r.rate !== undefined) {
+      pricePerBottle = parseFloat(r.rate);
+    } else if (r.custom_price !== null && r.custom_price !== undefined) {
+      pricePerBottle = parseFloat(r.custom_price);
+    } else if (isStandardTier) {
+      pricePerBottle = parseFloat(r[STANDARD_PRICE_COL[r.tier]] || 0);
+    } else {
+      pricePerBottle = 0;
+    }
+    const unitPrice = pricePerBottle * (r.btl || 1); // per-case, matching this report's existing convention
     const total = qty * unitPrice;
     const priceLabel = TIER_LABELS[r.tier] || r.tier || '';
-    // DA (Bill Back): prefer a matching custom pricing lane's rate, otherwise fall back to
-    // the standard per-tier DA column on the product itself.
-    const daPerBottle = r.custom_da !== null && r.custom_da !== undefined
-      ? parseFloat(r.custom_da)
-      : parseFloat(r[STANDARD_DA_COL[r.tier]] || 0);
-    const billBackAmount = daPerBottle * (r.btl || 1); // per case, matching Unit Price's convention
+
+    // Bill Back (DA): a standard tier's DA is already stored per-case, so use it directly.
+    // A custom lane's DA is stored per-bottle (mirroring its price), so it needs the same
+    // per-bottle-to-per-case conversion as Unit Price above. Multiplying both sources by btl
+    // uniformly (the old behavior) inflated every standard-tier DA by a full case size.
+    let billBackAmount;
+    if (r.custom_da !== null && r.custom_da !== undefined) {
+      billBackAmount = parseFloat(r.custom_da) * (r.btl || 1);
+    } else if (isStandardTier) {
+      billBackAmount = parseFloat(r[STANDARD_DA_COL[r.tier]] || 0);
+    } else {
+      billBackAmount = 0;
+    }
     const billBackTotal = billBackAmount * qty;
     return [
       r.wine_name, r.wine_code, r.vintage || '', r.producer,
       r.account_name || '', r.rep_fname ? (r.rep_fname + ' ' + (r.rep_lname || '')) : '',
       r.date ? r.date.toISOString().slice(0, 10) : '',
       Number(qty.toFixed(4)), Number(unitPrice.toFixed(2)), Number(total.toFixed(2)),
-      r.line_notes || r.order_notes || '', r.invoice_number, r.po_number || '',
+      r.line_notes || '', r.order_notes || '', r.invoice_number, r.po_number || '',
       'ACS Warehouse', r.is_sample ? 'Yes' : 'No',
       Number(billBackAmount.toFixed(2)), Number(billBackTotal.toFixed(2)),
       priceLabel, r.abc_number || '',
