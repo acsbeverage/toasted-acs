@@ -263,7 +263,7 @@ async function sendScheduleNow(sched) {
 
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
   const to = sched.recipients.map(r => r.email).filter(Boolean);
-  await sgMail.send({
+  await sgMail.sendMultiple({
     to, from: { email: FROM_EMAIL, name: FROM_NAME },
     subject: `${reportName} -- ${todayStr()} -- ACS Beverage Co.`,
     html: `<div style="font-family:Arial,sans-serif;max-width:520px">
