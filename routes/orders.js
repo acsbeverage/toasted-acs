@@ -485,17 +485,42 @@ async function sendOrderNotification(orderId, placedByLabel, placedByEmail) {
     products.forEach(p => { prodBySku[p.sku] = p; });
     const TIER_COL = { frontline:'price_frontline', mix12:'price_mix12', acs3:'price_acs3', brand3:'price_brand3', brand5:'price_brand5' };
 
+    // A line item's tier might be a custom, account-specific pricing lane rather than one of
+    // the 5 standard tiers -- look those up too, so they don't silently fall back to whatever
+    // the Frontline price happens to be (often $0/unset, since the real price lives on the lane).
+    const customLaneRows = prodLines.length ? await getAll(
+      `SELECT ptp.sku, ptp.tier_name, ptp.price FROM product_tier_prices ptp
+       JOIN order_items oi2 ON oi2.sku = ptp.sku AND oi2.tier = ptp.tier_name
+       WHERE oi2.order_id = $1 AND (ptp.account_id = $2 OR ptp.account_id IS NULL)
+       ORDER BY ptp.account_id NULLS LAST`,
+      [orderId, order.acct_id]
+    ) : [];
+    const customLaneBySkuTier = {};
+    customLaneRows.forEach(r => {
+      const key = r.sku + '||' + r.tier_name;
+      if (!(key in customLaneBySkuTier)) customLaneBySkuTier[key] = parseFloat(r.price); // first row wins -- account-specific already sorted ahead of the shared default
+    });
+
     let subtotal = 0;
     const linesHtml = prodLines.map(l => {
       const prod = prodBySku[l.sku];
       const name = prod ? prod.name : l.sku;
       const btl = prod ? prod.btl : 1;
       const qtyLabel = (l.cases||0) + ' cs' + (l.bottles>0 ? ' + '+l.bottles+' btl' : '');
-      const tierCol = TIER_COL[l.tier] || 'price_frontline';
-      const rate = prod && prod[tierCol] !== null && prod[tierCol] !== undefined ? parseFloat(prod[tierCol]) : 0;
+      // Price per bottle: a manual override always wins; otherwise prefer a matching custom
+      // pricing lane; otherwise use the product's own price for this standard tier.
+      let ratePerBottle;
+      if (l.is_manual && l.rate !== null && l.rate !== undefined) {
+        ratePerBottle = parseFloat(l.rate);
+      } else if ((l.sku + '||' + l.tier) in customLaneBySkuTier) {
+        ratePerBottle = customLaneBySkuTier[l.sku + '||' + l.tier];
+      } else {
+        const tierCol = TIER_COL[l.tier];
+        ratePerBottle = prod && tierCol && prod[tierCol] !== null && prod[tierCol] !== undefined ? parseFloat(prod[tierCol]) : 0;
+      }
       const totalBottles = (l.cases||0)*btl + (l.bottles||0);
       const discount = parseFloat(l.discount_pct)||0;
-      const lineTotal = rate * totalBottles * (1 - discount/100);
+      const lineTotal = ratePerBottle * totalBottles * (1 - discount/100);
       subtotal += lineTotal;
       return `<tr>
         <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${name}</td>
