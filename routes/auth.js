@@ -18,7 +18,11 @@ router.post('/login', async (req, res) => {
     let user = await getOne('SELECT * FROM users WHERE LOWER(email)=$1', [emailLower]);
     if (user) {
       const valid = await bcrypt.compare(password, user.pw_hash);
-      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid email or password' });
+      if (!valid) {
+        console.log(`Login failed -- table=users userId=${user.id} email=${user.email}`);
+        return res.status(401).json({ ok: false, error: 'Invalid email or password' });
+      }
+      console.log(`Login succeeded -- table=users userId=${user.id} email=${user.email}`);
       const token = signToken(user);
       return res.json({ ok: true, token, user: {
         id: user.id, fname: user.fname, lname: user.lname,
@@ -29,7 +33,11 @@ router.post('/login', async (req, res) => {
     let cust = await getOne('SELECT * FROM customer_users WHERE LOWER(email)=$1', [emailLower]);
     if (cust) {
       const valid = await bcrypt.compare(password, cust.pw_hash);
-      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid email or password' });
+      if (!valid) {
+        console.log(`Login failed -- table=customer_users userId=${cust.id} email=${cust.email}`);
+        return res.status(401).json({ ok: false, error: 'Invalid email or password' });
+      }
+      console.log(`Login succeeded -- table=customer_users userId=${cust.id} email=${cust.email}`);
       const acct = await getOne('SELECT is_active FROM accounts WHERE id=$1', [cust.acct_id]);
       if (!acct || acct.is_active === false) {
         return res.status(403).json({ ok: false, error: 'This account has been deactivated -- please contact your sales rep or accounting@acsbeverage.com' });
@@ -125,6 +133,7 @@ router.post('/reset-password', async (req, res) => {
     if (!user) return res.status(400).json({ ok: false, error: 'Reset link is invalid or has expired' });
     const hash = await bcrypt.hash(newPassword, 10);
     await query(`UPDATE ${table} SET pw_hash=$1, reset_token=NULL, reset_expires=NULL WHERE id=$2`, [hash, user.id]);
+    console.log(`Password reset completed -- table=${table} userId=${user.id} email=${user.email}`);
     res.json({ ok: true });
   } catch (err) {
     console.error('Reset password error:', err.message);
