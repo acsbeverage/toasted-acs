@@ -23,6 +23,11 @@ router.get('/diagnose-email', async (req, res) => {
     if (!email) return res.status(400).json({ ok: false, error: 'email query param required' });
     const userRows = await getAll('SELECT id, email, role, reset_token IS NOT NULL as has_pending_reset FROM users WHERE LOWER(email)=$1', [email]);
     const custRows = await getAll('SELECT id, email, acct_id, reset_token IS NOT NULL as has_pending_reset FROM customer_users WHERE LOWER(email)=$1', [email]);
+    for (const c of custRows) {
+      const acct = await getOne('SELECT name, is_active FROM accounts WHERE id=$1', [c.acct_id]);
+      c.linkedAccountName = acct ? acct.name : '(account not found)';
+      c.linkedAccountIsActive = acct ? acct.is_active !== false : null;
+    }
     res.json({
       ok: true,
       duplicatesFound: (userRows.length + custRows.length) > 1,
