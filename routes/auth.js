@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { getOne, query } = require('../db');
+const { getOne, getAll, query } = require('../db');
 const { signToken, requireAuth } = require('../middleware/auth');
 const sgMail = require('@sendgrid/mail');
 
@@ -9,6 +9,30 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'accounting@acsbeverage.com';
 const FROM_NAME  = process.env.FROM_NAME  || 'Toasted — ACS Beverage Co.';
 const SIGNUP_NOTIFY_EMAILS = (process.env.SIGNUP_NOTIFY_EMAILS || 'accounting@acsbeverage.com,kevin@acsbeverage.com')
   .split(',').map(e => e.trim()).filter(Boolean);
+
+// Diagnostic only -- checks for duplicate rows sharing the same email but differing only in
+// letter case (e.g. "Kevin@x.com" vs "kevin@x.com"), which the UNIQUE constraint on email
+// doesn't catch since it's case-sensitive by default. If such duplicates exist, a query
+// matching by LOWER(email) can inconsistently return either row across separate calls --
+// which would exactly explain a password reset succeeding on one row while login later
+// checks the other, unchanged one. Never returns password hashes.
+router.get('/diagnose-email', async (req, res) => {
+  try {
+    if (req.query.secret !== 'toasted2026-diagnose') return res.status(403).json({ ok: false });
+    const email = (req.query.email || '').toLowerCase().trim();
+    if (!email) return res.status(400).json({ ok: false, error: 'email query param required' });
+    const userRows = await getAll('SELECT id, email, role, reset_token IS NOT NULL as has_pending_reset FROM users WHERE LOWER(email)=$1', [email]);
+    const custRows = await getAll('SELECT id, email, acct_id, reset_token IS NOT NULL as has_pending_reset FROM customer_users WHERE LOWER(email)=$1', [email]);
+    res.json({
+      ok: true,
+      duplicatesFound: (userRows.length + custRows.length) > 1,
+      users: userRows,
+      customerUsers: custRows,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 router.post('/login', async (req, res) => {
   try {
