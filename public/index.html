@@ -1530,7 +1530,7 @@ async function triggerBackgroundPortalRefresh(page){
 }
 let _livePortalPollInterval=null;
 let _livePollInterval=null;
-const LIVE_POLL_INTERVAL=30000; // every 30s -- shared by both the main-app and portal live-polling loops below
+const LIVE_POLL_INTERVAL=180000; // every 3 minutes -- each poll triggers a full data reload (including every order's line items), so this is intentionally much longer than the 20s nav-refresh throttle above to avoid placing repeated, heavy load on the database from every logged-in user simultaneously
 function startLivePortalPolling(){
   stopLivePortalPolling();
   _livePortalPollInterval=setInterval(()=>{triggerBackgroundPortalRefresh(_currentPortalPage);},LIVE_POLL_INTERVAL);
