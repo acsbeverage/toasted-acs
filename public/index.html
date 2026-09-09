@@ -1318,7 +1318,7 @@ async function loadAllDataFromBackend(){
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
   const safeFetch=(url)=>fetch(url,{headers}).then(r=>r.json()).catch(e=>({ok:false,_error:e.message}));
   try{
-    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes]=await Promise.all([
+    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes]=await Promise.all([
       safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
       safeFetch(TOASTED_BACKEND_URL+'/api/accounts'),
       safeFetch(TOASTED_BACKEND_URL+'/api/products'),
@@ -1329,6 +1329,7 @@ async function loadAllDataFromBackend(){
       safeFetch(TOASTED_BACKEND_URL+'/api/tastings'),
       safeFetch(TOASTED_BACKEND_URL+'/api/docs'),
       safeFetch(TOASTED_BACKEND_URL+'/api/report-schedules'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/product-taxonomy'),
     ]);
     if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
     if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
@@ -1340,6 +1341,8 @@ async function loadAllDataFromBackend(){
     if(tastingsRes.ok&&tastingsRes.tastings){TASTINGS=tastingsRes.tastings;console.log('Loaded',TASTINGS.length,'tastings from database');}
     if(docsRes.ok&&docsRes.docs){SHARED_DOCS=docsRes.docs;console.log('Loaded',SHARED_DOCS.length,'docs from database');}
     if(schedRes.ok&&schedRes.schedules){SCHEDULES=schedRes.schedules;console.log('Loaded',SCHEDULES.length,'report schedules from database');}
+    if(taxRes.ok&&taxRes.categories){SHOP_CATEGORIES=taxRes.categories.map(c=>c.name);}
+    if(taxRes.ok&&taxRes.spiritTypes){SPIRIT_TYPES=taxRes.spiritTypes.map(s=>s.name);}
     updateBadges();
   } catch(err){
     console.error('Error loading data from backend:',err.message);
@@ -1876,8 +1879,8 @@ function updatePortalMinimumStatus(){
   }
 }
 
-const SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
-const SPIRIT_TYPES=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
+let SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+let SPIRIT_TYPES=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
 const SHOP_SECTION_CAP=8;
 let _shopActiveCat='';
 function shopCardHtml(p){
@@ -5208,7 +5211,7 @@ function renderInventory(){
   const isAdmin=currentUser.role==='admin';
   const inv=mainInventory();
   const low=[...outOfStock(),...lowStock()];
-  const cats=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+  const cats=SHOP_CATEGORIES;
   document.getElementById('topbar-right').innerHTML=isAdmin?`<button class="btn btn-dark btn-sm" onclick="openReceive()"><i class="ti ti-adjustments"></i> Adjust inventory</button>`:'';
   document.getElementById('main-content').innerHTML=`
   ${low.length&&isAdmin?`<div class="card" style="margin-bottom:16px;border-color:var(--red-border)"><div class="card-header" style="background:var(--red-bg)"><span class="card-title" style="color:var(--red)"><i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>${low.length} product${low.length!==1?'s':''} needing attention</span></div>
@@ -5251,7 +5254,7 @@ function renderACSLogistics(){
   const isAdmin=currentUser.role==='admin';
   if(!isAdmin){document.getElementById('main-content').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:60px;color:var(--text3)">Admin access only.</div></div>';return;}
   const inv=logisticsInventory();
-  const cats=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+  const cats=SHOP_CATEGORIES;
   document.getElementById('topbar-right').innerHTML=`<button class="btn btn-dark btn-sm" onclick="openReceive('','acs_logistics')"><i class="ti ti-adjustments"></i> Adjust inventory</button>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card" style="margin-bottom:16px;background:#fdf8ef;border-color:#e8d9b8">
@@ -6735,7 +6738,7 @@ function ensureDA(){PRODUCTS.forEach(p=>{if(!p.da)p.da={};TIERS.forEach(t=>{if(p
 
 function renderPricing(){
   ensureDA();
-  const cats=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+  const cats=SHOP_CATEGORIES;
   // Build column headers: each tier gets 3 sub-cols: Case Price | DA/Case | Net/Case
   const tierHeaders=TIERS.map(t=>`
     <th colspan="4" style="text-align:center;border-left:2px solid var(--border2);background:var(--bg3)">
@@ -10205,7 +10208,7 @@ function exportSalesPDF(){
 
 // -- INVENTORY REPORT ----------------------------------------------------------
 function renderInventoryReport(){
-  const cats=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+  const cats=SHOP_CATEGORIES;
   window._invRptCat=window._invRptCat||'';
   window._invRptProd=window._invRptProd||'';
   window._invRptStock=window._invRptStock||'';
@@ -12606,16 +12609,22 @@ function renderProductForm(p,isNew){
       <input id="pf-producer" type="text" class="finput" value="${p.producer||''}" placeholder="Producer name" style="margin-bottom:12px"/>
 
       <label class="flabel">Category</label>
-      <select id="pf-cat" class="finput" onchange="toggleSpiritTypeField()" style="margin-bottom:12px">
-        ${['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'].map(c=>`<option value="${c}" ${(p.cat||'Spirits')===c?'selected':''}>${c}</option>`).join('')}
-      </select>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <select id="pf-cat" class="finput" onchange="toggleSpiritTypeField()" style="flex:1">
+          ${SHOP_CATEGORIES.map(c=>`<option value="${c}" ${(p.cat||'Spirits')===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-sm" onclick="addTaxonomyValue('category')" title="Add a new category"><i class="ti ti-plus"></i></button>
+      </div>
 
       <div id="pf-spirittype-wrap" style="display:${(p.cat||'Spirits')==='Spirits'?'block':'none'}">
         <label class="flabel">Spirit Type</label>
-        <select id="pf-spirittype" class="finput" style="margin-bottom:12px">
-          <option value="">-- None selected --</option>
-          ${['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'].map(s=>`<option value="${s}" ${d.spiritType===s?'selected':''}>${s}</option>`).join('')}
-        </select>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <select id="pf-spirittype" class="finput" style="flex:1">
+            <option value="">-- None selected --</option>
+            ${SPIRIT_TYPES.map(s=>`<option value="${s}" ${d.spiritType===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <button type="button" class="btn btn-sm" onclick="addTaxonomyValue('spirit_type')" title="Add a new spirit type"><i class="ti ti-plus"></i></button>
+        </div>
       </div>
 
       <label class="flabel">Vintage</label>
@@ -12713,6 +12722,31 @@ function toggleSpiritTypeField(){
   const cat=document.getElementById('pf-cat').value;
   const wrap=document.getElementById('pf-spirittype-wrap');
   if(wrap)wrap.style.display=cat==='Spirits'?'block':'none';
+}
+async function addTaxonomyValue(kind){
+  const label=kind==='category'?'category':'spirit type';
+  const name=prompt('New '+label+' name:');
+  if(!name||!name.trim())return;
+  const trimmed=name.trim();
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/product-taxonomy',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({kind,name:trimmed})
+    }).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not add '+label);return}
+    const list=kind==='category'?SHOP_CATEGORIES:SPIRIT_TYPES;
+    if(!list.includes(trimmed))list.push(trimmed);
+    const selectId=kind==='category'?'pf-cat':'pf-spirittype';
+    const sel=document.getElementById(selectId);
+    if(sel){
+      const opt=document.createElement('option');
+      opt.value=trimmed;opt.textContent=trimmed;
+      sel.appendChild(opt);
+      sel.value=trimmed;
+      if(kind==='category')toggleSpiritTypeField();
+    }
+    toast('Added "'+trimmed+'" -- available for every product going forward');
+  }catch(e){toast('Could not add '+label+' -- check connection');}
 }
 
 function saveProduct(){
