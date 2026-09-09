@@ -458,6 +458,15 @@ async function migrate() {
     await query(`INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ('spirit_type',$1,$2) ON CONFLICT (kind,name) DO NOTHING`, [existingSpiritTypes[i], i]);
   }
 
+  await query(`CREATE TABLE IF NOT EXISTS portal_banner (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    image_data TEXT,
+    link_url TEXT,
+    alt_text TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
   console.log('All tables created successfully');
 }
 
