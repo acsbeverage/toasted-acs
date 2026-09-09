@@ -1318,7 +1318,7 @@ async function loadAllDataFromBackend(){
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
   const safeFetch=(url)=>fetch(url,{headers}).then(r=>r.json()).catch(e=>({ok:false,_error:e.message}));
   try{
-    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes]=await Promise.all([
+    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes]=await Promise.all([
       safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
       safeFetch(TOASTED_BACKEND_URL+'/api/accounts'),
       safeFetch(TOASTED_BACKEND_URL+'/api/products'),
@@ -1330,6 +1330,7 @@ async function loadAllDataFromBackend(){
       safeFetch(TOASTED_BACKEND_URL+'/api/docs'),
       safeFetch(TOASTED_BACKEND_URL+'/api/report-schedules'),
       safeFetch(TOASTED_BACKEND_URL+'/api/product-taxonomy'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/portal-banner'),
     ]);
     if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
     if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
@@ -1343,6 +1344,7 @@ async function loadAllDataFromBackend(){
     if(schedRes.ok&&schedRes.schedules){SCHEDULES=schedRes.schedules;console.log('Loaded',SCHEDULES.length,'report schedules from database');}
     if(taxRes.ok&&taxRes.categories){SHOP_CATEGORIES=taxRes.categories.map(c=>c.name);}
     if(taxRes.ok&&taxRes.spiritTypes){SPIRIT_TYPES=taxRes.spiritTypes.map(s=>s.name);}
+    if(bannerRes.ok){PORTAL_BANNER=bannerRes.banner||null;}
     updateBadges();
   } catch(err){
     console.error('Error loading data from backend:',err.message);
@@ -1778,6 +1780,12 @@ function renderPortalShop(){
       </div>
     </div>`:''}
 
+    ${PORTAL_BANNER?`<div style="margin-bottom:16px;border-radius:14px;overflow:hidden;line-height:0">
+      ${PORTAL_BANNER.link_url?`<a href="${PORTAL_BANNER.link_url}" target="_blank" rel="noopener">`:''}
+      <img src="${PORTAL_BANNER.image_data}" alt="${PORTAL_BANNER.alt_text||'Featured promotion'}" style="width:100%;display:block;${PORTAL_BANNER.link_url?'cursor:pointer':''}"/>
+      ${PORTAL_BANNER.link_url?`</a>`:''}
+    </div>`:''}
+
     <div class="portal-card">
       <div class="portal-card-title">Shop products</div>
       <div class="shop-cat-row" id="shop-cat-row">
@@ -1879,6 +1887,7 @@ function updatePortalMinimumStatus(){
   }
 }
 
+let PORTAL_BANNER=null;
 let SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
 let SPIRIT_TYPES=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
 const SHOP_SECTION_CAP=8;
@@ -7039,6 +7048,32 @@ function renderSettings(){
   </div></div></div>
 
   <div class="card" style="margin-top:16px">
+    <div class="card-header"><span class="card-title"><i class="ti ti-photo" style="vertical-align:-2px;margin-right:6px"></i>Customer Portal Banner</span><span style="font-size:12px;color:var(--text2)">Shown above "Shop products" in the customer portal</span></div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Promote a specific brand or producer to customers browsing the portal. Upload a wide, rectangular image -- it displays edge-to-edge above the shop grid. Optionally link it to your website or anywhere else.</p>
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+        <div id="banner-preview-wrap" style="width:280px;height:90px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+          ${PORTAL_BANNER?`<img id="banner-preview" src="${PORTAL_BANNER.image_data}" style="width:100%;height:100%;object-fit:cover"/>`:`<span style="font-size:12px;color:var(--text3)">No banner set</span>`}
+        </div>
+        <div style="flex:1;min-width:240px">
+          <input type="file" id="banner-image-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onBannerImageSelect(this)"/>
+          <button type="button" class="btn btn-sm" onclick="document.getElementById('banner-image-file').click()"><i class="ti ti-upload"></i> ${PORTAL_BANNER?'Replace image':'Upload image'}</button>
+          <div style="margin-top:12px"><label class="flabel">Link (optional) -- where it goes if a customer clicks it</label>
+            <input class="finput" id="banner-link" placeholder="https://acsbeverageco.com/..." value="${PORTAL_BANNER?.link_url||''}"/>
+          </div>
+          <div style="margin-top:10px"><label class="flabel">Alt text (optional) -- describes the image for accessibility</label>
+            <input class="finput" id="banner-alt" placeholder="e.g. Featured: Lighthouse Brands" value="${PORTAL_BANNER?.alt_text||''}"/>
+          </div>
+          <div style="margin-top:14px;display:flex;gap:8px">
+            <button class="btn btn-dark btn-sm" onclick="saveBanner()"><i class="ti ti-check"></i> Save banner</button>
+            ${PORTAL_BANNER?`<button class="btn btn-sm" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="removeBanner()"><i class="ti ti-trash"></i> Remove banner</button>`:''}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <div class="card-header"><span class="card-title"><i class="ti ti-database-export" style="vertical-align:-2px;margin-right:6px"></i>Data Backup</span></div>
     <div class="card-body">
       <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Downloads a complete copy of everything in Toasted -- accounts, orders, products, pricing, users -- as a single file you can keep safe on your own computer. Worth doing regularly, especially if your database is on Render's free tier where automatic backups aren't included.</p>
@@ -7049,6 +7084,69 @@ function renderSettings(){
   `;
 }
 function saveSettings(){COMPANY.name=document.getElementById('co-name').value;COMPANY.address=document.getElementById('co-addr').value;COMPANY.phone=document.getElementById('co-phone').value;COMPANY.email=document.getElementById('co-email').value;COMPANY.website=document.getElementById('co-website').value;COMPANY.license=document.getElementById('co-lic').value;toast('Settings saved')}
+
+function onBannerImageSelect(input){
+  const file=input.files?.[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      // Banners are wide and rectangular, not square like product photos -- cap width
+      // generously since this displays edge-to-edge across the portal, but still keep
+      // a sane ceiling so the page stays fast to load.
+      const MAX_W=1800;
+      let w=img.width, h=img.height;
+      if(w>MAX_W){ const scale=MAX_W/w; w=Math.round(w*scale); h=Math.round(h*scale); }
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);
+      ctx.drawImage(img,0,0,w,h);
+      const TARGET_BYTES=1.5*1024*1024;
+      let quality=0.9, dataUrl=canvas.toDataURL('image/jpeg',quality);
+      const approxBytes=du=>du.length*0.75;
+      while(approxBytes(dataUrl)>TARGET_BYTES&&quality>0.3){
+        quality-=0.15;
+        dataUrl=canvas.toDataURL('image/jpeg',quality);
+      }
+      window._bannerImageData=dataUrl;
+      const wrap=document.getElementById('banner-preview-wrap');
+      if(wrap)wrap.innerHTML=`<img id="banner-preview" src="${dataUrl}" style="width:100%;height:100%;object-fit:cover"/>`;
+      if(file.size>3*1024*1024)toast('Image resized to fit');
+    };
+    img.onerror=()=>toast('Could not read image file');
+    img.src=e.target.result;
+  };
+  reader.onerror=()=>toast('Could not read image file');
+  reader.readAsDataURL(file);
+}
+async function saveBanner(){
+  const imageData=window._bannerImageData||PORTAL_BANNER?.image_data;
+  if(!imageData){toast('Please upload an image first');return}
+  const linkUrl=document.getElementById('banner-link').value.trim();
+  const altText=document.getElementById('banner-alt').value.trim();
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({imageData,linkUrl,altText})
+    }).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not save banner');return}
+    PORTAL_BANNER={image_data:imageData,link_url:linkUrl,alt_text:altText,is_active:true};
+    window._bannerImageData=null;
+    toast('Banner saved -- now live in the customer portal');
+    renderSettings();
+  }catch(e){toast('Could not save banner -- check connection');}
+}
+async function removeBanner(){
+  if(!confirm('Remove the current portal banner? Customers will no longer see it.'))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast('Could not remove banner');return}
+    PORTAL_BANNER=null;
+    toast('Banner removed');
+    renderSettings();
+  }catch(e){toast('Could not remove banner -- check connection');}
+}
 function previewInvoice(){const c=ORDERS.find(o=>o.status==='confirmed');if(c)downloadInvoice(c.id);else toast('No confirmed orders to preview')}
 async function downloadFullBackup(){
   const btn=document.getElementById('backup-btn');
