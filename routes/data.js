@@ -253,6 +253,40 @@ router.delete('/accounts/:id', requireAdmin, async (req, res) => {
 
 
 // -- PRODUCT TAXONOMY (categories & spirit types) --------------------------------
+// -- CUSTOMER PORTAL PROMO BANNER -------------------------------------------------
+router.get('/portal-banner', requireAuth, async (req, res) => {
+  try {
+    const row = await getOne('SELECT image_data, link_url, alt_text, is_active FROM portal_banner WHERE id=1');
+    res.json({ ok: true, banner: (row && row.is_active && row.image_data) ? row : null });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/portal-banner', requireAdmin, async (req, res) => {
+  try {
+    const { imageData, linkUrl, altText } = req.body;
+    if (!imageData) return res.status(400).json({ ok: false, error: 'Image required' });
+    await query(
+      `INSERT INTO portal_banner (id,image_data,link_url,alt_text,is_active,updated_at) VALUES (1,$1,$2,$3,TRUE,NOW())
+       ON CONFLICT (id) DO UPDATE SET image_data=$1, link_url=$2, alt_text=$3, is_active=TRUE, updated_at=NOW()`,
+      [imageData, linkUrl || null, altText || null]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/portal-banner', requireAdmin, async (req, res) => {
+  try {
+    await query('UPDATE portal_banner SET is_active=FALSE WHERE id=1');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/product-taxonomy', requireAuth, async (req, res) => {
   try {
     const rows = await getAll('SELECT id, kind, name FROM product_taxonomy ORDER BY kind, sort_order, name');
