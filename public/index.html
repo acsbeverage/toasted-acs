@@ -1905,7 +1905,6 @@ function productMatchesRowKey(p,key){
 function getShopRowKeys(all){
   const keys=[];
   SPIRIT_TYPES.forEach(st=>{ if(all.some(p=>productMatchesRowKey(p,st))) keys.push(st); });
-  if(all.some(p=>productMatchesRowKey(p,'Other Spirits'))) keys.push('Other Spirits');
   SHOP_CATEGORIES.filter(c=>c!=='Spirits').forEach(cat=>{ if(all.some(p=>productMatchesRowKey(p,cat))) keys.push(cat); });
   return keys;
 }
