@@ -439,6 +439,25 @@ async function migrate() {
   await query(`CREATE INDEX IF NOT EXISTS idx_tastings_acct_id ON tastings(acct_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_tastings_rep_id ON tastings(rep_id)`);
 
+  await query(`CREATE TABLE IF NOT EXISTS product_taxonomy (
+    id SERIAL PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('category','spirit_type')),
+    name TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    UNIQUE(kind, name)
+  )`);
+  // Seed with the exact values that were previously hardcoded across three separate places in
+  // the frontend, so nothing changes for existing products -- this just makes the list
+  // editable going forward instead of requiring a code change for every new addition.
+  const existingCategories = ['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
+  const existingSpiritTypes = ['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
+  for (let i = 0; i < existingCategories.length; i++) {
+    await query(`INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ('category',$1,$2) ON CONFLICT (kind,name) DO NOTHING`, [existingCategories[i], i]);
+  }
+  for (let i = 0; i < existingSpiritTypes.length; i++) {
+    await query(`INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ('spirit_type',$1,$2) ON CONFLICT (kind,name) DO NOTHING`, [existingSpiritTypes[i], i]);
+  }
+
   console.log('All tables created successfully');
 }
 
