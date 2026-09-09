@@ -252,6 +252,47 @@ router.delete('/accounts/:id', requireAdmin, async (req, res) => {
 });
 
 
+// -- PRODUCT TAXONOMY (categories & spirit types) --------------------------------
+router.get('/product-taxonomy', requireAuth, async (req, res) => {
+  try {
+    const rows = await getAll('SELECT id, kind, name FROM product_taxonomy ORDER BY kind, sort_order, name');
+    res.json({
+      ok: true,
+      categories: rows.filter(r => r.kind === 'category').map(r => ({ id: r.id, name: r.name })),
+      spiritTypes: rows.filter(r => r.kind === 'spirit_type').map(r => ({ id: r.id, name: r.name })),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/product-taxonomy', requireAdmin, async (req, res) => {
+  try {
+    const { kind, name } = req.body;
+    if (!['category', 'spirit_type'].includes(kind)) return res.status(400).json({ ok: false, error: 'Invalid kind' });
+    const trimmed = (name || '').trim();
+    if (!trimmed) return res.status(400).json({ ok: false, error: 'Name required' });
+    const maxSort = await getOne('SELECT COALESCE(MAX(sort_order),-1) as m FROM product_taxonomy WHERE kind=$1', [kind]);
+    const row = await getOne(
+      `INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ($1,$2,$3)
+       ON CONFLICT (kind,name) DO UPDATE SET name=EXCLUDED.name RETURNING id`,
+      [kind, trimmed, (maxSort?.m ?? -1) + 1]
+    );
+    res.json({ ok: true, id: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/product-taxonomy/:id', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM product_taxonomy WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/products', requireAuth, async (req, res) => {
   try {
     const isCustomer = req.user.role === 'customer';
