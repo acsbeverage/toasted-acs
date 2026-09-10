@@ -254,6 +254,16 @@ router.delete('/accounts/:id', requireAdmin, async (req, res) => {
 
 // -- PRODUCT TAXONOMY (categories & spirit types) --------------------------------
 // -- CUSTOMER PORTAL PROMO BANNER -------------------------------------------------
+router.get('/portal-banner-diagnose', async (req, res) => {
+  try {
+    if (req.query.secret !== 'toasted2026-diagnose') return res.status(403).json({ ok: false });
+    const row = await getOne('SELECT id, is_active, link_url, alt_text, updated_at, LENGTH(image_data) as image_data_length FROM portal_banner WHERE id=1');
+    res.json({ ok: true, row: row || null, rowExists: !!row });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/portal-banner', requireAuth, async (req, res) => {
   try {
     const row = await getOne('SELECT image_data, link_url, alt_text, is_active FROM portal_banner WHERE id=1');
