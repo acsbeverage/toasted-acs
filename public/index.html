@@ -1780,9 +1780,9 @@ function renderPortalShop(){
       </div>
     </div>`:''}
 
-    ${PORTAL_BANNER?`<div style="margin-bottom:16px;border-radius:14px;overflow:hidden;line-height:0">
+    ${PORTAL_BANNER?`<div style="width:100vw;position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;margin-bottom:20px;overflow:hidden;line-height:0">
       ${PORTAL_BANNER.link_url?`<a href="${PORTAL_BANNER.link_url}" target="_blank" rel="noopener">`:''}
-      <img src="${PORTAL_BANNER.image_data}" alt="${PORTAL_BANNER.alt_text||'Featured promotion'}" style="width:100%;display:block;${PORTAL_BANNER.link_url?'cursor:pointer':''}"/>
+      <img src="${PORTAL_BANNER.image_data}" alt="${PORTAL_BANNER.alt_text||'Featured promotion'}" style="width:100%;aspect-ratio:5/1;object-fit:cover;display:block;${PORTAL_BANNER.link_url?'cursor:pointer':''}"/>
       ${PORTAL_BANNER.link_url?`</a>`:''}
     </div>`:''}
 
