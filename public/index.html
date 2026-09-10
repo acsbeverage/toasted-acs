@@ -1788,6 +1788,10 @@ function renderPortalShop(){
 
     <div class="portal-card">
       <div class="portal-card-title">Shop products</div>
+      <div style="position:relative;margin-bottom:14px">
+        <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:16px"></i>
+        <input type="text" id="shop-search" placeholder="Search by product, producer, or SKU..." class="finput" style="padding-left:36px" oninput="filterShopGrid()"/>
+      </div>
       <div class="shop-cat-row" id="shop-cat-row">
         <button class="shop-cat-pill${_shopActiveCat?'':' active'}" data-cat="" onclick="filterShopGrid(this)">All</button>
         ${getShopRowKeys(mainInventory()).map(k=>`<button class="shop-cat-pill${_shopActiveCat===k?' active':''}" data-cat="${k}" onclick="filterShopGrid(this)">${k}</button>`).join('')}
