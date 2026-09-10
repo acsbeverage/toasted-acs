@@ -1386,18 +1386,20 @@ async function ensureOrderItemsLoaded(orderId){
 async function loadPortalData(){
   const headers={'Authorization':'Bearer '+window._authToken};
   try{
-    const [acctsRes,prodsRes,ordersRes,usersRes,tierCfgRes]=await Promise.all([
+    const [acctsRes,prodsRes,ordersRes,usersRes,tierCfgRes,bannerRes]=await Promise.all([
       fetch(TOASTED_BACKEND_URL+'/api/accounts',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/products',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/orders',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/users',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{headers}).then(r=>r.json()),
     ]);
     if(acctsRes.ok)ACCOUNTS=acctsRes.accounts;
     if(prodsRes.ok)PRODUCTS=prodsRes.products;
     if(ordersRes.ok)ORDERS=ordersRes.orders;
     if(usersRes.ok)USERS=usersRes.users;
     if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length)TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));
+    if(bannerRes.ok)PORTAL_BANNER=bannerRes.banner||null;
   }catch(e){
     console.error('Failed to load portal data:',e.message);
     toast('Could not load your account -- please refresh and try again');
