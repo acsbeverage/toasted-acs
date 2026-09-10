@@ -7135,9 +7135,13 @@ async function saveBanner(){
       body:JSON.stringify({imageData,linkUrl,altText})
     }).then(r=>r.json());
     if(!res.ok){toast(res.error||'Could not save banner');return}
-    PORTAL_BANNER={image_data:imageData,link_url:linkUrl,alt_text:altText,is_active:true};
+    // Re-fetch rather than trust the optimistic local update -- confirms what's actually
+    // persisted, rather than assuming success just because the save request came back ok.
+    const confirmRes=await fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    PORTAL_BANNER=(confirmRes.ok&&confirmRes.banner)?confirmRes.banner:null;
     window._bannerImageData=null;
-    toast('Banner saved -- now live in the customer portal');
+    if(PORTAL_BANNER)toast('Banner saved -- now live in the customer portal');
+    else toast('Save reported success, but the banner isn\'t showing as saved -- please try again');
     renderSettings();
   }catch(e){toast('Could not save banner -- check connection');}
 }
@@ -7146,7 +7150,8 @@ async function removeBanner(){
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
     if(!res.ok){toast('Could not remove banner');return}
-    PORTAL_BANNER=null;
+    const confirmRes=await fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    PORTAL_BANNER=(confirmRes.ok&&confirmRes.banner)?confirmRes.banner:null;
     toast('Banner removed');
     renderSettings();
   }catch(e){toast('Could not remove banner -- check connection');}
