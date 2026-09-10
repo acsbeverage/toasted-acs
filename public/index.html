@@ -281,6 +281,17 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .shop-cat-pill{background:#fff;border:1px solid #e5e5e5;color:#555;padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s}
 .shop-cat-pill:hover{border-color:#D4967D;color:#D4967D}
 .shop-cat-pill.active{background:#6B2737;border-color:#6B2737;color:#fff}
+.shop-layout-wrap{display:flex;gap:20px;align-items:flex-start}
+.shop-sidebar-cats{display:none}
+@media(min-width:769px){
+  #portal-content{max-width:1200px!important}
+  .shop-sidebar-cats{display:block;width:190px;flex-shrink:0;background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+  .shop-sidebar-title{font-weight:700;font-size:14px;color:#222;margin-bottom:12px}
+  .shop-sidebar-pill{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 12px;font-size:13px;font-weight:600;color:#555;cursor:pointer;transition:all 0.15s;margin-bottom:2px}
+  .shop-sidebar-pill:hover{background:#f7f0eb;color:#D4967D}
+  .shop-sidebar-pill.active{background:#6B2737;color:#fff}
+  .shop-main-col .shop-cat-row{display:none}
+}
 .shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
 .shop-card{background:#fff;border:1px solid #e9e5df;border-radius:14px;overflow:hidden;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;position:relative;display:flex;flex-direction:column}
 .shop-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(20,15,10,0.1)}
@@ -422,10 +433,10 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 
   <!-- Portal Nav -->
   <div style="background:#fff;border-bottom:1px solid #e5e5e5;padding:0 20px;display:flex;gap:0;overflow-x:auto">
-    <button class="portal-nav-btn active" id="pnav-account" onclick="showPortalPage('account')">Account</button>
+    <button class="portal-nav-btn" id="pnav-account" onclick="showPortalPage('account')">Account</button>
     <button class="portal-nav-btn" id="pnav-orders" onclick="showPortalPage('orders')">Order History</button>
     <button class="portal-nav-btn" id="pnav-invoices" onclick="showPortalPage('invoices')">Invoices</button>
-    <button class="portal-nav-btn portal-nav-btn-primary" id="pnav-shop" onclick="showPortalPage('shop')">Shop</button>
+    <button class="portal-nav-btn portal-nav-btn-primary active" id="pnav-shop" onclick="showPortalPage('shop')">Shop</button>
   </div>
 
   <!-- Portal Content -->
@@ -1416,7 +1427,7 @@ function doLogin(){
       loadPortalData().then(()=>{
         const acct=acctById(currentCustomer.acctId);
         document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
-        showPortalPage('account');
+        showPortalPage('shop');
       });
       return;
     }
@@ -1491,7 +1502,7 @@ function doPortalSignup(){
     loadPortalData().then(()=>{
       const acct=acctById(currentCustomer.acctId);
       document.getElementById('portal-acct-name').textContent=acct?acct.name:fname+' '+lname;
-      showPortalPage('account');
+      showPortalPage('shop');
       toast('Welcome, '+fname+'! Your account has been created.');
     });
   }).catch(err=>{
@@ -1762,6 +1773,7 @@ function renderPortalShop(){
     currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
   }
   const isMobileView=window.matchMedia('(max-width:768px)').matches;
+  const rowKeys=getShopRowKeys(mainInventory());
   const recentItems=isMobileView?portalFrequentItems(acct.id,4):portalRecentItems(acct.id,8);
 
   document.getElementById('portal-content').innerHTML=`
@@ -1786,17 +1798,24 @@ function renderPortalShop(){
       ${PORTAL_BANNER.link_url?`</a>`:''}
     </div>`:''}
 
-    <div class="portal-card">
-      <div class="portal-card-title">Shop products</div>
-      <div style="position:relative;margin-bottom:14px">
-        <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:16px"></i>
-        <input type="text" id="shop-search" placeholder="Search by product, producer, or SKU..." class="finput" style="padding-left:36px" oninput="filterShopGrid()"/>
+    <div class="shop-layout-wrap">
+      <div class="shop-sidebar-cats">
+        <div class="shop-sidebar-title">Shop by Category</div>
+        <button class="shop-cat-pill shop-sidebar-pill${_shopActiveCat?'':' active'}" data-cat="" onclick="filterShopGrid(this)">All</button>
+        ${rowKeys.map(k=>`<button class="shop-cat-pill shop-sidebar-pill${_shopActiveCat===k?' active':''}" data-cat="${k}" onclick="filterShopGrid(this)">${k}</button>`).join('')}
       </div>
-      <div class="shop-cat-row" id="shop-cat-row">
-        <button class="shop-cat-pill${_shopActiveCat?'':' active'}" data-cat="" onclick="filterShopGrid(this)">All</button>
-        ${getShopRowKeys(mainInventory()).map(k=>`<button class="shop-cat-pill${_shopActiveCat===k?' active':''}" data-cat="${k}" onclick="filterShopGrid(this)">${k}</button>`).join('')}
+      <div class="portal-card shop-main-col" style="flex:1;min-width:0">
+        <div class="portal-card-title">Shop products</div>
+        <div style="position:relative;margin-bottom:14px">
+          <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:16px"></i>
+          <input type="text" id="shop-search" placeholder="Search by product, producer, or SKU..." class="finput" style="padding-left:36px" oninput="filterShopGrid()"/>
+        </div>
+        <div class="shop-cat-row" id="shop-cat-row">
+          <button class="shop-cat-pill${_shopActiveCat?'':' active'}" data-cat="" onclick="filterShopGrid(this)">All</button>
+          ${rowKeys.map(k=>`<button class="shop-cat-pill${_shopActiveCat===k?' active':''}" data-cat="${k}" onclick="filterShopGrid(this)">${k}</button>`).join('')}
+        </div>
+        <div id="shop-grid-sections"></div>
       </div>
-      <div id="shop-grid-sections"></div>
     </div>
   `;
   syncFees();
@@ -2129,7 +2148,7 @@ function doLogout(){
         document.getElementById('portal-acct-name').textContent=acct?acct.name:currentCustomer.fname+' '+currentCustomer.lname;
         const PORTAL_RESTORABLE=['account','orders','invoices'];
         const lastPortalPage=localStorage.getItem('_toastedPortalPage');
-        showPortalPage(PORTAL_RESTORABLE.includes(lastPortalPage)?lastPortalPage:'account');
+        showPortalPage(PORTAL_RESTORABLE.includes(lastPortalPage)?lastPortalPage:'shop');
       });
       return;
     }catch(e){
