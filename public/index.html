@@ -121,9 +121,9 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .badge-sake{background:#FFF8E1;color:#827717}
 .badge-unconfirmed{background:var(--amber-bg);color:var(--amber)}
 .badge-confirmed{background:var(--green-bg);color:var(--green)}
-.badge-low{background:var(--red-bg);color:var(--red)}
+.badge-low{background:var(--amber-bg);color:var(--amber)}
 .badge-ok{background:var(--green-bg);color:var(--green)}
-.badge-out{background:#2C2C2A;color:#F09595}
+.badge-out{background:var(--red-bg);color:var(--red)}
 .badge-admin{background:#EEF0FB;color:#3544A0}
 .badge-rep{background:var(--green-bg);color:var(--green)}
 
@@ -160,8 +160,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 /* STOCK */
 .stock-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
 .stock-chip.ok{background:var(--green-bg);color:var(--green)}
-.stock-chip.low{background:var(--red-bg);color:var(--red)}
-.stock-chip.out{background:#2C2C2A;color:#F09595}
+.stock-chip.low{background:var(--amber-bg);color:var(--amber)}
+.stock-chip.out{background:var(--red-bg);color:var(--red)}
 .stock-bar-wrap{width:56px;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:5px}
 .stock-bar{height:100%;border-radius:2px}
 
@@ -1209,7 +1209,7 @@ function stockChip(p){
   return`<span class="stock-chip ok"><i class="ti ti-circle-check" style="font-size:11px"></i> ${p.stock} cases</span>`;
 }
 function stockBadge(p){if(p.stock===0)return'<span class="badge badge-out">Out of stock</span>';if(p.stock<=p.reorder)return'<span class="badge badge-low">Low stock</span>';return'<span class="badge badge-ok">In stock</span>'}
-function stockBar(p){const max=Math.max(p.reorder*3,p.stock,1);const pct=Math.min(100,Math.round(p.stock/max*100));const color=p.stock===0?'#B03A2E':p.stock<=p.reorder?'#D4967D':'#2D6A4F';return`<div class="stock-bar-wrap"><div class="stock-bar" style="width:${pct}%;background:${color}"></div></div>`}
+function stockBar(p){const max=Math.max(p.reorder*3,p.stock,1);const pct=Math.min(100,Math.round(p.stock/max*100));const color=p.stock===0?'#B03A2E':p.stock<=p.reorder?'#8A5C1A':'#2D6A4F';return`<div class="stock-bar-wrap"><div class="stock-bar" style="width:${pct}%;background:${color}"></div></div>`}
 
 function updateBadges(){
   const ub=document.getElementById('unconf-badge');if(ub)ub.textContent=unconfirmedCount();
