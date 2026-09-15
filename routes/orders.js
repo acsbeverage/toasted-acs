@@ -230,16 +230,21 @@ router.post('/', requireAuth, async (req, res) => {
         };
         const EPS = 0.001; // floating-point tolerance
 
-        // 12 Btl Mix: 12 bottles total, any products in the portfolio
-        const mix12Total = prodItems.filter(i => i.tier === 'mix12').reduce((s,i) => s+bottleCount(i), 0);
-        if (mix12Total > 0 && mix12Total < 12) {
-          return res.status(400).json({ ok: false, error: `12 Btl Mix pricing requires at least 12 bottles total (any products) -- you have ${mix12Total}.` });
+        // 12 Btl Mix: 12 bottles total across the WHOLE order (any products), not just the
+        // items a customer happened to tag with this tier -- the qualifying quantity can come
+        // from anywhere in the cart.
+        const hasMix12Item = prodItems.some(i => i.tier === 'mix12');
+        const orderTotalBottles = prodItems.reduce((s,i) => s+bottleCount(i), 0);
+        if (hasMix12Item && orderTotalBottles < 12) {
+          return res.status(400).json({ ok: false, error: `12 Btl Mix pricing requires at least 12 bottles total across your whole order (any products) -- you have ${orderTotalBottles}.` });
         }
 
-        // 3 Case ACS: 3 cases total (case-equivalent), any products in the portfolio
-        const acs3Total = prodItems.filter(i => i.tier === 'acs3').reduce((s,i) => s+caseEquivalent(i), 0);
-        if (acs3Total > 0 && acs3Total < 3-EPS) {
-          return res.status(400).json({ ok: false, error: `3 Case ACS pricing requires at least 3 cases total (any products) -- you have ${acs3Total.toFixed(2)}.` });
+        // 3 Case ACS: 3 cases total (case-equivalent) across the WHOLE order (any products),
+        // not just the items a customer happened to tag with this tier.
+        const hasAcs3Item = prodItems.some(i => i.tier === 'acs3');
+        const orderTotalCases = prodItems.reduce((s,i) => s+caseEquivalent(i), 0);
+        if (hasAcs3Item && orderTotalCases < 3-EPS) {
+          return res.status(400).json({ ok: false, error: `3 Case ACS pricing requires at least 3 cases total across your whole order (any products) -- you have ${orderTotalCases.toFixed(2)}.` });
         }
 
         // Brand Family tiers: minimum applies per-brand (producer), not per-SKU, measured in cases
