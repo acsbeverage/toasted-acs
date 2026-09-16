@@ -206,10 +206,14 @@ router.post('/', requireAuth, async (req, res) => {
     if (req.user.role === 'customer') {
       const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
       if (!cust) return res.status(403).json({ ok: false, error: 'Customer account not found' });
-      const custAcct = await getOne('SELECT rep FROM accounts WHERE id=$1', [cust.acct_id]);
+      const custAcct = await getOne('SELECT rep, waive_delivery_always FROM accounts WHERE id=$1', [cust.acct_id]);
       acct = cust.acct_id;
       rep = custAcct ? custAcct.rep : null;
       status = 'unconfirmed';
+      // A customer's own request can never decide this -- it's controlled entirely by the
+      // account's permanent setting, set by an admin, not something a customer-role
+      // submission should ever be able to claim for itself.
+      waiveDelivery = !!(custAcct && custAcct.waive_delivery_always);
 
       // Enforce pricing-tier minimums server-side -- never trust the client's claimed tier.
       if (Array.isArray(items)) {
