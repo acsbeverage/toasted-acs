@@ -28,7 +28,7 @@ router.get('/accounts', requireAuth, async (req, res) => {
       phone: r.phone, email: r.email, address: r.address,
       shipStreet: r.ship_street, shipCity: r.ship_city, shipState: r.ship_state, shipZip: r.ship_zip,
       billStreet: r.bill_street, billCity: r.bill_city, billState: r.bill_state, billZip: r.bill_zip,
-      terms: r.terms, rep: r.rep, qboId: r.qbo_id, isActive: r.is_active !== false, paymentProvider: r.payment_provider||'',
+      terms: r.terms, rep: r.rep, qboId: r.qbo_id, isActive: r.is_active !== false, waiveDeliveryAlways: r.waive_delivery_always === true, paymentProvider: r.payment_provider||'',
 onlinePayments: r.online_payments||'No',
 redemption: r.redemption||'No',
 taxId: r.tax_id||'',
@@ -217,7 +217,7 @@ router.patch('/accounts/:id', requireAdmin, async (req, res) => {
       prefersMasterInvoice:'prefers_master_invoice', allowOrders:'allow_orders',
       codEmailNotifications:'cod_email_notifications', billingInvoiceTitle:'billing_invoice_title',
       pastDue:'past_due', notifyInvoiceContactsAR:'notify_invoice_contacts_ar',
-      lic:'lic', abcNum:'abc_num',
+      lic:'lic', abcNum:'abc_num', waiveDeliveryAlways:'waive_delivery_always',
     };
 
     const updates = [], values = [];
