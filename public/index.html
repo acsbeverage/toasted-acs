@@ -573,6 +573,11 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
       <div><label class="flabel">Preferred Payment Method Name</label><input class="finput" id="a-preferred-payment-method"/></div>
     </div>
 
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius)">
+      <input type="checkbox" id="a-waive-delivery-always" style="width:16px;height:16px"/>
+      <label for="a-waive-delivery-always" style="font-size:13px;cursor:pointer"><b>Never charge this account a delivery fee</b> -- applies automatically to every future order, no manual waiving needed</label>
+    </div>
+
     <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:14px;margin-bottom:8px">
       <div style="font-weight:700;font-size:13px;color:var(--gold)">Additional Contacts</div>
       <button type="button" class="btn btn-sm" onclick="addDraftContact()"><i class="ti ti-plus"></i> Add Contact</button>
@@ -1772,7 +1777,7 @@ function renderPortalShop(){
   // navigating here from the Cart page (or back again) would silently wipe out whatever the
   // customer already added. submitPortalOrder() explicitly resets this after a real submit.
   if(!currentOrder||currentOrder.acct!==acct.id){
-    currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
+    currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard',waiveDelivery:!!acct.waiveDeliveryAlways};
   }
   const isMobileView=window.matchMedia('(max-width:768px)').matches;
   const rowKeys=getShopRowKeys(mainInventory());
@@ -1828,7 +1833,7 @@ function renderPortalShop(){
 function renderPortalCart(){
   const acct=ACCOUNTS.find(a=>a.id===currentCustomer.acctId)||{};
   if(!currentOrder||currentOrder.acct!==acct.id){
-    currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard'};
+    currentOrder={acct:acct.id,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:acct.deliveryNotes||'',orderType:'standard',waiveDelivery:!!acct.waiveDeliveryAlways};
   }
   document.getElementById('portal-content').innerHTML=`
     <div class="portal-card">
@@ -2101,7 +2106,7 @@ function submitPortalOrder(){
     }
     const finalId=res.id||id;
     ORDERS.push({...newOrder,id:finalId});
-    currentOrder={acct:newOrder.acct,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard'};
+    currentOrder={acct:newOrder.acct,items:[],date:today(),delivery:nextValidDeliveryDate(today()),po:'',notes:'',orderType:'standard',waiveDelivery:!!acctById(newOrder.acct)?.waiveDeliveryAlways};
     // Success screen
     document.getElementById('portal-content').innerHTML=`
       <div class="portal-card" style="text-align:center;padding:48px 24px">
@@ -2935,6 +2940,7 @@ function setOrderType(type){
 
 function onAcctChange(){
   const id=document.getElementById('o-acct').value;const acct=acctById(id);currentOrder.acct=id;
+  if(acct&&acct.waiveDeliveryAlways){currentOrder.waiveDelivery=true;syncFees();renderLineItems();}
   const searchInput=document.getElementById('o-acct-search');
   if(searchInput)searchInput.value=acct?acct.name:'';
   const info=document.getElementById('acct-info');
@@ -6519,6 +6525,7 @@ function openAddAccount(){
    'a-alt-license','a-alt-license-expiry','a-external-id','a-billing-invoice-title'
   ].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('a-terms').value='Net 30';
+  document.getElementById('a-waive-delivery-always').checked=false;
   document.getElementById('a-type').value='';
   document.getElementById('a-past-due').value='false';
   document.getElementById('a-notify-ar').value='true';
@@ -6558,6 +6565,7 @@ function openEditAccountFull(acctId){
   setVal('a-bill-street',a.billStreet);setVal('a-bill-street2',a.billStreet2);setVal('a-bill-city',a.billCity);
   setVal('a-bill-state',a.billState);setVal('a-bill-zip',a.billZip);setVal('a-bill-county',a.billCounty);
   setVal('a-payment-provider',a.paymentProvider);setVal('a-preferred-payment-method',a.preferredPaymentMethodName);
+  document.getElementById('a-waive-delivery-always').checked=!!a.waiveDeliveryAlways;
   setVal('a-region',a.region);setVal('a-tasting-hours',a.tastingHours);setVal('a-delivery-notes',a.deliveryNotes);
   setVal('a-website',a.website);setVal('a-warehouse-code',a.warehouseCode);setVal('a-tax-id',a.taxId);
   setVal('a-abc-detail',a.abcDetail);setVal('a-lic-expiry',a.licExpiry);setVal('a-resale-num',a.resaleNum);
@@ -6707,6 +6715,7 @@ function saveAccount(){
     billCounty:billSame?document.getElementById('a-ship-county').value:document.getElementById('a-bill-county').value,
     paymentProvider:document.getElementById('a-payment-provider').value,
     preferredPaymentMethodName:document.getElementById('a-preferred-payment-method').value,
+    waiveDeliveryAlways:document.getElementById('a-waive-delivery-always').checked,
     accountType:document.getElementById('a-type').value,
     region:document.getElementById('a-region').value,
     allowedShipDays:[...document.getElementById('a-ship-days').selectedOptions].map(o=>o.value).join(','),
