@@ -467,6 +467,8 @@ async function migrate() {
     updated_at TIMESTAMPTZ DEFAULT NOW()
   )`);
 
+  await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS waive_delivery_always BOOLEAN DEFAULT FALSE`);
+
   console.log('All tables created successfully');
 }
 
