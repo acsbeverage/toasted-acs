@@ -8,6 +8,39 @@ const FROM_NAME     = process.env.FROM_NAME  || 'Toasted — ACS Beverage Co.';
 const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessica@acsbeverage.com')
   .split(',').map(e => e.trim()).filter(Boolean);
 
+// Rebuilds every combo line item from the combo's own current definition and each product's
+// live 5-Case Brand Family price -- never trusts a client-submitted rate/tier/notes for a
+// combo item, since that's exactly the sort of thing a tampered request would try to change.
+// Paid items are billed at brand5 price minus a flat "even dollar split" offset (so nothing is
+// ever priced or labeled as free -- required for alcohol-industry compliance), tagged tier
+// 'brand5' so they still earn the normal 5-Case Brand Family DA/billback. Bonus items are
+// billed at $0, tagged with the synthetic tier 'comboBonus' (which resolves to $0 DA -- see
+// the RA5 billback lookup in the frontend, which only recognizes real standard/custom tiers),
+// and always carry the exact Notes string "100% BB", per policy: no DA on bonus cases, ever.
+async function rebuildComboLineItems(combo, prodMap) {
+  const items = combo.items || [];
+  const paid = items.filter(i => !i.isBonus);
+  const bonus = items.filter(i => i.isBonus);
+  const brand5PerBottle = (sku) => { const p = prodMap[sku]; return p ? parseFloat(p.price_brand5) || 0 : 0; };
+  const btlOf = (sku) => { const p = prodMap[sku]; return p ? (p.btl || 1) : 1; };
+
+  const bonusTotalCostDollars = bonus.reduce((s, i) => s + (i.cases || 0) * brand5PerBottle(i.sku) * btlOf(i.sku), 0);
+  const paidTotalCases = paid.reduce((s, i) => s + (i.cases || 0), 0);
+  const offsetPerCaseDollars = paidTotalCases > 0 ? bonusTotalCostDollars / paidTotalCases : 0;
+
+  const lines = [];
+  paid.forEach(i => {
+    const perBottle = brand5PerBottle(i.sku);
+    const btl = btlOf(i.sku);
+    const rate = Math.max(0, perBottle - (offsetPerCaseDollars / btl));
+    lines.push({ sku: i.sku, cases: i.cases || 0, bottles: 0, tier: 'brand5', _manual: true, rate, discountPct: 0, notes: `Combo: ${combo.name}`, comboId: combo.id, comboBonus: false });
+  });
+  bonus.forEach(i => {
+    lines.push({ sku: i.sku, cases: i.cases || 0, bottles: 0, tier: 'comboBonus', _manual: true, rate: 0, discountPct: 0, notes: '100% BB', comboId: combo.id, comboBonus: true });
+  });
+  return lines;
+}
+
 router.get('/', requireAuth, async (req, res) => {
   try {
     const isAdmin    = req.user.role === 'admin';
@@ -201,6 +234,32 @@ router.post('/', requireAuth, async (req, res) => {
     let { id, acct, rep, date, delivery, status, orderType, po, notes,
             isSample, waiveDelivery, waiveBrokenCase, waiveCRV, items, placedByLabel } = req.body;
 
+    // Combos: rebuild every combo-tagged line item from scratch server-side (see
+    // rebuildComboLineItems above) -- applies to every order, not just customer submissions,
+    // since combo pricing/DA/notes must never be trusted from any client.
+    if (Array.isArray(items)) {
+      const comboIds = [...new Set(items.filter(i => i.comboId).map(i => i.comboId))];
+      if (comboIds.length) {
+        const combos = await getAll('SELECT * FROM order_combos WHERE id = ANY($1)', [comboIds]);
+        const comboMap = {};
+        combos.forEach(c => { comboMap[c.id] = { id: c.id, name: c.name, items: c.items || [] }; });
+        const comboSkus = [...new Set(combos.flatMap(c => (c.items || []).map(i => i.sku)))];
+        const comboProducts = comboSkus.length ? await getAll('SELECT sku,btl,price_brand5 FROM products WHERE sku = ANY($1)', [comboSkus]) : [];
+        const comboProdMap = {};
+        comboProducts.forEach(p => { comboProdMap[p.sku] = p; });
+
+        const nonComboItems = items.filter(i => !i.comboId);
+        let rebuiltComboItems = [];
+        for (const comboId of comboIds) {
+          const combo = comboMap[comboId];
+          if (!combo) return res.status(400).json({ ok: false, error: 'Selected combo no longer exists.' });
+          const lines = await rebuildComboLineItems(combo, comboProdMap);
+          rebuiltComboItems = rebuiltComboItems.concat(lines);
+        }
+        items = nonComboItems.concat(rebuiltComboItems);
+      }
+    }
+
     // Customers can only ever place orders under their own account --
     // never trust acct/rep values coming from a customer-role client.
     if (req.user.role === 'customer') {
@@ -251,10 +310,13 @@ router.post('/', requireAuth, async (req, res) => {
           return res.status(400).json({ ok: false, error: `3 Case ACS pricing requires at least 3 cases total across your whole order (any products) -- you have ${orderTotalCases.toFixed(2)}.` });
         }
 
-        // Brand Family tiers: minimum applies per-brand (producer), not per-SKU, measured in cases
+        // Brand Family tiers: minimum applies per-brand (producer), not per-SKU, measured in cases.
+        // Combo-tagged items are exempt from this per-brand minimum -- a combo's own defined
+        // bundle is what qualifies every item in it for 5-Case Brand Family pricing, even
+        // though no single brand naturally reaches 5 cases within the combo on its own.
         const checkBrandTier = (tierId, minCases, label) => {
           const byBrand = {};
-          prodItems.filter(i => i.tier === tierId).forEach(i => {
+          prodItems.filter(i => i.tier === tierId && !i.comboId).forEach(i => {
             const p = prodMap[i.sku];
             const brand = p ? (p.producer || 'Unknown') : 'Unknown';
             byBrand[brand] = (byBrand[brand] || 0) + caseEquivalent(i);
@@ -343,8 +405,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
   try {
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
-            date, delivery, po, notes, items, labelsPrinted, partialPaidAmount,
+            date, delivery, po, notes, items: itemsIn, labelsPrinted, partialPaidAmount,
             waiveDelivery, waiveBrokenCase, waiveCRV, isSample, orderType } = req.body;
+    let items = itemsIn;
     // Confirming an order is a deliberate, admin-only gatekeeping step -- reps can still edit
     // their own orders' other details through this same route, just not move the status itself
     // into confirmed.
@@ -377,6 +440,28 @@ router.patch('/:id', requireAuth, async (req, res) => {
     }
     // Replace line items if a new set was provided (order-edit flow)
     if (Array.isArray(items)) {
+      // Same server-side combo recomputation as order creation -- an admin/rep adding a combo
+      // while editing an existing order must never have its pricing/DA/notes trusted from the
+      // client either.
+      const editComboIds = [...new Set(items.filter(i => i.comboId).map(i => i.comboId))];
+      if (editComboIds.length) {
+        const editCombos = await getAll('SELECT * FROM order_combos WHERE id = ANY($1)', [editComboIds]);
+        const editComboMap = {};
+        editCombos.forEach(c => { editComboMap[c.id] = { id: c.id, name: c.name, items: c.items || [] }; });
+        const editComboSkus = [...new Set(editCombos.flatMap(c => (c.items || []).map(i => i.sku)))];
+        const editComboProducts = editComboSkus.length ? await getAll('SELECT sku,btl,price_brand5 FROM products WHERE sku = ANY($1)', [editComboSkus]) : [];
+        const editComboProdMap = {};
+        editComboProducts.forEach(p => { editComboProdMap[p.sku] = p; });
+        const editNonComboItems = items.filter(i => !i.comboId);
+        let editRebuiltItems = [];
+        for (const comboId of editComboIds) {
+          const combo = editComboMap[comboId];
+          if (!combo) return res.status(400).json({ ok: false, error: 'Selected combo no longer exists.' });
+          editRebuiltItems = editRebuiltItems.concat(await rebuildComboLineItems(combo, editComboProdMap));
+        }
+        items = editNonComboItems.concat(editRebuiltItems);
+      }
+
       // Adjust inventory for the exact delta between old and new quantities per SKU, rather
       // than a blind restore-then-deduct -- a change from 3 cases to 5 should only move
       // stock by the 2-case difference, not the full 3 and then the full 5.
