@@ -1054,13 +1054,7 @@ function buildTierOptions(p,item,withPricePreview,acctId){
     }
   }
 
-  // A combo-bonus line uses a synthetic tier id ('comboBonus') that deliberately isn't a
-  // real standard tier or product-level custom lane -- that's what makes it always price
-  // at $0 DA (see RA5 billback lookup). It won't appear in fixedList/extraList on its own,
-  // so surface it explicitly here rather than leaving the dropdown looking empty/wrong.
-  const comboBonusOpt=item.tier==='comboBonus'
-    ?`<option value="comboBonus" selected>Combo Bonus Case (100% BB, no DA)</option>`:'';
-  const fixedOpts=comboBonusOpt+lastUsedOpt+fixedList.map(t=>{
+  const fixedOpts=lastUsedOpt+fixedList.map(t=>{
     const note=(p.tierNotes&&p.tierNotes[t.id])?` -- ${escText(p.tierNotes[t.id])}`:'';
     const label=(withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name)+note;
     return `<option value="${t.id}" ${item.tier===t.id?'selected':''}>${label}</option>`;
@@ -3069,9 +3063,7 @@ function applyComboToOrder(comboId){
   preview.lines.forEach(l=>{
     currentOrder.items.push({
       sku:l.sku, cases:l.cases, bottles:0,
-      tier:l.isBonus?'comboBonus':'brand5',
-      _manual:true, rate:l.isBonus?0:(l.perCasePrice/(prodBySku(l.sku)?.btl||1)),
-      discountPct:0,
+      tier:'brand5', discountPct:preview.discountPct,
       notes:l.isBonus?'100% BB':('Combo: '+combo.name),
       comboId:combo.id,
     });
@@ -7256,27 +7248,27 @@ async function removeBanner(){
 // Live-computes the same offset pricing the server enforces at order time (see
 // rebuildComboLineItems in orders.js), purely for admin/order-building preview --
 // the server always recomputes this itself from scratch and never trusts these numbers.
+// Matches rebuildComboLineItems in orders.js exactly -- every line (paid and bonus alike)
+// prices at the product's real 5-Case Brand Family rate, then the SAME discount percentage
+// is applied across every line so the combo's total nets out to exactly the paid cases' full
+// combined brand5 value. This is preview-only; the server always recomputes this itself at
+// order time and never trusts what this produces.
 function computeComboPreview(combo){
   const items=combo.items||[];
-  const paid=items.filter(i=>!i.isBonus);
-  const bonus=items.filter(i=>i.isBonus);
   const brand5PerBottle=sku=>{const p=prodBySku(sku);return p?(p.prices?.brand5||0):0};
   const btlOf=sku=>{const p=prodBySku(sku);return p?(p.btl||1):1};
-  const bonusTotalCost=bonus.reduce((s,i)=>s+(i.cases||0)*brand5PerBottle(i.sku)*btlOf(i.sku),0);
-  const paidTotalCases=paid.reduce((s,i)=>s+(i.cases||0),0);
-  const offsetPerCase=paidTotalCases>0?bonusTotalCost/paidTotalCases:0;
-  const lines=[];
-  paid.forEach(i=>{
+  const caseValue=i=>(i.cases||0)*brand5PerBottle(i.sku)*btlOf(i.sku);
+  const totalGrossValue=items.reduce((s,i)=>s+caseValue(i),0);
+  const paidTargetValue=items.filter(i=>!i.isBonus).reduce((s,i)=>s+caseValue(i),0);
+  const discountPct=totalGrossValue>0?Math.max(0,Math.min(100,(1-(paidTargetValue/totalGrossValue))*100)):0;
+  const lines=items.map(i=>{
     const p=prodBySku(i.sku);
-    const perBottle=brand5PerBottle(i.sku);const btl=btlOf(i.sku);
-    const rate=Math.max(0,perBottle-(offsetPerCase/btl));
-    lines.push({sku:i.sku,name:p?p.name:i.sku,cases:i.cases||0,isBonus:false,perCasePrice:rate*btl,lineTotal:rate*btl*(i.cases||0)});
+    const grossCasePrice=brand5PerBottle(i.sku)*btlOf(i.sku);
+    const casePrice=grossCasePrice*(1-discountPct/100);
+    return {sku:i.sku,name:p?p.name:i.sku,cases:i.cases||0,isBonus:!!i.isBonus,grossCasePrice,perCasePrice:casePrice,lineTotal:casePrice*(i.cases||0)};
   });
-  bonus.forEach(i=>{
-    const p=prodBySku(i.sku);
-    lines.push({sku:i.sku,name:p?p.name:i.sku,cases:i.cases||0,isBonus:true,perCasePrice:0,lineTotal:0});
-  });
-  return {lines,paidTotalCases,offsetPerCase,total:lines.reduce((s,l)=>s+l.lineTotal,0)};
+  const paidTotalCases=items.filter(i=>!i.isBonus).reduce((s,i)=>s+(i.cases||0),0);
+  return {lines,paidTotalCases,discountPct,total:lines.reduce((s,l)=>s+l.lineTotal,0)};
 }
 function renderCombosList(){
   if(!COMBOS.length)return `<p style="font-size:13px;color:var(--text3)">No combos set up yet.</p>`;
@@ -7291,7 +7283,7 @@ function renderCombosList(){
         <div>
           <div style="font-weight:600">${c.name}${c.isActive?'':' <span style="font-size:11px;color:var(--text3);font-weight:400">(inactive)</span>'}</div>
           <div style="font-size:12px;color:var(--text2);margin-top:4px;max-width:520px">${itemsSummary}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:4px">Total: ${fmt(preview.total)} for ${preview.paidTotalCases} paid case${preview.paidTotalCases!==1?'s':''} (offset: ${fmt(preview.offsetPerCase)}/case)</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Total: ${fmt(preview.total)} for ${preview.paidTotalCases} paid case${preview.paidTotalCases!==1?'s':''} (${preview.discountPct.toFixed(2)}% off 5-Case Brand Family pricing, applied evenly to every case incl. bonus)</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
           <button class="btn btn-sm" onclick="openComboModal(${c.id})"><i class="ti ti-edit"></i> Edit</button>
@@ -9184,7 +9176,13 @@ function renderRA5(el, orders, producerFilter){
       const qty=item.cases+(item.bottles>0?(item.bottles/(p.btl||12)):0);
       const unitPrice=itemUnitPrice(item,p)*(p.btl||1);
       const isStandardTierItem=TIERS.some(t=>t.id===item.tier);
-      const billBackAmount=isStandardTierItem
+      // A line item explicitly marked "100% BB" (combo bonus cases) never earns its own DA
+      // here, regardless of what tier it's priced under -- its full cost is already being
+      // billed back some other way, and that's exactly what the note is flagging to whoever
+      // processes it. This check comes first and overrides the normal per-tier DA lookup.
+      const isFullyBilledBack=(item.notes||'').trim()==='100% BB';
+      const billBackAmount=isFullyBilledBack ? 0
+        : isStandardTierItem
         ? (p.da&&p.da[item.tier])||0                                             // already stored per-case
         : ((p.extraTiers||[]).find(t=>t.name===item.tier)?.da||0)*(p.btl||1);    // stored per-bottle -- convert to per-case
       const billBackAmountRounded=parseFloat(billBackAmount.toFixed(2));
