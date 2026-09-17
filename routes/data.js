@@ -337,6 +337,78 @@ router.delete('/product-taxonomy/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// -- ORDER COMBOS (bundled promotional pricing) -----------------------------------
+// Each combo's `items` array holds { sku, cases, isBonus }. Pricing is never stored
+// here -- it's always recomputed live from each item's own current 5-Case Brand
+// Family price (see computeComboPricing below and orders.js at submit time), so a
+// later price change to a product flows through to the combo automatically.
+router.get('/combos', requireAuth, async (req, res) => {
+  try {
+    const rows = await getAll(`SELECT * FROM order_combos WHERE is_active=TRUE ORDER BY id`);
+    res.json({ ok: true, combos: rows.map(r => ({
+      id: r.id, name: r.name, items: r.items || [], isActive: r.is_active,
+    })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/combos/all', requireAdmin, async (req, res) => {
+  try {
+    const rows = await getAll(`SELECT * FROM order_combos ORDER BY id`);
+    res.json({ ok: true, combos: rows.map(r => ({
+      id: r.id, name: r.name, items: r.items || [], isActive: r.is_active,
+    })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/combos', requireAdmin, async (req, res) => {
+  try {
+    const { name, items } = req.body;
+    const trimmed = (name || '').trim();
+    if (!trimmed) return res.status(400).json({ ok: false, error: 'Combo name is required' });
+    if (!Array.isArray(items) || !items.length) return res.status(400).json({ ok: false, error: 'At least one item is required' });
+    for (const it of items) {
+      if (!it.sku || !it.cases || it.cases <= 0) return res.status(400).json({ ok: false, error: 'Each item needs a SKU and a positive case count' });
+    }
+    const row = await getOne(
+      `INSERT INTO order_combos (name, items, is_active) VALUES ($1,$2,TRUE) RETURNING id`,
+      [trimmed, JSON.stringify(items)]
+    );
+    res.json({ ok: true, id: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.patch('/combos/:id', requireAdmin, async (req, res) => {
+  try {
+    const { name, items, isActive } = req.body;
+    const sets = [], vals = [];
+    if (name !== undefined) { sets.push(`name=$${sets.length+1}`); vals.push((name||'').trim()); }
+    if (items !== undefined) { sets.push(`items=$${sets.length+1}`); vals.push(JSON.stringify(items)); }
+    if (isActive !== undefined) { sets.push(`is_active=$${sets.length+1}`); vals.push(!!isActive); }
+    if (!sets.length) return res.status(400).json({ ok: false, error: 'Nothing to update' });
+    sets.push(`updated_at=NOW()`);
+    vals.push(req.params.id);
+    await query(`UPDATE order_combos SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/combos/:id', requireAdmin, async (req, res) => {
+  try {
+    await query('DELETE FROM order_combos WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/products', requireAuth, async (req, res) => {
   try {
     const isCustomer = req.user.role === 'customer';
