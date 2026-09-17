@@ -469,6 +469,20 @@ async function migrate() {
 
   await query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS waive_delivery_always BOOLEAN DEFAULT FALSE`);
 
+  // Combos: bundled-pricing promotional deals selectable when placing an order.
+  // `items` is a JSONB array of {sku, cases, isBonus}. Bonus items are billed at
+  // a per-case offset price (computed from the other paid items' 5-Case Brand
+  // Family price so nothing is ever labeled "free"), carry $0 DA, and always
+  // get "100% BB" auto-populated into their order-line Notes field.
+  await query(`CREATE TABLE IF NOT EXISTS order_combos (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    items JSONB NOT NULL DEFAULT '[]',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
   console.log('All tables created successfully');
 }
 
