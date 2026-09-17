@@ -698,6 +698,17 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   </div>
 </div>
 
+<div class="modal-bg" id="modal-combo">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title" id="combo-modal-title">New Combo</div>
+    <div id="combo-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-combo')">Cancel</button>
+      <button class="btn btn-dark" onclick="saveCombo()"><i class="ti ti-check"></i> Save combo</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-qbo-batch">
   <div class="modal" style="max-width:560px">
     <div class="modal-title"><i class="ti ti-brand-quickbooks" style="font-size:16px;vertical-align:-2px;margin-right:6px;color:#2CA01C"></i>Send Invoices to QuickBooks</div>
@@ -1043,7 +1054,13 @@ function buildTierOptions(p,item,withPricePreview,acctId){
     }
   }
 
-  const fixedOpts=lastUsedOpt+fixedList.map(t=>{
+  // A combo-bonus line uses a synthetic tier id ('comboBonus') that deliberately isn't a
+  // real standard tier or product-level custom lane -- that's what makes it always price
+  // at $0 DA (see RA5 billback lookup). It won't appear in fixedList/extraList on its own,
+  // so surface it explicitly here rather than leaving the dropdown looking empty/wrong.
+  const comboBonusOpt=item.tier==='comboBonus'
+    ?`<option value="comboBonus" selected>Combo Bonus Case (100% BB, no DA)</option>`:'';
+  const fixedOpts=comboBonusOpt+lastUsedOpt+fixedList.map(t=>{
     const note=(p.tierNotes&&p.tierNotes[t.id])?` -- ${escText(p.tierNotes[t.id])}`:'';
     const label=(withPricePreview?`${t.name} (Cs: $${(itemPrice(p,t.id)*p.btl).toFixed(2)} / Bt: $${itemPrice(p,t.id).toFixed(2)})`:t.name)+note;
     return `<option value="${t.id}" ${item.tier===t.id?'selected':''}>${label}</option>`;
@@ -1334,7 +1351,7 @@ async function loadAllDataFromBackend(){
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
   const safeFetch=(url)=>fetch(url,{headers}).then(r=>r.json()).catch(e=>({ok:false,_error:e.message}));
   try{
-    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes]=await Promise.all([
+    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes,combosRes]=await Promise.all([
       safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
       safeFetch(TOASTED_BACKEND_URL+'/api/accounts'),
       safeFetch(TOASTED_BACKEND_URL+'/api/products'),
@@ -1347,6 +1364,7 @@ async function loadAllDataFromBackend(){
       safeFetch(TOASTED_BACKEND_URL+'/api/report-schedules'),
       safeFetch(TOASTED_BACKEND_URL+'/api/product-taxonomy'),
       safeFetch(TOASTED_BACKEND_URL+'/api/portal-banner'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/combos/all'),
     ]);
     if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
     if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
@@ -1361,6 +1379,7 @@ async function loadAllDataFromBackend(){
     if(taxRes.ok&&taxRes.categories){SHOP_CATEGORIES=taxRes.categories.map(c=>c.name);}
     if(taxRes.ok&&taxRes.spiritTypes){SPIRIT_TYPES=taxRes.spiritTypes.map(s=>s.name);}
     if(bannerRes.ok){PORTAL_BANNER=bannerRes.banner||null;}
+    if(combosRes.ok&&combosRes.combos){COMBOS=combosRes.combos;console.log('Loaded',COMBOS.length,'combos from database');}
     updateBadges();
   } catch(err){
     console.error('Error loading data from backend:',err.message);
@@ -1391,13 +1410,14 @@ async function ensureOrderItemsLoaded(orderId){
 async function loadPortalData(){
   const headers={'Authorization':'Bearer '+window._authToken};
   try{
-    const [acctsRes,prodsRes,ordersRes,usersRes,tierCfgRes,bannerRes]=await Promise.all([
+    const [acctsRes,prodsRes,ordersRes,usersRes,tierCfgRes,bannerRes,combosRes]=await Promise.all([
       fetch(TOASTED_BACKEND_URL+'/api/accounts',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/products',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/orders',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/users',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config',{headers}).then(r=>r.json()),
       fetch(TOASTED_BACKEND_URL+'/api/portal-banner',{headers}).then(r=>r.json()),
+      fetch(TOASTED_BACKEND_URL+'/api/combos',{headers}).then(r=>r.json()),
     ]);
     if(acctsRes.ok)ACCOUNTS=acctsRes.accounts;
     if(prodsRes.ok)PRODUCTS=prodsRes.products;
@@ -1405,6 +1425,7 @@ async function loadPortalData(){
     if(usersRes.ok)USERS=usersRes.users;
     if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length)TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));
     if(bannerRes.ok)PORTAL_BANNER=bannerRes.banner||null;
+    if(combosRes.ok&&combosRes.combos)COMBOS=combosRes.combos;
   }catch(e){
     console.error('Failed to load portal data:',e.message);
     toast('Could not load your account -- please refresh and try again');
@@ -1853,6 +1874,8 @@ function renderPortalCart(){
         </div>
       </div>
 
+      ${(COMBOS||[]).some(c=>c.isActive)?`<div style="margin-bottom:14px">${renderApplyComboControl()}</div>`:''}
+
       <div id="line-items-wrap" style="margin-bottom:16px"></div>
 
       <div style="margin-bottom:16px">
@@ -1918,6 +1941,7 @@ function updatePortalMinimumStatus(){
 }
 
 let PORTAL_BANNER=null;
+let COMBOS=[]; // bundled-pricing promotional combos -- see Manage Combos (admin) and Apply Combo (order-building)
 let SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
 let SPIRIT_TYPES=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
 const SHOP_SECTION_CAP=8;
@@ -2903,7 +2927,10 @@ function renderNewOrder(){
   </div></div>
   <div class="card"><div class="card-header"><span class="card-title">Line items</span><span id="item-count" style="font-size:12px;color:var(--text2)">0 items</span></div>
     <div style="padding:12px 18px;border-bottom:1px solid var(--border)">
-      <div class="search-wrap" style="max-width:500px"><i class="ti ti-search si"></i><input class="search-input" id="prod-search" placeholder="Search by product name or SKU..." oninput="onProdSearch(this.value)" onblur="setTimeout(closeProdDD,200)"/><div class="dropdown-box" id="prod-dd"></div></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div class="search-wrap" style="max-width:500px;flex:1;min-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="prod-search" placeholder="Search by product name or SKU..." oninput="onProdSearch(this.value)" onblur="setTimeout(closeProdDD,200)"/><div class="dropdown-box" id="prod-dd"></div></div>
+        ${renderApplyComboControl()}
+      </div>
       <div id="freq-items-wrap" style="margin-top:10px"></div>
     </div>
     <div id="line-items-wrap"><div style="padding:40px;text-align:center;color:var(--text3);font-size:13px"><i class="ti ti-bottle" style="font-size:30px;display:block;margin-bottom:10px"></i>Search above to add products -- defaults to Frontline pricing, adjustable per item</div></div>
@@ -3022,6 +3049,36 @@ function onProdSearch(val){
   dd.classList.add('open');
 }
 function closeProdDD(){const dd=document.getElementById('prod-dd');if(dd)dd.classList.remove('open');const s=document.getElementById('prod-search');if(s)s.value=''}
+// -- APPLY COMBO (shared by main app order builder + customer portal) --------------
+// Renders nothing when there are no active combos, so the control simply doesn't appear
+// until at least one combo exists.
+function renderApplyComboControl(){
+  const active=(COMBOS||[]).filter(c=>c.isActive);
+  if(!active.length)return'';
+  return `<select class="finput" id="apply-combo-select" style="max-width:260px" onchange="if(this.value)applyComboToOrder(parseInt(this.value));this.value=''">
+    <option value="">+ Apply a combo...</option>
+    ${active.map(c=>`<option value="${c.id}">${c.name.replace(/"/g,'&quot;')}</option>`).join('')}
+  </select>`;
+}
+function applyComboToOrder(comboId){
+  const combo=COMBOS.find(c=>c.id===comboId);if(!combo)return;
+  // Re-applying the same combo replaces its previous line items outright, rather than
+  // stacking a second copy, so toggling the dropdown is always safe.
+  currentOrder.items=currentOrder.items.filter(i=>i.comboId!==comboId);
+  const preview=computeComboPreview(combo);
+  preview.lines.forEach(l=>{
+    currentOrder.items.push({
+      sku:l.sku, cases:l.cases, bottles:0,
+      tier:l.isBonus?'comboBonus':'brand5',
+      _manual:true, rate:l.isBonus?0:(l.perCasePrice/(prodBySku(l.sku)?.btl||1)),
+      discountPct:0,
+      notes:l.isBonus?'100% BB':('Combo: '+combo.name),
+      comboId:combo.id,
+    });
+  });
+  toast(combo.name+' applied -- '+preview.lines.length+' line item'+(preview.lines.length!==1?'s':'')+' added');
+  syncFees();renderLineItems();
+}
 function addLineItem(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
   const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
@@ -7108,6 +7165,15 @@ function renderSettings(){
   </div>
 
   <div class="card" style="margin-top:16px">
+    <div class="card-header"><span class="card-title"><i class="ti ti-package" style="vertical-align:-2px;margin-right:6px"></i>Combos</span><span style="font-size:12px;color:var(--text2)">Bundled-pricing promotions selectable when placing an order</span></div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Every item in a combo -- paid or bonus -- prices at that product's own current 5-Case Brand Family rate. Bonus cases are never "free" (alcohol-industry rules don't allow that): their cost is spread evenly across the paid cases as a flat per-case discount instead. Bonus cases always carry $0 DA and their order line automatically notes "100% BB". Pricing recalculates live from current product prices every time a combo is used, so editing a combo here (or a product's brand5 price) is all that's needed to update it everywhere.</p>
+      <div id="combos-list">${renderCombosList()}</div>
+      <button class="btn btn-dark btn-sm" style="margin-top:10px" onclick="openComboModal(null)"><i class="ti ti-plus"></i> New combo</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <div class="card-header"><span class="card-title"><i class="ti ti-database-export" style="vertical-align:-2px;margin-right:6px"></i>Data Backup</span></div>
     <div class="card-body">
       <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Downloads a complete copy of everything in Toasted -- accounts, orders, products, pricing, users -- as a single file you can keep safe on your own computer. Worth doing regularly, especially if your database is on Render's free tier where automatic backups aren't included.</p>
@@ -7185,6 +7251,138 @@ async function removeBanner(){
     toast('Banner removed');
     renderSettings();
   }catch(e){toast('Could not remove banner -- check connection');}
+}
+// -- COMBOS (bundled-pricing promotions) --------------------------------------
+// Live-computes the same offset pricing the server enforces at order time (see
+// rebuildComboLineItems in orders.js), purely for admin/order-building preview --
+// the server always recomputes this itself from scratch and never trusts these numbers.
+function computeComboPreview(combo){
+  const items=combo.items||[];
+  const paid=items.filter(i=>!i.isBonus);
+  const bonus=items.filter(i=>i.isBonus);
+  const brand5PerBottle=sku=>{const p=prodBySku(sku);return p?(p.prices?.brand5||0):0};
+  const btlOf=sku=>{const p=prodBySku(sku);return p?(p.btl||1):1};
+  const bonusTotalCost=bonus.reduce((s,i)=>s+(i.cases||0)*brand5PerBottle(i.sku)*btlOf(i.sku),0);
+  const paidTotalCases=paid.reduce((s,i)=>s+(i.cases||0),0);
+  const offsetPerCase=paidTotalCases>0?bonusTotalCost/paidTotalCases:0;
+  const lines=[];
+  paid.forEach(i=>{
+    const p=prodBySku(i.sku);
+    const perBottle=brand5PerBottle(i.sku);const btl=btlOf(i.sku);
+    const rate=Math.max(0,perBottle-(offsetPerCase/btl));
+    lines.push({sku:i.sku,name:p?p.name:i.sku,cases:i.cases||0,isBonus:false,perCasePrice:rate*btl,lineTotal:rate*btl*(i.cases||0)});
+  });
+  bonus.forEach(i=>{
+    const p=prodBySku(i.sku);
+    lines.push({sku:i.sku,name:p?p.name:i.sku,cases:i.cases||0,isBonus:true,perCasePrice:0,lineTotal:0});
+  });
+  return {lines,paidTotalCases,offsetPerCase,total:lines.reduce((s,l)=>s+l.lineTotal,0)};
+}
+function renderCombosList(){
+  if(!COMBOS.length)return `<p style="font-size:13px;color:var(--text3)">No combos set up yet.</p>`;
+  return `<div style="display:flex;flex-direction:column;gap:10px">`+COMBOS.map(c=>{
+    const preview=computeComboPreview(c);
+    const itemsSummary=(c.items||[]).map(i=>{
+      const p=prodBySku(i.sku);
+      return `${i.cases}× ${p?p.name:i.sku}${i.isBonus?' <span style="color:#8A6100;font-weight:600">(bonus, 100% BB)</span>':''}`;
+    }).join(', ');
+    return `<div style="border:1px solid var(--border2);border-radius:var(--radius);padding:12px 14px;${c.isActive?'':'opacity:0.55'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:600">${c.name}${c.isActive?'':' <span style="font-size:11px;color:var(--text3);font-weight:400">(inactive)</span>'}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;max-width:520px">${itemsSummary}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Total: ${fmt(preview.total)} for ${preview.paidTotalCases} paid case${preview.paidTotalCases!==1?'s':''} (offset: ${fmt(preview.offsetPerCase)}/case)</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-sm" onclick="openComboModal(${c.id})"><i class="ti ti-edit"></i> Edit</button>
+          <button class="btn btn-sm" onclick="toggleComboActive(${c.id})">${c.isActive?'Deactivate':'Activate'}</button>
+          <button class="btn btn-sm" style="color:var(--red)" onclick="deleteCombo(${c.id})"><i class="ti ti-trash"></i></button>
+        </div>
+      </div>
+    </div>`;
+  }).join('')+`</div>`;
+}
+let _comboEditItems=[];
+let _comboEditId=null;
+function openComboModal(comboId){
+  const combo=comboId?COMBOS.find(c=>c.id===comboId):null;
+  _comboEditId=comboId;
+  _comboEditItems=combo?JSON.parse(JSON.stringify(combo.items||[])):[];
+  document.getElementById('combo-modal-title').textContent=combo?'Edit Combo':'New Combo';
+  document.getElementById('combo-modal-body').innerHTML=renderComboModalBody(combo?combo.name:'');
+  document.getElementById('modal-combo').classList.add('open');
+}
+function renderComboModalBody(name){
+  const options=PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics').map(p=>`<option value="${p.sku}">${p.name.replace(/"/g,'&quot;')} -- ${p.sku}</option>`).join('');
+  const rows=_comboEditItems.map((it,idx)=>`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px" data-combo-row="${idx}">
+      <input class="finput" style="flex:2" list="combo-product-options" placeholder="Search product or SKU..." value="${it.sku||''}" onchange="updateComboRowSku(${idx},this.value)"/>
+      <input class="finput" type="number" min="1" style="width:80px" placeholder="Cases" value="${it.cases||''}" onchange="updateComboRowCases(${idx},this.value)"/>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" ${it.isBonus?'checked':''} onchange="updateComboRowBonus(${idx},this.checked)"/> Bonus (100% BB)</label>
+      <button class="btn btn-sm" style="color:var(--red)" onclick="removeComboRow(${idx})"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+  return `
+    <datalist id="combo-product-options">${options}</datalist>
+    <div><label class="flabel">Combo name</label><input class="finput" id="combo-name" placeholder="e.g. 5 Case Deal" value="${(name||'').replace(/"/g,'&quot;')}"/></div>
+    <div style="margin-top:14px"><label class="flabel">Items</label><div id="combo-rows">${rows||'<p style="font-size:12px;color:var(--text3)">No items yet -- add one below.</p>'}</div></div>
+    <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="addComboRow()"><i class="ti ti-plus"></i> Add item</button>
+    <p style="font-size:12px;color:var(--text2);margin-top:12px">Every item (paid or bonus) prices at that product's own 5-Case Brand Family rate. Bonus items' combined cost is split evenly across the paid cases as a per-case discount -- never labeled "free". Bonus items always carry $0 DA and auto-note "100% BB" on the order line.</p>
+  `;
+}
+function _refreshComboRows(){
+  const nameEl=document.getElementById('combo-name');
+  const name=nameEl?nameEl.value:'';
+  document.getElementById('combo-modal-body').innerHTML=renderComboModalBody(name);
+}
+function addComboRow(){_comboEditItems.push({sku:'',cases:1,isBonus:false});_refreshComboRows();}
+function removeComboRow(idx){_comboEditItems.splice(idx,1);_refreshComboRows();}
+function updateComboRowSku(idx,val){
+  // Accept either a bare SKU or the "Name -- SKU" datalist string -- pull the SKU out of
+  // whichever form the browser filled in.
+  const trimmed=(val||'').trim();
+  const match=trimmed.match(/--\s*([^\s]+)\s*$/);
+  _comboEditItems[idx].sku=match?match[1]:trimmed;
+}
+function updateComboRowCases(idx,val){_comboEditItems[idx].cases=Math.max(1,parseInt(val)||1);}
+function updateComboRowBonus(idx,val){_comboEditItems[idx].isBonus=!!val;}
+async function saveCombo(){
+  const name=(document.getElementById('combo-name').value||'').trim();
+  if(!name){toast('Combo name is required');return}
+  const items=_comboEditItems.filter(i=>i.sku&&i.cases>0);
+  if(!items.length){toast('Add at least one item');return}
+  for(const it of items){
+    if(!prodBySku(it.sku)){toast('Unrecognized SKU: '+it.sku);return}
+  }
+  try{
+    const url=TOASTED_BACKEND_URL+'/api/combos'+(_comboEditId?'/'+_comboEditId:'');
+    const method=_comboEditId?'PATCH':'POST';
+    const res=await fetch(url,{method,headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({name,items})}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Could not save combo');return}
+    const listRes=await fetch(TOASTED_BACKEND_URL+'/api/combos/all',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(listRes.ok)COMBOS=listRes.combos;
+    closeModal('modal-combo');
+    toast('Combo saved');
+    renderSettings();
+  }catch(e){toast('Could not save combo -- check connection');}
+}
+async function toggleComboActive(comboId){
+  const combo=COMBOS.find(c=>c.id===comboId);if(!combo)return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/combos/'+comboId,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({isActive:!combo.isActive})}).then(r=>r.json());
+    if(!res.ok){toast('Could not update combo');return}
+    combo.isActive=!combo.isActive;
+    renderSettings();
+  }catch(e){toast('Could not update combo -- check connection');}
+}
+async function deleteCombo(comboId){
+  if(!confirm('Delete this combo? This cannot be undone.'))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/combos/'+comboId,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast('Could not delete combo');return}
+    COMBOS=COMBOS.filter(c=>c.id!==comboId);
+    renderSettings();
+    toast('Combo deleted');
+  }catch(e){toast('Could not delete combo -- check connection');}
 }
 function previewInvoice(){const c=ORDERS.find(o=>o.status==='confirmed');if(c)downloadInvoice(c.id);else toast('No confirmed orders to preview')}
 async function downloadFullBackup(){
