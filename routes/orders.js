@@ -9,36 +9,43 @@ const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessi
   .split(',').map(e => e.trim()).filter(Boolean);
 
 // Rebuilds every combo line item from the combo's own current definition and each product's
-// live 5-Case Brand Family price -- never trusts a client-submitted rate/tier/notes for a
-// combo item, since that's exactly the sort of thing a tampered request would try to change.
-// Paid items are billed at brand5 price minus a flat "even dollar split" offset (so nothing is
-// ever priced or labeled as free -- required for alcohol-industry compliance), tagged tier
-// 'brand5' so they still earn the normal 5-Case Brand Family DA/billback. Bonus items are
-// billed at $0, tagged with the synthetic tier 'comboBonus' (which resolves to $0 DA -- see
-// the RA5 billback lookup in the frontend, which only recognizes real standard/custom tiers),
-// and always carry the exact Notes string "100% BB", per policy: no DA on bonus cases, ever.
+// live 5-Case Brand Family price -- never trusts a client-submitted rate/tier/discountPct/notes
+// for a combo item, since that's exactly the sort of thing a tampered request would try to change.
+//
+// Every case in the combo -- paid AND bonus -- stays tagged tier 'brand5' and priced at that
+// product's own current 5-Case Brand Family rate (so the invoice genuinely shows 5-Case Brand
+// Family pricing on every line, struck through, same as any other discounted standard-tier
+// line elsewhere in the app), then the SAME flat discount percentage is applied to every line
+// via the normal discountPct field. That percentage is whatever brings the combo's total gross
+// brand5 value (paid + bonus cases) down to exactly the paid cases' own combined brand5 value --
+// i.e. the bonus cases' cost is fully absorbed into an even discount spread across every case,
+// paid and bonus alike, rather than billed separately, priced at $0, or labeled free.
+//
+// Bonus items still always carry the exact Notes string "100% BB". DA/billback for those lines
+// is forced to $0 in the RA5 report by keying off that exact note (see renderRA5), independent
+// of tier -- so a bonus item can share the paid items' real 'brand5' tier for pricing/display
+// purposes while still never earning its own DA.
 async function rebuildComboLineItems(combo, prodMap) {
   const items = combo.items || [];
-  const paid = items.filter(i => !i.isBonus);
-  const bonus = items.filter(i => i.isBonus);
   const brand5PerBottle = (sku) => { const p = prodMap[sku]; return p ? parseFloat(p.price_brand5) || 0 : 0; };
   const btlOf = (sku) => { const p = prodMap[sku]; return p ? (p.btl || 1) : 1; };
+  const caseValue = (i) => (i.cases || 0) * brand5PerBottle(i.sku) * btlOf(i.sku);
 
-  const bonusTotalCostDollars = bonus.reduce((s, i) => s + (i.cases || 0) * brand5PerBottle(i.sku) * btlOf(i.sku), 0);
-  const paidTotalCases = paid.reduce((s, i) => s + (i.cases || 0), 0);
-  const offsetPerCaseDollars = paidTotalCases > 0 ? bonusTotalCostDollars / paidTotalCases : 0;
+  const totalGrossValue = items.reduce((s, i) => s + caseValue(i), 0);
+  const paidTargetValue = items.filter(i => !i.isBonus).reduce((s, i) => s + caseValue(i), 0);
+  // Same % discount applied to every line -- computed so the combo's total nets out to exactly
+  // the paid cases' full combined brand5 value, with the bonus cases' cost absorbed into it.
+  const discountPct = totalGrossValue > 0
+    ? Math.max(0, Math.min(100, (1 - (paidTargetValue / totalGrossValue)) * 100))
+    : 0;
 
-  const lines = [];
-  paid.forEach(i => {
-    const perBottle = brand5PerBottle(i.sku);
-    const btl = btlOf(i.sku);
-    const rate = Math.max(0, perBottle - (offsetPerCaseDollars / btl));
-    lines.push({ sku: i.sku, cases: i.cases || 0, bottles: 0, tier: 'brand5', _manual: true, rate, discountPct: 0, notes: `Combo: ${combo.name}`, comboId: combo.id, comboBonus: false });
-  });
-  bonus.forEach(i => {
-    lines.push({ sku: i.sku, cases: i.cases || 0, bottles: 0, tier: 'comboBonus', _manual: true, rate: 0, discountPct: 0, notes: '100% BB', comboId: combo.id, comboBonus: true });
-  });
-  return lines;
+  return items.map(i => ({
+    sku: i.sku, cases: i.cases || 0, bottles: 0,
+    tier: 'brand5',
+    discountPct,
+    notes: i.isBonus ? '100% BB' : `Combo: ${combo.name}`,
+    comboId: combo.id, comboBonus: !!i.isBonus,
+  }));
 }
 
 router.get('/', requireAuth, async (req, res) => {
