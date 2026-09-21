@@ -7302,7 +7302,10 @@ let _comboEditId=null;
 function openComboModal(comboId){
   const combo=comboId?COMBOS.find(c=>c.id===comboId):null;
   _comboEditId=comboId;
-  _comboEditItems=combo?JSON.parse(JSON.stringify(combo.items||[])):[];
+  // Rounds any legacy bad data (e.g. a fractional case count that slipped in before this was
+  // validated server-side) back to a whole number the moment it's reopened for editing, so
+  // simply hitting Save on an existing combo heals it.
+  _comboEditItems=combo?JSON.parse(JSON.stringify(combo.items||[])).map(i=>({...i,cases:Math.max(1,Math.round(i.cases||0))})):[];
   document.getElementById('combo-modal-title').textContent=combo?'Edit Combo':'New Combo';
   document.getElementById('combo-modal-body').innerHTML=renderComboModalBody(combo?combo.name:'');
   document.getElementById('modal-combo').classList.add('open');
@@ -7343,7 +7346,7 @@ function updateComboRowBonus(idx,val){_comboEditItems[idx].isBonus=!!val;}
 async function saveCombo(){
   const name=(document.getElementById('combo-name').value||'').trim();
   if(!name){toast('Combo name is required');return}
-  const items=_comboEditItems.filter(i=>i.sku&&i.cases>0);
+  const items=_comboEditItems.filter(i=>i.sku&&i.cases>0).map(i=>({...i,cases:Math.max(1,Math.round(i.cases||0))}));
   if(!items.length){toast('Add at least one item');return}
   for(const it of items){
     if(!prodBySku(it.sku)){toast('Unrecognized SKU: '+it.sku);return}
