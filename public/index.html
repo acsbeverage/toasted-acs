@@ -10154,12 +10154,17 @@ function renderRC6(el, orders){
     if(!repData[o.rep])return;
     const acct=acctById(o.acct)||{name:'Unknown'};
     const rep=userById(o.rep)||{fname:'',lname:'',commission:5};
-    const rate=(rep.commission||5)/100;
+    const repDefaultRate=(rep.commission||5)/100;
 
     o.items.filter(i=>!i._fee).forEach(item=>{
       const p=prodBySku(item.sku);if(!p)return;
       const qty=item.cases+(item.bottles>0?item.bottles/p.btl:0);
       const lineAmt=itemLineTotal(item);
+      // Per-item commission override (standard-tier or custom pricing lane) always wins over
+      // the rep's standard rate -- getLineCommission already encodes that priority, but this
+      // report was computing one flat rate per ORDER from the rep's default and applying it
+      // to every line, which meant any item-level override was silently never used here.
+      const rate=getLineCommission(item,o.rep)/100;
       const commission=lineAmt*rate;
       const discPct=parseFloat(item.discountPct)||0;
 
@@ -10175,7 +10180,7 @@ function renderRC6(el, orders){
         orderDate:o.date,
         commission,
         rate,
-        rateSource:'Sales Rep',
+        rateSource:Math.abs(rate-repDefaultRate)>0.0001?'Item Override':'Sales Rep',
         invoice:o.id,
         discountPct:discPct,
         importer:'',
