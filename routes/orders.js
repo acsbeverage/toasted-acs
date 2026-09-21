@@ -26,7 +26,11 @@ const NOTIFY_EMAILS = (process.env.NOTIFY_EMAILS || 'kevin@acsbeverage.com,jessi
 // of tier -- so a bonus item can share the paid items' real 'brand5' tier for pricing/display
 // purposes while still never earning its own DA.
 async function rebuildComboLineItems(combo, prodMap) {
-  const items = combo.items || [];
+  // order_items.cases is a whole-number database column -- a combo whose stored definition
+  // somehow ended up with a non-integer case count (e.g. a bad edit that slipped past the
+  // admin UI's own validation) must never be allowed to crash every order that applies it.
+  // Round defensively here regardless of what's stored, on top of validating on save (below).
+  const items = (combo.items || []).map(i => ({ ...i, cases: Math.max(1, Math.round(i.cases || 0)) }));
   const brand5PerBottle = (sku) => { const p = prodMap[sku]; return p ? parseFloat(p.price_brand5) || 0 : 0; };
   const btlOf = (sku) => { const p = prodMap[sku]; return p ? (p.btl || 1) : 1; };
   const caseValue = (i) => (i.cases || 0) * brand5PerBottle(i.sku) * btlOf(i.sku);
