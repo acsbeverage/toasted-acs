@@ -364,15 +364,29 @@ router.get('/combos/all', requireAdmin, async (req, res) => {
   }
 });
 
+// order_items.cases is a whole-number database column, so a combo item's case count must be
+// a positive integer -- a fractional value (e.g. from a stray decimal typed into the admin UI,
+// or any other client) would otherwise sit quietly in the combo's stored definition and crash
+// EVERY order that later applies it with a database type error, which is exactly what happened
+// here. Validated on both create and edit -- PATCH previously did no validation on items at all.
+function validateComboItems(items) {
+  if (!Array.isArray(items) || !items.length) return 'At least one item is required';
+  for (const it of items) {
+    if (!it.sku) return 'Each item needs a SKU';
+    if (!Number.isInteger(it.cases) || it.cases <= 0) {
+      return `"${it.sku}" needs a whole-number case count greater than 0 (got ${it.cases})`;
+    }
+  }
+  return null;
+}
+
 router.post('/combos', requireAdmin, async (req, res) => {
   try {
     const { name, items } = req.body;
     const trimmed = (name || '').trim();
     if (!trimmed) return res.status(400).json({ ok: false, error: 'Combo name is required' });
-    if (!Array.isArray(items) || !items.length) return res.status(400).json({ ok: false, error: 'At least one item is required' });
-    for (const it of items) {
-      if (!it.sku || !it.cases || it.cases <= 0) return res.status(400).json({ ok: false, error: 'Each item needs a SKU and a positive case count' });
-    }
+    const itemsErr = validateComboItems(items);
+    if (itemsErr) return res.status(400).json({ ok: false, error: itemsErr });
     const row = await getOne(
       `INSERT INTO order_combos (name, items, is_active) VALUES ($1,$2,TRUE) RETURNING id`,
       [trimmed, JSON.stringify(items)]
@@ -386,6 +400,10 @@ router.post('/combos', requireAdmin, async (req, res) => {
 router.patch('/combos/:id', requireAdmin, async (req, res) => {
   try {
     const { name, items, isActive } = req.body;
+    if (items !== undefined) {
+      const itemsErr = validateComboItems(items);
+      if (itemsErr) return res.status(400).json({ ok: false, error: itemsErr });
+    }
     const sets = [], vals = [];
     if (name !== undefined) { sets.push(`name=$${sets.length+1}`); vals.push((name||'').trim()); }
     if (items !== undefined) { sets.push(`items=$${sets.length+1}`); vals.push(JSON.stringify(items)); }
