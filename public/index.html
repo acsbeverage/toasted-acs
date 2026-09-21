@@ -1240,15 +1240,19 @@ function closeModal(id){document.getElementById(id).classList.remove('open')}
 
 // -- AUTH ----------------------------------------------------------------------
 // ── DATABASE SAVE HELPERS ─────────────────────────────────────────────────────
+// Returns true/false so callers that need to know whether a change actually reached the
+// server (e.g. confirming an order) can react to a failure instead of silently proceeding
+// as if it worked -- a caller that doesn't care can keep ignoring the return value as before.
 function saveOrderStatusToDB(orderId, updates){
-  if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve();
+  if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve(false);
   return fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(updates)
   }).then(r=>r.json()).then(d=>{
-    if(!d.ok){console.error('Failed to save order status:',d.error);toast('Could not save order changes -- please try again');}
-  }).catch(e=>{console.error('Save order error:',e.message);toast('Could not save order changes -- please try again');});
+    if(!d.ok){console.error('Failed to save order status:',d.error);toast('Could not save order changes -- please try again');return false;}
+    return true;
+  }).catch(e=>{console.error('Save order error:',e.message);toast('Could not save order changes -- check your connection and try again');return false;});
 }
 
 function saveProductStockToDB(sku, stock, reorder){
@@ -4783,22 +4787,46 @@ function doReprintLabels(){
   closeModal('modal-reprint-labels');
   printShippingLabel(orderId,count);
 }
+let _confirmInFlight=false;
 async function doConfirm(){
   const o=ORDERS.find(x=>x.id===confirmingOrderId);if(!o)return;
-  o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
-  await saveOrderStatusToDB(o.id,{status:'confirmed'});
-  updateBadges();
+  // Guards against a slow save + a second click (or an accidental double-click) firing this
+  // twice -- without it, a slow first request could still be in flight when a second one
+  // starts, and there'd be no way to tell which response the UI ended up reflecting.
+  if(_confirmInFlight)return;
+  _confirmInFlight=true;
+  const btn=document.querySelector('#modal-confirm .btn-success');
+  const btnOriginalHtml=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Confirming...';}
+  try{
+    // Only update the local, on-screen copy AFTER the server confirms it actually saved --
+    // marking it confirmed here first (optimistically) is exactly what let a failed save look
+    // like it succeeded: the modal would close and the invoice screen would open regardless,
+    // so the order appeared confirmed on this screen even though the server still had it as
+    // unconfirmed, and it would revert the moment anyone reloaded or looked at Unconfirmed.
+    const saved=await saveOrderStatusToDB(o.id,{status:'confirmed'});
+    if(!saved){
+      // toast already shown by saveOrderStatusToDB -- leave the modal open so they can just
+      // retry, rather than closing it and quietly landing back on Unconfirmed later.
+      return;
+    }
+    o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
+    updateBadges();
 
-  if(!o.labelsPrinted){
-    printShippingLabel(o.id);
-    o.labelsPrinted=true;
-    await saveOrderStatusToDB(o.id,{labelsPrinted:true});
-  } else if(confirm('Labels were already printed for '+o.id+'. Print them again?')){
-    printShippingLabel(o.id);
+    if(!o.labelsPrinted){
+      printShippingLabel(o.id);
+      o.labelsPrinted=true;
+      await saveOrderStatusToDB(o.id,{labelsPrinted:true});
+    } else if(confirm('Labels were already printed for '+o.id+'. Print them again?')){
+      printShippingLabel(o.id);
+    }
+
+    closeModal('modal-confirm');
+    openSendInvoiceModal(o.id);
+  }finally{
+    _confirmInFlight=false;
+    if(btn){btn.disabled=false;btn.innerHTML=btnOriginalHtml;}
   }
-
-  closeModal('modal-confirm');
-  openSendInvoiceModal(o.id);
 }
 async function openSendInvoiceModal(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
