@@ -1266,6 +1266,19 @@ function saveProductStockToDB(sku, stock, reorder){
   }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');});
 }
 
+// Persists a permanent audit record of a manual inventory adjustment, so it survives refresh
+// and is visible to every admin -- on both the main Inventory page and the ACS Logistics page.
+function saveStockAdjustmentToDB(entry){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  fetch(TOASTED_BACKEND_URL+'/api/stock-adjustments',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify(entry)
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){console.error('Failed to save adjustment log entry:',d.error);toast('Adjustment saved, but the log entry did not record -- please refresh to check');}
+  }).catch(e=>{console.error('Save adjustment log error:',e.message);toast('Adjustment saved, but the log entry did not record -- check your connection');});
+}
+
 function deleteOrderFromDB(orderId){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
@@ -1349,7 +1362,7 @@ async function loadAllDataFromBackend(){
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
   const safeFetch=(url)=>fetch(url,{headers}).then(r=>r.json()).catch(e=>({ok:false,_error:e.message}));
   try{
-    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes,combosRes]=await Promise.all([
+    const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes,combosRes,stockAdjRes]=await Promise.all([
       safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
       safeFetch(TOASTED_BACKEND_URL+'/api/accounts'),
       safeFetch(TOASTED_BACKEND_URL+'/api/products'),
@@ -1366,6 +1379,8 @@ async function loadAllDataFromBackend(){
       // for the Manage Combos screen), so they get the same active-only list a customer would,
       // which is all the order-builder's "Apply a combo" dropdown needs anyway.
       safeFetch(TOASTED_BACKEND_URL+(currentUser&&currentUser.role==='admin'?'/api/combos/all':'/api/combos')),
+      // Persisted inventory-adjustment audit log -- admin only (same restriction as the endpoint).
+      (currentUser&&currentUser.role==='admin')?safeFetch(TOASTED_BACKEND_URL+'/api/stock-adjustments'):Promise.resolve({ok:false}),
     ]);
     if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
     if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
@@ -1381,6 +1396,17 @@ async function loadAllDataFromBackend(){
     if(taxRes.ok&&taxRes.spiritTypes){SPIRIT_TYPES=taxRes.spiritTypes.map(s=>s.name);}
     if(bannerRes.ok){PORTAL_BANNER=bannerRes.banner||null;}
     if(combosRes.ok&&combosRes.combos){COMBOS=combosRes.combos;console.log('Loaded',COMBOS.length,'combos from database');}
+    if(stockAdjRes.ok&&stockAdjRes.adjustments){
+      // Server returns newest-first; RECEIVE_LOG is displayed oldest-first-then-reversed
+      // (see renderInventory/renderACSLogistics), so store it oldest-first to match.
+      RECEIVE_LOG=stockAdjRes.adjustments.slice().reverse().map(r=>({
+        date:r.createdAt?new Date(r.createdAt).toLocaleDateString():'',
+        sku:r.sku,name:(PRODUCTS.find(p=>p.sku===r.sku)||{}).name||r.sku,
+        cases:r.cases,bottles:r.bottles,sign:r.sign,reason:r.reason,notes:r.notes,
+        by:r.byName||'',warehouse:r.warehouse||'main',
+      }));
+      console.log('Loaded',RECEIVE_LOG.length,'stock adjustments from database');
+    }
     updateBadges();
   } catch(err){
     console.error('Error loading data from backend:',err.message);
@@ -5351,17 +5377,25 @@ function renderInventory(){
     <div id="inv-cards-view" style="display:none;padding:14px"></div>
     <div id="inv-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
   </div>
-  ${isAdmin&&RECEIVE_LOG.length?`<div class="card"><div class="card-header"><span class="card-title">Inventory adjustment log</span></div>
+  ${isAdmin?renderAdjustmentLogCard('main'):''}`;
+  renderInvBody(inv);
+}
+// Shared "Inventory adjustment log" card, used on both the main Inventory page and the
+// ACS Logistics page. Each is filtered to its own warehouse so the two pages show only the
+// history relevant to what's actually on that page, rather than one mixed list.
+function renderAdjustmentLogCard(warehouse){
+  const rows=RECEIVE_LOG.filter(r=>(r.warehouse||'main')===warehouse);
+  if(!rows.length)return'';
+  return`<div class="card"><div class="card-header"><span class="card-title">Inventory adjustment log</span></div>
   <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Reason</th><th>Adjustment</th><th>Notes</th><th>By</th></tr></thead>
-  <tbody>${RECEIVE_LOG.slice().reverse().slice(0,20).map(r=>{
+  <tbody>${rows.slice().reverse().slice(0,20).map(r=>{
     const sign=r.sign!==undefined?r.sign:1;
     const qtyParts=[r.cases?r.cases+' cs':'',r.bottles?r.bottles+' btl':''].filter(Boolean).join(' + ')||(r.cases||0)+' cs';
     const color=sign>0?'var(--green)':'var(--red)';
     const signChar=sign>0?'+':'-';
     return`<tr><td style="color:var(--text2)">${r.date}</td><td style="font-weight:500">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.sku}</td><td><span class="tier-pill" style="font-size:11px">${r.reason||'--'}</span></td><td style="font-weight:600;color:${color}">${signChar}${qtyParts}</td><td style="color:var(--text2);font-size:12px">${r.notes||'--'}</td><td style="color:var(--text2);font-size:12px">${r.by||'--'}</td></tr>`;
   }).join('')}</tbody>
-  </table></div></div>`:''}`;
-  renderInvBody(inv);
+  </table></div></div>`;
 }
 function filterInv(q){
   const cat=document.getElementById('inv-cat').value;const sf=document.getElementById('inv-stock').value;const pf=document.getElementById('inv-prod').value;
@@ -5395,7 +5429,8 @@ function renderACSLogistics(){
     </div>
     <table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Producer</th><th>Cat</th><th>Pack</th><th>Stock</th><th>Cases</th><th>Reorder</th><th>Status</th><th></th></tr></thead>
     <tbody id="log-body"></tbody></table>
-  </div>`;
+  </div>
+  ${renderAdjustmentLogCard('acs_logistics')}`;
   renderLogisticsBody(inv);
 }
 function filterLogisticsInv(q){
@@ -5450,7 +5485,9 @@ function renderInvBody(prods){
   }
   window._lastInvFiltered=prods;
 }
+let _receiveWarehouse='main';
 function openReceive(sku='',warehouse='main'){
+  _receiveWarehouse=warehouse;
   const pool=warehouse==='acs_logistics'?logisticsInventory():mainInventory();
   document.getElementById('recv-sku').innerHTML=pool.map(p=>`<option value="${p.sku}" ${p.sku===sku?'selected':''}>${p.name} (${p.sku}) -- ${p.stock} cases</option>`).join('');
   document.getElementById('recv-cases').value='';document.getElementById('recv-bottles').value='';document.getElementById('recv-notes').value='';document.getElementById('recv-reason').value='';
@@ -5486,16 +5523,21 @@ function doReceive(){
   if(rv!=='')p.reorder=parseInt(rv)||p.reorder;
   saveProductStockToDB(p.sku,p.stock,p.reorder);
 
+  const warehouse=_receiveWarehouse;
+  // Persisted server-side so the log survives refresh and is shared across every admin
+  // session -- the local RECEIVE_LOG push below is only for showing the change immediately
+  // without waiting on a round trip.
+  saveStockAdjustmentToDB({sku,warehouse,cases:casesIn,bottles:bottlesIn,sign,reason,notes});
   RECEIVE_LOG.push({
     date:today(),sku,name:p.name,
-    cases:casesIn,bottles:bottlesIn,sign,reason,notes,
+    cases:casesIn,bottles:bottlesIn,sign,reason,notes,warehouse,
     by:currentUser?currentUser.fname+' '+currentUser.lname:''
   });
   closeModal('modal-receive');updateBadges();
   const dirWord=sign>0?'added to':'removed from';
   const qtyStr=[casesIn?casesIn+' cs':'',bottlesIn?bottlesIn+' btl':''].filter(Boolean).join(' + ')||'0';
   toast(`${qtyStr} ${dirWord} ${p.name} stock (${reason})`);
-  renderInventory();
+  if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
 }
 
 // -- USERS ---------------------------------------------------------------------
