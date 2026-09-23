@@ -483,6 +483,24 @@ async function migrate() {
     updated_at TIMESTAMPTZ DEFAULT NOW()
   )`);
 
+  // Stock adjustments: a permanent, server-side audit trail for every manual inventory
+  // change made from either the main Inventory page or the ACS Logistics page. Replaces
+  // the old client-only in-memory log, which reset on refresh and wasn't shared between
+  // admins or visible on the Logistics page at all.
+  await query(`CREATE TABLE IF NOT EXISTS stock_adjustments (
+    id SERIAL PRIMARY KEY,
+    sku TEXT NOT NULL,
+    warehouse TEXT DEFAULT 'main',
+    cases INTEGER DEFAULT 0,
+    bottles INTEGER DEFAULT 0,
+    sign INTEGER NOT NULL DEFAULT 1,
+    reason TEXT,
+    notes TEXT,
+    by_user_id TEXT,
+    by_name TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+
   console.log('All tables created successfully');
 }
 
