@@ -1317,7 +1317,7 @@ function saveProductToDB(sku,newSku){
   return fetch(TOASTED_BACKEND_URL+'/api/products/'+sku,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||'',restricted:!!p.restricted,newSku})
+    body:JSON.stringify({name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,prices:p.prices,da:p.da,stock:p.stock,_details:p._details,image:p.image||'',restricted:!!p.restricted,warehouse:p.warehouse||'main',newSku})
   }).then(r=>r.json()).then(d=>{
     if(!d.ok)throw new Error(d.error||'Save failed');
     return d;
@@ -1328,7 +1328,7 @@ function saveNewProductToDB(p){
   return fetch(TOASTED_BACKEND_URL+'/api/products',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify({sku:p.sku,name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image||''})
+    body:JSON.stringify({sku:p.sku,name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image||'',warehouse:p.warehouse||'main'})
   }).then(r=>r.json()).then(d=>{
     if(!d.ok)throw new Error(d.error||'Create failed');
     return d;
@@ -5375,7 +5375,9 @@ function renderACSLogistics(){
   if(!isAdmin){document.getElementById('main-content').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:60px;color:var(--text3)">Admin access only.</div></div>';return;}
   const inv=logisticsInventory();
   const cats=SHOP_CATEGORIES;
-  document.getElementById('topbar-right').innerHTML=`<button class="btn btn-dark btn-sm" onclick="openReceive('','acs_logistics')"><i class="ti ti-adjustments"></i> Adjust inventory</button>`;
+  document.getElementById('topbar-right').innerHTML=`
+    <button class="btn btn-sm" onclick="openNewProduct('acs_logistics')"><i class="ti ti-plus"></i> Add product</button>
+    <button class="btn btn-dark btn-sm" onclick="openReceive('','acs_logistics')"><i class="ti ti-adjustments"></i> Adjust inventory</button>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card" style="margin-bottom:16px;background:#fdf8ef;border-color:#e8d9b8">
     <div class="card-body" style="padding:14px 18px;font-size:13px;color:#7a6220">
@@ -5403,7 +5405,10 @@ function filterLogisticsInv(q){
 }
 function renderLogisticsBody(prods){
   const b=document.getElementById('log-body');if(!b)return;
-  b.innerHTML=prods.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td><td><button class="btn btn-sm" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}','acs_logistics')"><i class="ti ti-plus"></i></button></td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No products in ACS Logistics yet</td></tr>';
+  // A product in ACS Logistics is filtered OUT of the main Manage Products catalog (that page
+  // only shows mainInventory()), so an Edit button here is the only way to reach its details --
+  // including moving it back to Main Inventory -- once it's been placed in this warehouse.
+  b.innerHTML=prods.map(p=>`<tr class="${p.stock===0?'low-row':''}"><td style="font-size:12px;color:var(--text2);font-weight:500">${p.sku}</td><td style="font-weight:500">${p.name}</td><td style="color:var(--text2);font-size:12px">${p.producer}</td><td>${catBadge(p.cat)}</td><td style="color:var(--text2);font-size:12px">${p.btl}pk</td><td>${stockBar(p)}<span style="font-size:12px;color:var(--text2)">${p.stock}</span></td><td style="font-weight:600">${p.stock}</td><td style="color:var(--text2)">${p.reorder}</td><td>${stockBadge(p)}</td><td style="display:flex;gap:4px"><button class="btn btn-sm" title="Edit product details" onclick="openEditProduct('${p.sku.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i></button><button class="btn btn-sm" title="Adjust stock" onclick="openReceive('${p.sku.replace(/'/g,"\\'")}','acs_logistics')"><i class="ti ti-plus"></i></button></td></tr>`).join('')||'<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--text3)">No products in ACS Logistics yet</td></tr>';
 }
 const PRODUCT_LIST_PAGE_SIZE=50;
 function renderInvBody(prods){
@@ -12928,9 +12933,9 @@ function removeProductImage(){
   const fileInput=document.getElementById('pf-image-file');if(fileInput)fileInput.value='';
 }
 
-function openNewProduct(){
+function openNewProduct(defaultWarehouse){
   _editingProductSku=null;
-  const blank={sku:'',name:'',producer:'',cat:'Spirits',btl:6,stock:0,reorder:6,prices:{},_details:{
+  const blank={sku:'',name:'',producer:'',cat:'Spirits',btl:6,stock:0,reorder:6,prices:{},warehouse:defaultWarehouse||'main',_details:{
     upc:'',vintage:'',code:'',vendorCode:'',redemptionEntry:'',ttb:'',casesProd:'0',
     active:'Yes',core:'No',closureType:'Unknown',bottleSize:'750ml',
     searchable:true,discontinued:false,taxable:false,btg:false,
@@ -13003,6 +13008,13 @@ function renderProductForm(p,isNew){
       <input id="pf-vintage" type="text" class="finput" value="${d.vintage||''}" placeholder="e.g. 2021" style="margin-bottom:12px"/>
 
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px;background:#fffbe8;border-radius:var(--radius)"><input type="checkbox" id="pf-restricted" ${p.restricted?'checked':''} style="width:16px;height:16px"/><label for="pf-restricted" style="font-size:13px;cursor:pointer">Restricted -- only visible to Admin and users with "Full pricing visibility"</label></div>
+
+      <label class="flabel">Warehouse</label>
+      <select id="pf-warehouse" class="finput" style="margin-bottom:4px">
+        <option value="main" ${(p.warehouse||'main')==='main'?'selected':''}>Main Inventory</option>
+        <option value="acs_logistics" ${p.warehouse==='acs_logistics'?'selected':''}>ACS Logistics</option>
+      </select>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">ACS Logistics is a separate warehousing pool for clients' stock -- not visible to reps or customers, and not orderable.</div>
 
       <label class="flabel">SKU / Code</label>
       <input id="pf-sku" type="text" class="finput" value="${p.sku||''}" placeholder="Unique SKU" style="margin-bottom:${isNew?'12px':'4px'}"/>
@@ -13166,6 +13178,7 @@ function saveProduct(){
       stock:0,reorder:6,prices:{},
       image:window._pfImageData||'',
       restricted:document.getElementById('pf-restricted').checked,
+      warehouse:document.getElementById('pf-warehouse').value,
       _details:details
     };
     PRODUCTS.push(newProduct);
@@ -13184,13 +13197,14 @@ function saveProduct(){
       if(PRODUCTS.find(x=>x.sku===sku)){toast('SKU "'+sku+'" is already in use by another product');return;}
       if(!confirm('Change this product\'s SKU from "'+oldSku+'" to "'+sku+'"?\n\nThis updates every past order that references it too. This can\'t be easily undone.')){return;}
     }
-    const prevState={name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image,restricted:p.restricted,_details:p._details,sku:p.sku};
+    const prevState={name:p.name,producer:p.producer,cat:p.cat,btl:p.btl,image:p.image,restricted:p.restricted,warehouse:p.warehouse,_details:p._details,sku:p.sku};
     p.name=name;
     p.producer=document.getElementById('pf-producer').value.trim();
     p.cat=document.getElementById('pf-cat').value;
     p.btl=parseInt(document.getElementById('pf-btl').value)||6;
     p.image=window._pfImageData||'';
     p.restricted=document.getElementById('pf-restricted').checked;
+    p.warehouse=document.getElementById('pf-warehouse').value;
     p._details=details;
     saveProductToDB(oldSku,skuChanged?sku:undefined).then(()=>{
       if(skuChanged){
@@ -13208,7 +13222,12 @@ function saveProduct(){
   }
 
   closeProdModal();
-  renderProducts();
+  // Refresh whichever page is actually showing rather than always jumping to Manage Products --
+  // this can now be opened from ACS Logistics too (e.g. "Add product" there), and should land
+  // back on ACS Logistics, not silently switch the admin over to the main catalog view.
+  const activeNav=document.querySelector('.nav-item.active');
+  if(activeNav && activeNav.id==='nav-logistics') renderACSLogistics();
+  else renderProducts();
 }
 
 
