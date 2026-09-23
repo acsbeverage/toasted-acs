@@ -738,13 +738,13 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
 
 router.post('/products', requireAdmin, async (req, res) => {
   try {
-    const { sku, name, producer, cat, btl, image } = req.body;
+    const { sku, name, producer, cat, btl, image, warehouse } = req.body;
     if (!sku || !name) return res.status(400).json({ ok: false, error: 'SKU and name required' });
     await query(
-      `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,image_url)
-       VALUES ($1,$2,$3,$4,$5,0,6,$6)
-       ON CONFLICT (sku) DO UPDATE SET name=$2,producer=$3,cat=$4,btl=$5,image_url=$6`,
-      [sku, name, producer||'', cat||'Spirits', btl||6, image||'']
+      `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,image_url,warehouse)
+       VALUES ($1,$2,$3,$4,$5,0,6,$6,$7)
+       ON CONFLICT (sku) DO UPDATE SET name=$2,producer=$3,cat=$4,btl=$5,image_url=$6,warehouse=$7`,
+      [sku, name, producer||'', cat||'Spirits', btl||6, image||'', warehouse||'main']
     );
     res.json({ ok: true });
   } catch (err) {
