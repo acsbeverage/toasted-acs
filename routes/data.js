@@ -427,6 +427,53 @@ router.delete('/combos/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// -- STOCK ADJUSTMENTS (permanent audit log for manual inventory changes) --------
+// Written every time an admin adjusts a product's stock from either the main
+// Inventory page or the ACS Logistics page. Persisted server-side (unlike the old
+// client-only log) so it survives refresh and is visible to every admin, on both pages.
+router.get('/stock-adjustments', requireAdmin, async (req, res) => {
+  try {
+    const { warehouse, sku } = req.query;
+    const conds = [], vals = [];
+    if (warehouse) { vals.push(warehouse); conds.push(`warehouse=$${vals.length}`); }
+    if (sku) { vals.push(sku); conds.push(`sku=$${vals.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    vals.push(200);
+    const rows = await getAll(
+      `SELECT * FROM stock_adjustments ${where} ORDER BY id DESC LIMIT $${vals.length}`,
+      vals
+    );
+    res.json({ ok: true, adjustments: rows.map(r => ({
+      id: r.id, sku: r.sku, warehouse: r.warehouse || 'main',
+      cases: r.cases || 0, bottles: r.bottles || 0, sign: r.sign,
+      reason: r.reason || '', notes: r.notes || '',
+      byUserId: r.by_user_id, byName: r.by_name || '',
+      createdAt: r.created_at,
+    })) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/stock-adjustments', requireAdmin, async (req, res) => {
+  try {
+    const { sku, warehouse, cases, bottles, sign, reason, notes } = req.body;
+    if (!sku) return res.status(400).json({ ok: false, error: 'SKU is required' });
+    const row = await getOne(
+      `INSERT INTO stock_adjustments (sku, warehouse, cases, bottles, sign, reason, notes, by_user_id, by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, created_at`,
+      [
+        sku, warehouse || 'main', parseInt(cases) || 0, parseInt(bottles) || 0,
+        (sign === -1 ? -1 : 1), reason || '', notes || '',
+        req.user.id, (req.user.fname ? `${req.user.fname} ${req.user.lname||''}`.trim() : (req.user.email||''))
+      ]
+    );
+    res.json({ ok: true, id: row.id, createdAt: row.created_at });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/products', requireAuth, async (req, res) => {
   try {
     const isCustomer = req.user.role === 'customer';
