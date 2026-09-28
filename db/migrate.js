@@ -458,6 +458,17 @@ async function migrate() {
     await query(`INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ('spirit_type',$1,$2) ON CONFLICT (kind,name) DO NOTHING`, [existingSpiritTypes[i], i]);
   }
 
+  // Pack Size (bottles/case) is a third taxonomy kind, added later -- the table's original CHECK
+  // constraint only allowed 'category'/'spirit_type', so it's widened here rather than recreated,
+  // and the previously-hardcoded [1,2,3,4,6,12,24] options are seeded the same way as above so
+  // nothing changes for existing products.
+  await query(`ALTER TABLE product_taxonomy DROP CONSTRAINT IF EXISTS product_taxonomy_kind_check`);
+  await query(`ALTER TABLE product_taxonomy ADD CONSTRAINT product_taxonomy_kind_check CHECK (kind IN ('category','spirit_type','pack_size'))`);
+  const existingPackSizes = ['1','2','3','4','6','12','24'];
+  for (let i = 0; i < existingPackSizes.length; i++) {
+    await query(`INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ('pack_size',$1,$2) ON CONFLICT (kind,name) DO NOTHING`, [existingPackSizes[i], i]);
+  }
+
   await query(`CREATE TABLE IF NOT EXISTS portal_banner (
     id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     image_data TEXT,
