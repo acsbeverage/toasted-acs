@@ -462,8 +462,24 @@ async function migrate() {
   // constraint only allowed 'category'/'spirit_type', so it's widened here rather than recreated,
   // and the previously-hardcoded [1,2,3,4,6,12,24] options are seeded the same way as above so
   // nothing changes for existing products.
-  await query(`ALTER TABLE product_taxonomy DROP CONSTRAINT IF EXISTS product_taxonomy_kind_check`);
-  await query(`ALTER TABLE product_taxonomy ADD CONSTRAINT product_taxonomy_kind_check CHECK (kind IN ('category','spirit_type','pack_size'))`);
+  //
+  // product_taxonomy is read on every single page load (loadAllDataFromBackend), so an ALTER
+  // TABLE here needs a brief ACCESS EXCLUSIVE lock -- if anything else is ever mid-transaction
+  // against this table when this runs, a plain ALTER TABLE queues and WAITS FOREVER, and every
+  // other request queues behind it too since they all need the same table, exhausting the whole
+  // connection pool and taking the entire site down (this happened in production once already).
+  // SET LOCAL lock_timeout bounds that wait to 5s so a stuck migration fails loudly instead --
+  // bundled into one multi-statement call (no query params) so it's guaranteed to apply to the
+  // same connection/transaction as the ALTER statements that follow it, regardless of pooling.
+  try {
+    await query(`
+      SET LOCAL lock_timeout = '5s';
+      ALTER TABLE product_taxonomy DROP CONSTRAINT IF EXISTS product_taxonomy_kind_check;
+      ALTER TABLE product_taxonomy ADD CONSTRAINT product_taxonomy_kind_check CHECK (kind IN ('category','spirit_type','pack_size'));
+    `);
+  } catch (err) {
+    throw new Error(`Could not widen product_taxonomy's kind constraint -- most likely something else held a lock on that table and the wait timed out after 5s instead of hanging indefinitely. Safe to retry once other traffic is idle. Original error: ${err.message}`);
+  }
   const existingPackSizes = ['1','2','3','4','6','12','24'];
   for (let i = 0; i < existingPackSizes.length; i++) {
     await query(`INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ('pack_size',$1,$2) ON CONFLICT (kind,name) DO NOTHING`, [existingPackSizes[i], i]);
