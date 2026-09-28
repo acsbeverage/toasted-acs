@@ -1394,6 +1394,7 @@ async function loadAllDataFromBackend(){
     if(schedRes.ok&&schedRes.schedules){SCHEDULES=schedRes.schedules;console.log('Loaded',SCHEDULES.length,'report schedules from database');}
     if(taxRes.ok&&taxRes.categories){SHOP_CATEGORIES=taxRes.categories.map(c=>c.name);}
     if(taxRes.ok&&taxRes.spiritTypes){SPIRIT_TYPES=taxRes.spiritTypes.map(s=>s.name);}
+    if(taxRes.ok&&taxRes.packSizes&&taxRes.packSizes.length){PACK_SIZES=taxRes.packSizes.map(s=>parseInt(s.name)).filter(n=>n>0).sort((a,b)=>a-b);}
     if(bannerRes.ok){PORTAL_BANNER=bannerRes.banner||null;}
     if(combosRes.ok&&combosRes.combos){COMBOS=combosRes.combos;console.log('Loaded',COMBOS.length,'combos from database');}
     if(stockAdjRes.ok&&stockAdjRes.adjustments){
@@ -1971,6 +1972,7 @@ let PORTAL_BANNER=null;
 let COMBOS=[]; // bundled-pricing promotional combos -- see Manage Combos (admin) and Apply Combo (order-building)
 let SHOP_CATEGORIES=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'];
 let SPIRIT_TYPES=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
+let PACK_SIZES=[1,2,3,4,6,12,24]; // bottles/case options for the product form's "Unit Set" -- admin-extensible, see addTaxonomyValue('pack_size')
 const SHOP_SECTION_CAP=8;
 let _shopActiveCat='';
 function shopCardHtml(p){
@@ -13093,9 +13095,12 @@ function renderProductForm(p,isNew){
       </select>
 
       <label class="flabel">Unit Set (bottles/case)</label>
-      <select id="pf-btl" class="finput" style="margin-bottom:12px">
-        ${[1,2,3,4,6,12,24].map(n=>`<option value="${n}" ${(p.btl||6)===n?'selected':''}>${n}</option>`).join('')}
-      </select>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <select id="pf-btl" class="finput" style="flex:1">
+          ${[...new Set([...PACK_SIZES,p.btl||6])].sort((a,b)=>a-b).map(n=>`<option value="${n}" ${(p.btl||6)===n?'selected':''}>${n}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-sm" onclick="addTaxonomyValue('pack_size')" title="Add a new pack size"><i class="ti ti-plus"></i></button>
+      </div>
 
       <label class="flabel">Closure</label>
       <select id="pf-closure" class="finput" style="margin-bottom:12px">
@@ -13150,16 +13155,36 @@ function toggleSpiritTypeField(){
   if(wrap)wrap.style.display=cat==='Spirits'?'block':'none';
 }
 async function addTaxonomyValue(kind){
-  const label=kind==='category'?'category':'spirit type';
-  const name=prompt('New '+label+' name:');
+  const label=kind==='category'?'category':kind==='spirit_type'?'spirit type':'pack size';
+  const promptText=kind==='pack_size'?'New pack size (bottles per case, e.g. 8):':'New '+label+' name:';
+  const name=prompt(promptText);
   if(!name||!name.trim())return;
-  const trimmed=name.trim();
+  let trimmed=name.trim();
+  if(kind==='pack_size'){
+    if(!/^\d+$/.test(trimmed)||parseInt(trimmed)<=0){toast('Pack size must be a whole number greater than 0');return}
+    trimmed=String(parseInt(trimmed)); // normalize e.g. "08" -> "8" so it matches cleanly against existing values
+  }
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/product-taxonomy',{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
       body:JSON.stringify({kind,name:trimmed})
     }).then(r=>r.json());
     if(!res.ok){toast(res.error||'Could not add '+label);return}
+    if(kind==='pack_size'){
+      const n=parseInt(trimmed);
+      if(!PACK_SIZES.includes(n)){PACK_SIZES.push(n);PACK_SIZES.sort((a,b)=>a-b);}
+      const sel=document.getElementById('pf-btl');
+      if(sel){
+        if(![...sel.options].some(o=>parseInt(o.value)===n)){
+          const opt=document.createElement('option');
+          opt.value=n;opt.textContent=n;
+          sel.appendChild(opt);
+        }
+        sel.value=n;
+      }
+      toast('Added pack size "'+n+'" -- available for every product going forward');
+      return;
+    }
     const list=kind==='category'?SHOP_CATEGORIES:SPIRIT_TYPES;
     if(!list.includes(trimmed))list.push(trimmed);
     const selectId=kind==='category'?'pf-cat':'pf-spirittype';
