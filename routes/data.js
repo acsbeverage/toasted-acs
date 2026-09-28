@@ -304,6 +304,7 @@ router.get('/product-taxonomy', requireAuth, async (req, res) => {
       ok: true,
       categories: rows.filter(r => r.kind === 'category').map(r => ({ id: r.id, name: r.name })),
       spiritTypes: rows.filter(r => r.kind === 'spirit_type').map(r => ({ id: r.id, name: r.name })),
+      packSizes: rows.filter(r => r.kind === 'pack_size').map(r => ({ id: r.id, name: r.name })),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -313,9 +314,15 @@ router.get('/product-taxonomy', requireAuth, async (req, res) => {
 router.post('/product-taxonomy', requireAdmin, async (req, res) => {
   try {
     const { kind, name } = req.body;
-    if (!['category', 'spirit_type'].includes(kind)) return res.status(400).json({ ok: false, error: 'Invalid kind' });
+    if (!['category', 'spirit_type', 'pack_size'].includes(kind)) return res.status(400).json({ ok: false, error: 'Invalid kind' });
     const trimmed = (name || '').trim();
     if (!trimmed) return res.status(400).json({ ok: false, error: 'Name required' });
+    // Pack Size stores the bottles-per-case count -- keep it a clean positive integer so it
+    // sorts and parses reliably everywhere it's used (the product form's Unit Set dropdown,
+    // combo/order math, etc).
+    if (kind === 'pack_size' && (!/^\d+$/.test(trimmed) || parseInt(trimmed) <= 0)) {
+      return res.status(400).json({ ok: false, error: 'Pack size must be a whole number greater than 0' });
+    }
     const maxSort = await getOne('SELECT COALESCE(MAX(sort_order),-1) as m FROM product_taxonomy WHERE kind=$1', [kind]);
     const row = await getOne(
       `INSERT INTO product_taxonomy (kind,name,sort_order) VALUES ($1,$2,$3)
