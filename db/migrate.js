@@ -217,6 +217,17 @@ async function migrate() {
     qbo_invoice_id TEXT, qbo_synced_at TIMESTAMPTZ, qbo_payment_id TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`);
+  // client_request_id lets order submission be safely retried. If the browser's connection
+  // drops after the server already created the order but before the "success" response made
+  // it back (the "Unexpected end of JSON input" bug -- the order looked like it failed but had
+  // actually already gone through), the old behavior was to tell the rep to submit again, which
+  // created a genuine duplicate order. Now the frontend generates one ID per order attempt and
+  // sends it every time, including retries; the unique index below lets the server recognize a
+  // retry of the SAME attempt and hand back the original order instead of creating a second one.
+  // Nullable, so it's optional and existing orders are unaffected; the partial index (WHERE ...
+  // IS NOT NULL) is what allows unlimited existing/future NULLs to coexist under a UNIQUE index.
+  await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_request_id TEXT`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_request_id ON orders(client_request_id) WHERE client_request_id IS NOT NULL`);
 
   await query(`CREATE TABLE IF NOT EXISTS order_items (
     id SERIAL PRIMARY KEY,
