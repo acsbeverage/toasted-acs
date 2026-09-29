@@ -243,7 +243,22 @@ router.get('/report-data', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   try {
     let { id, acct, rep, date, delivery, status, orderType, po, notes,
-            isSample, waiveDelivery, waiveBrokenCase, waiveCRV, items, placedByLabel } = req.body;
+            isSample, waiveDelivery, waiveBrokenCase, waiveCRV, items, placedByLabel,
+            clientRequestId } = req.body;
+
+    // Makes order submission safe to retry. If the browser's connection drops after this route
+    // already created the order but before its response made it back (the response body arrives
+    // truncated, so fetch's response.json() throws "Unexpected end of JSON input" -- the order
+    // looks like it failed when it actually already went through), the old behavior told the rep
+    // to submit again, which created a genuine duplicate order, deducted inventory twice, and
+    // sent a second notification email. The frontend now generates one ID per order attempt and
+    // resends the SAME one on any retry of that same attempt (a genuinely new order always gets
+    // a new ID) -- so a retry that finds a matching client_request_id here just hands back the
+    // order that attempt already created, instead of creating a second one.
+    if (clientRequestId) {
+      const existing = await getOne('SELECT id FROM orders WHERE client_request_id=$1', [clientRequestId]);
+      if (existing) return res.json({ ok: true, id: existing.id });
+    }
 
     // Combos: rebuild every combo-tagged line item from scratch server-side (see
     // rebuildComboLineItems above) -- applies to every order, not just customer submissions,
@@ -370,12 +385,25 @@ router.post('/', requireAuth, async (req, res) => {
       const seqRow = await getOne('UPDATE order_code_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
       id = 'ACS-' + seqRow.claimed;
     }
-    await query(`
-      INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,
-        is_sample,waive_delivery,waive_broken_case,waive_crv)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-    `, [id, acct, rep, date, delivery, status||'unconfirmed', orderType||'standard',
-        po||'', notes||'', !!isSample, !!waiveDelivery, !!waiveBrokenCase, !!waiveCRV]);
+    try {
+      await query(`
+        INSERT INTO orders (id,acct_id,rep_id,date,delivery,status,order_type,po,notes,
+          is_sample,waive_delivery,waive_broken_case,waive_crv,client_request_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `, [id, acct, rep, date, delivery, status||'unconfirmed', orderType||'standard',
+          po||'', notes||'', !!isSample, !!waiveDelivery, !!waiveBrokenCase, !!waiveCRV, clientRequestId||null]);
+    } catch (insertErr) {
+      // A near-simultaneous retry (e.g. a double-click before the first request even finished)
+      // can lose the race with the SELECT above and reach this INSERT after the first attempt's
+      // insert already committed -- the unique index on client_request_id turns that into a
+      // constraint violation here instead of a silent duplicate order. Recover by handing back
+      // the order the winning request already created, same as the earlier idempotency check.
+      if (clientRequestId && /client_request_id/.test(insertErr.message || '')) {
+        const existing = await getOne('SELECT id FROM orders WHERE client_request_id=$1', [clientRequestId]);
+        if (existing) return res.json({ ok: true, id: existing.id });
+      }
+      throw insertErr;
+    }
     if (items && items.length > 0) {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -400,8 +428,20 @@ router.post('/', requireAuth, async (req, res) => {
         const caseEquiv = (item.cases||0) + (item.bottles||0)/btl;
         caseEquivBySku[item.sku] = (caseEquivBySku[item.sku]||0) + caseEquiv;
       }
-      for (const [sku, qty] of Object.entries(caseEquivBySku)) {
-        await query('UPDATE products SET stock = stock - $1 WHERE sku=$2', [qty, sku]);
+      // One statement for every SKU instead of one round trip per SKU -- an order with many
+      // different products used to await a separate UPDATE for each one in sequence, and each
+      // extra round trip is extra time this whole request can be caught mid-response by a
+      // dropped connection or a proxy timeout (the "order actually went through, but you saw a
+      // connection error" bug). unnest() zips the two arrays into per-SKU rows in one query.
+      const stockSkus = Object.keys(caseEquivBySku);
+      if (stockSkus.length) {
+        const stockQtys = stockSkus.map(sku => caseEquivBySku[sku]);
+        await query(
+          `UPDATE products p SET stock = p.stock - u.qty
+           FROM unnest($1::text[], $2::numeric[]) AS u(sku, qty)
+           WHERE p.sku = u.sku`,
+          [stockSkus, stockQtys]
+        );
       }
     }
     sendOrderNotification(id, placedByLabel||req.user.fname+' '+(req.user.lname||''), req.user.email).catch(console.error);
@@ -507,9 +547,17 @@ router.patch('/:id', requireAuth, async (req, res) => {
             !!item._manual, item.rate||null, i, item.notes||null]);
       }
       // Delta is "new minus old" in case-equivalents -- a positive delta means more was
-      // ordered than before, so stock decreases by that amount (and vice versa).
-      for (const [sku, delta] of Object.entries(deltaBySku)) {
-        if (delta !== 0) await query('UPDATE products SET stock = stock - $1 WHERE sku=$2', [delta, sku]);
+      // ordered than before, so stock decreases by that amount (and vice versa). Batched into
+      // one statement the same way as order creation above, for the same reason.
+      const deltaSkus = Object.keys(deltaBySku).filter(sku => deltaBySku[sku] !== 0);
+      if (deltaSkus.length) {
+        const deltaQtys = deltaSkus.map(sku => deltaBySku[sku]);
+        await query(
+          `UPDATE products p SET stock = p.stock - u.delta
+           FROM unnest($1::text[], $2::numeric[]) AS u(sku, delta)
+           WHERE p.sku = u.sku`,
+          [deltaSkus, deltaQtys]
+        );
       }
     }
     if (updates.length === 0 && !Array.isArray(items)) {
