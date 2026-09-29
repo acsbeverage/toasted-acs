@@ -7056,21 +7056,35 @@ function setTierCommission(sku,tierId,val){
   }).catch(e=>toast('Could not save -- '+e.message));
 }
 
-// Returns the effective commission % for a given order line item
-// Checks for tier-level override first, then falls back to rep's default
-function getLineCommission(item, repId){
+// Returns the effective commission % AND where it came from for a given order line item.
+// Checks for tier-level override first, then a custom pricing lane, then falls back to the
+// rep's own default. Reports must use the `source` this returns for "Rate Source" rather than
+// comparing the resulting number against the rep's current default -- a real override that
+// happens to have been set to the same % as the rep's rate (e.g. an old exception that was
+// later formalized as the rep's new standard rate, with the now-redundant per-product entries
+// never cleaned up) is still a real, intentional override, and would be silently misreported
+// as "Sales Rep" by a value comparison. Comparing values also breaks the other direction: if
+// the rep's default is ever changed later, every override that happened to match the OLD
+// default would have been invisible the whole time it matched, only "appearing" once it
+// diverged -- a value-based check can never be reliable for this, only checking whether an
+// override entry actually exists can be.
+function getLineCommissionDetail(item, repId){
   const p=prodBySku(item.sku);
-  if(!p)return 0;
+  const rep=USERS.find(u=>u.id===repId);
+  const repDefault=rep?rep.commission||0:0;
+  if(!p)return{rate:0,source:'Sales Rep'};
   const overrideKey='__comm_'+item.tier;
   if(p.prices && p.prices[overrideKey]!==undefined && p.prices[overrideKey]!==null){
-    return p.prices[overrideKey]; // standard-tier override
+    return{rate:p.prices[overrideKey],source:'Item Override'}; // standard-tier override
   }
   const lane=(p.extraTiers||[]).find(t=>t.name===item.tier);
   if(lane && lane.commission!==undefined && lane.commission!==null){
-    return lane.commission; // custom pricing lane override
+    return{rate:lane.commission,source:'Item Override'}; // custom pricing lane override
   }
-  const rep=USERS.find(u=>u.id===repId);
-  return rep?rep.commission||0:0;
+  return{rate:repDefault,source:'Sales Rep'};
+}
+function getLineCommission(item, repId){
+  return getLineCommissionDetail(item,repId).rate;
 }
 
 // Returns effective commission for an entire order (weighted by line total)
@@ -10203,17 +10217,22 @@ function renderRC6(el, orders){
     if(!repData[o.rep])return;
     const acct=acctById(o.acct)||{name:'Unknown'};
     const rep=userById(o.rep)||{fname:'',lname:'',commission:5};
-    const repDefaultRate=(rep.commission||5)/100;
 
     o.items.filter(i=>!i._fee).forEach(item=>{
       const p=prodBySku(item.sku);if(!p)return;
       const qty=item.cases+(item.bottles>0?item.bottles/p.btl:0);
       const lineAmt=itemLineTotal(item);
       // Per-item commission override (standard-tier or custom pricing lane) always wins over
-      // the rep's standard rate -- getLineCommission already encodes that priority, but this
-      // report was computing one flat rate per ORDER from the rep's default and applying it
-      // to every line, which meant any item-level override was silently never used here.
-      const rate=getLineCommission(item,o.rep)/100;
+      // the rep's standard rate -- getLineCommissionDetail already encodes that priority. The
+      // Rate Source used to be inferred by comparing the resulting % against the rep's current
+      // default, which misreports both ways: a genuine override that happens to equal the rep's
+      // rate (e.g. an old per-product exception that was later formalized as that rep's new
+      // standard rate, with the redundant per-product entries never cleaned up) showed as
+      // "Sales Rep", and if the rep's default is ever changed, every override that used to match
+      // the OLD default would have been invisible until it diverged. Using the actual source
+      // getLineCommissionDetail found is correct regardless of what the numbers happen to be.
+      const {rate:ratePct,source:rateSource}=getLineCommissionDetail(item,o.rep);
+      const rate=ratePct/100;
       const commission=lineAmt*rate;
       const discPct=parseFloat(item.discountPct)||0;
 
@@ -10229,7 +10248,7 @@ function renderRC6(el, orders){
         orderDate:o.date,
         commission,
         rate,
-        rateSource:Math.abs(rate-repDefaultRate)>0.0001?'Item Override':'Sales Rep',
+        rateSource,
         invoice:o.id,
         discountPct:discPct,
         importer:'',
@@ -10275,7 +10294,13 @@ function exportRC6Excel(){
     // Rep section header
     rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','']);
     rd.lines.forEach(l=>{
-      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),(l.rate*100).toFixed(0)+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer]);
+      // toFixed(0) here was rounding a fractional override (e.g. 2.5%) to the nearest whole
+      // percent (3%) in the printed Rate column -- the dollar Commission figure next to it was
+      // always computed from the true, unrounded rate and was correct the whole time, but the
+      // Rate label made a 2.5% override look identical to a 3% one, hiding real overrides from
+      // review. parseFloat(...toFixed(2)) keeps up to 2 decimals but drops trailing zeros, so
+      // 2.5 -> "2.5%", 5 -> "5%", 3.33 -> "3.33%".
+      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),parseFloat((l.rate*100).toFixed(2))+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer]);
     });
     // Rep subtotal
     rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','']);
@@ -10791,11 +10816,15 @@ async function renderCommissionReport(){
           <td style="text-align:right;color:var(--text2)">${r.bottles}</td>
           <td style="text-align:right;font-weight:600">${fmt(r.revenue)}</td>
           <td style="text-align:center">
-            <div style="display:flex;align-items:center;justify-content:center;gap:4px">
-              <input type="number" class="qty-input" min="0" max="100" step="0.1" value="${r.pct}" style="width:56px;text-align:center"
-                onchange="USERS.find(u=>u.id===${JSON.stringify(r.rep.id)}).commission=parseFloat(this.value)||0;renderCommissionReport()"/>
-              <span style="color:var(--text2);font-size:12px">%</span>
-            </div>
+            <!-- This used to be a live-editable input whose onchange only mutated USERS in memory
+                 and never saved anything -- it looked like a working settings field but silently
+                 discarded every change (and, worse, any admin who then opened that rep in Manage
+                 Users in the same session would see this blended effective %, not their real
+                 rate, prefilled into a field that DOES save). It's now a plain, correctly-labeled
+                 display value; changing a rep's actual default commission belongs in Manage
+                 Users, the one place that persists it. -->
+            <div style="font-weight:700">${r.pct.toFixed(1)}%</div>
+            <div style="font-size:10px;color:var(--text3)">effective, this period</div>
           </td>
           <td style="text-align:right;font-weight:700;font-size:15px;color:var(--green)">${fmt(r.commission)}</td>
           <td><button class="btn btn-sm" onclick="exportRepCommission(${JSON.stringify(r.rep.id)})"><i class="ti ti-receipt"></i> Statement</button></td>
