@@ -10269,6 +10269,15 @@ function renderRC6(el, orders){
                 : item._manual ? 'manual-price'
                 : (p.extraTiers||[]).some(t=>t.name===item.tier) ? 'custom-lane'
                 : 'unmatched',
+        // The live tier IDs are confirmed correct (frontline/mix12/acs3/brand3/brand5), so
+        // "manual-price" here means item._manual came back true from the database's is_manual
+        // column for this line -- but nothing in the "Set price" button's own code sets that
+        // outside an explicit admin click. Surfacing the raw _manual flag and the raw stored
+        // rate value directly (rather than trusting the tierKind label) lets us tell a genuine
+        // manually-priced line (rate is a real preserved number) apart from a bug in this very
+        // classification (rate empty/0 despite _manual reading true), without more guessing.
+        manualFlag: item._manual ? 'TRUE' : 'false',
+        storedRate: item.rate!==undefined&&item.rate!==null ? item.rate : '',
       });
       repData[o.rep].totalRevenue+=lineAmt;
       repData[o.rep].totalCommission+=commission;
@@ -10313,7 +10322,7 @@ function exportRC6Excel(){
   const rows = [];
 
   // Header row with date range
-  rows.push([`${from} to ${to}`,'','','','','','','','','','','','','','','','','','']);
+  rows.push([`${from} to ${to}`,'','','','','','','','','','','','','','','','','','','','']);
   // SKU, Tier and Tier Kind are diagnostic-only, appended at the end: the exact internal SKU
   // and pricing tier stored on the order line, so a commission that looks wrong can be traced
   // to precisely which override key ('__comm_'+tier on that SKU) should have applied, instead
@@ -10323,13 +10332,16 @@ function exportRC6Excel(){
   // commission override), a real custom lane by that exact name ('custom-lane'), or none of the
   // above ('unmatched') -- a line can show the correct price yet still fall through to the
   // rep's default commission if it's manual-price or an un-overridden custom-lane, even when
-  // the STANDARD tier of the same display name has the override set correctly.
-  rows.push(['','Supplier','Delivery Date','Paid Date','Sales Rep','Account','Wine','Quantity','Line Item Amount','Order Date','Commission','Rate','Rate Source','Invoice Number','Discount %','Importer','SKU','Tier','Tier Kind']);
+  // the STANDARD tier of the same display name has the override set correctly. Manual Flag and
+  // Stored Rate show the RAW database values behind "manual-price" so it's never just trusted
+  // on faith -- a genuine manual price has a real Stored Rate; TRUE with an empty Stored Rate
+  // would point to a bug in this classification itself rather than an actual manually-set price.
+  rows.push(['','Supplier','Delivery Date','Paid Date','Sales Rep','Account','Wine','Quantity','Line Item Amount','Order Date','Commission','Rate','Rate Source','Invoice Number','Discount %','Importer','SKU','Tier','Tier Kind','Manual Flag','Stored Rate']);
 
   Object.values(data).forEach(rd=>{
     if(!rd.lines.length)return;
     // Rep section header
-    rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','','','','']);
+    rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','','','','','','']);
     rd.lines.forEach(l=>{
       // toFixed(0) here was rounding a fractional override (e.g. 2.5%) to the nearest whole
       // percent (3%) in the printed Rate column -- the dollar Commission figure next to it was
@@ -10337,11 +10349,11 @@ function exportRC6Excel(){
       // Rate label made a 2.5% override look identical to a 3% one, hiding real overrides from
       // review. parseFloat(...toFixed(2)) keeps up to 2 decimals but drops trailing zeros, so
       // 2.5 -> "2.5%", 5 -> "5%", 3.33 -> "3.33%".
-      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),parseFloat((l.rate*100).toFixed(2))+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer,l.sku,l.tier,l.tierKind]);
+      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),parseFloat((l.rate*100).toFixed(2))+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer,l.sku,l.tier,l.tierKind,l.manualFlag,l.storedRate]);
     });
     // Rep subtotal
-    rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','','','','']);
-    rows.push(['','','','','','','','','','','','','','','','','','','']);
+    rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','','','','','','']);
+    rows.push(['','','','','','','','','','','','','','','','','','','','','']);
   });
 
   const csv = rows.map(r=>r.map(v=>{
