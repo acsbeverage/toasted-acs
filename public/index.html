@@ -10281,11 +10281,21 @@ function renderRC6(el, orders){
 
   // Commission figures are sensitive -- data is still fully computed for export below, but
   // nothing is rendered on screen beyond a simple status confirming it's ready.
+  //
+  // TEMPORARY DIAGNOSTIC (safe to remove once the "Tier Kind: manual-price" investigation is
+  // closed): shows exactly what tier IDs this live system is actually configured with right
+  // now. The RC6 export's "Tier Kind" column can only tell a real standard tier apart from
+  // everything else by comparing an order line's stored tier string against these IDs -- if
+  // the IDs shown here ever turn out to be the human-readable labels (e.g. "Frontline") rather
+  // than short internal slugs (e.g. "frontline"), that alone would explain lines getting
+  // mis-classified as "manual-price"/"unmatched" with no manual pricing involved at all.
+  const tierDebug=TIERS.map(t=>`${t.id} ("${t.name}")`).join(', ');
   el.innerHTML+=`
   <div class="card" style="padding:30px;text-align:center">
     <i class="ti ti-file-spreadsheet" style="font-size:32px;color:var(--gold);display:block;margin-bottom:10px"></i>
     <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">Commission data ready for ${selectedReps.length} rep${selectedReps.length!==1?'s':''}</div>
     <div style="font-size:12px;color:var(--text2)">${totalLines} line item${totalLines!==1?'s':''} -- use Export Excel above to download</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">Diagnostic -- standard tier IDs configured on this system: ${tierDebug}</div>
   </div>`;
 
   // Store data for Excel export
