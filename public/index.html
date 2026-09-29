@@ -10254,10 +10254,21 @@ function renderRC6(el, orders){
         importer:'',
         // Diagnostic-only columns (appended at the end so nothing that parses this file by fixed
         // column position breaks): the exact internal tier string the order stored for this line,
-        // and the SKU -- lets us see precisely which override key ('__comm_'+tier) was looked up,
-        // instead of having to infer it from what an account's pricing tier is assumed to be.
+        // the SKU -- lets us see precisely which override key ('__comm_'+tier) was looked up,
+        // instead of having to infer it from what an account's pricing tier is assumed to be --
+        // plus whether this specific tier string is actually one of the 5 standard tier IDs, or
+        // a manually-set flat price, or a genuinely separate named lane. A line item's tier can
+        // display the correct price while still failing the commission override lookup if it's
+        // a manual price (item._manual, priced directly via item.rate -- bypasses tier pricing
+        // entirely) or a custom lane whose name happens to match a standard tier's display text
+        // (e.g. a lane literally named "Frontline") -- neither of those is the same as the
+        // "Frontline" STANDARD tier (id 'frontline') the pricing screen shows overrides for.
         sku:item.sku,
         tier:item.tier||'(none)',
+        tierKind: TIERS.some(t=>t.id===item.tier) ? 'standard-id'
+                : item._manual ? 'manual-price'
+                : (p.extraTiers||[]).some(t=>t.name===item.tier) ? 'custom-lane'
+                : 'unmatched',
       });
       repData[o.rep].totalRevenue+=lineAmt;
       repData[o.rep].totalCommission+=commission;
@@ -10292,17 +10303,23 @@ function exportRC6Excel(){
   const rows = [];
 
   // Header row with date range
-  rows.push([`${from} to ${to}`,'','','','','','','','','','','','','','','','','']);
-  // SKU and Tier are diagnostic-only, appended at the end: the exact internal SKU and pricing
-  // tier stored on the order line, so a commission that looks wrong can be traced to precisely
-  // which override key ('__comm_'+tier on that SKU) should have applied, instead of guessing
-  // from the account's assumed tier.
-  rows.push(['','Supplier','Delivery Date','Paid Date','Sales Rep','Account','Wine','Quantity','Line Item Amount','Order Date','Commission','Rate','Rate Source','Invoice Number','Discount %','Importer','SKU','Tier']);
+  rows.push([`${from} to ${to}`,'','','','','','','','','','','','','','','','','','']);
+  // SKU, Tier and Tier Kind are diagnostic-only, appended at the end: the exact internal SKU
+  // and pricing tier stored on the order line, so a commission that looks wrong can be traced
+  // to precisely which override key ('__comm_'+tier on that SKU) should have applied, instead
+  // of guessing from the account's assumed tier. Tier Kind additionally says whether that tier
+  // string is actually one of the 5 standard tier IDs ('standard-id'), a manually-typed flat
+  // price ('manual-price' -- priced via item.rate, bypasses tier pricing and can never carry a
+  // commission override), a real custom lane by that exact name ('custom-lane'), or none of the
+  // above ('unmatched') -- a line can show the correct price yet still fall through to the
+  // rep's default commission if it's manual-price or an un-overridden custom-lane, even when
+  // the STANDARD tier of the same display name has the override set correctly.
+  rows.push(['','Supplier','Delivery Date','Paid Date','Sales Rep','Account','Wine','Quantity','Line Item Amount','Order Date','Commission','Rate','Rate Source','Invoice Number','Discount %','Importer','SKU','Tier','Tier Kind']);
 
   Object.values(data).forEach(rd=>{
     if(!rd.lines.length)return;
     // Rep section header
-    rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','','','']);
+    rows.push([rd.rep.fname+' '+(rd.rep.lname||''),'','','','','','','','','','','','','','','','','','']);
     rd.lines.forEach(l=>{
       // toFixed(0) here was rounding a fractional override (e.g. 2.5%) to the nearest whole
       // percent (3%) in the printed Rate column -- the dollar Commission figure next to it was
@@ -10310,11 +10327,11 @@ function exportRC6Excel(){
       // Rate label made a 2.5% override look identical to a 3% one, hiding real overrides from
       // review. parseFloat(...toFixed(2)) keeps up to 2 decimals but drops trailing zeros, so
       // 2.5 -> "2.5%", 5 -> "5%", 3.33 -> "3.33%".
-      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),parseFloat((l.rate*100).toFixed(2))+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer,l.sku,l.tier]);
+      rows.push(['',l.supplier,l.deliveryDate,l.paidDate,l.repName,l.account,l.wine,l.quantity.toFixed(2),l.lineItemAmount.toFixed(2),l.orderDate,l.commission.toFixed(2),parseFloat((l.rate*100).toFixed(2))+'%',l.rateSource,l.invoice,l.discountPct+'%',l.importer,l.sku,l.tier,l.tierKind]);
     });
     // Rep subtotal
-    rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','','','']);
-    rows.push(['','','','','','','','','','','','','','','','','','']);
+    rows.push(['','','','','','','','',rd.totalRevenue.toFixed(2),'',rd.totalCommission.toFixed(2),'','','','','','','','']);
+    rows.push(['','','','','','','','','','','','','','','','','','','']);
   });
 
   const csv = rows.map(r=>r.map(v=>{
