@@ -2135,6 +2135,14 @@ function submitPortalOrder(){
     return;
   }
   const id='ACS-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+  // See submitOrder()'s matching comment: this id is for THIS SUBMIT ATTEMPT, not the order
+  // itself (the server always assigns the real ACS-NNNNN number and ignores any id sent here).
+  // Stashed on currentOrder so a retry after an ambiguous failure -- the connection drops after
+  // the order was already created but before the success response arrived -- reuses the same
+  // id instead of risking a duplicate order.
+  if(!currentOrder._clientRequestId){
+    currentOrder._clientRequestId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('cid-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+  }
   const newOrder={
     id, acct:currentOrder.acct,
     date:currentOrder.date||today(),
@@ -2143,7 +2151,8 @@ function submitPortalOrder(){
     po:currentOrder.po||'',
     notes:(currentOrder.notes||'')+' [Customer portal order]',
     orderType:'standard',
-    items:currentOrder.items.map(x=>({...x}))
+    items:currentOrder.items.map(x=>({...x})),
+    clientRequestId:currentOrder._clientRequestId
   };
   const btn=document.getElementById('portal-submit-btn');
   if(btn){btn.disabled=true;btn.textContent='Submitting...';}
@@ -2153,7 +2162,7 @@ function submitPortalOrder(){
     body:JSON.stringify(newOrder)
   }).then(r=>r.json()).then(res=>{
     if(!res.ok){
-      alert(res.error||'Could not submit your order -- please try again.');
+      alert(res.error||'Could not submit your order -- if this happens again, it is safe to press Submit again.');
       if(btn){btn.disabled=false;btn.textContent='Submit Order \u2197';}
       return;
     }
@@ -3516,15 +3525,24 @@ async function submitOrder(){
   if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> Submitting...';}
 
   const isSample=currentOrder.orderType==='sample';
-  // No client-generated id -- the backend assigns the true sequential ACS-NNNNN number,
-  // and that's the only id we use once the response comes back.
+  // The order's real ID is still always assigned server-side as the true sequential ACS-NNNNN
+  // number -- never trusted from the client. clientRequestId is a different thing: one random
+  // id generated for THIS SUBMIT ATTEMPT (not for the order itself), so a retry of the exact
+  // same attempt -- e.g. after the "Unexpected end of JSON input" bug, where the connection
+  // drops after the order was already created but before the success response made it back --
+  // sends the SAME id again instead of a new one. Generated once and stashed on currentOrder so
+  // clicking Submit again before this order is reset reuses it; a genuinely new order (built
+  // after this one succeeds and currentOrder is reset below) always gets a fresh id.
+  if(!currentOrder._clientRequestId){
+    currentOrder._clientRequestId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('cid-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+  }
   const newOrder={acct:currentOrder.acct,rep:orderRep,date:currentOrder.date,delivery:currentOrder.delivery,status:'unconfirmed',po:currentOrder.po||'',notes:currentOrder.notes||'',orderType:currentOrder.orderType||'standard',isSample,waiveDelivery:!!currentOrder.waiveDelivery,waiveBrokenCase:!!currentOrder.waiveBrokenCase,items:currentOrder.items.filter(x=>!(isSample&&x.sku===CRV_SKU)).map(x=>({...x}))};
 
   const placedByLabel = (currentUser.fname||'')+' '+(currentUser.lname||'')+' ('+(currentUser.role==='admin'?'Admin':'Sales Rep')+')';
-  const res=await saveNewOrderToDB({...newOrder,placedByLabel});
+  const res=await saveNewOrderToDB({...newOrder,placedByLabel,clientRequestId:currentOrder._clientRequestId});
 
   if(!res.ok||!res.id){
-    alert('Could not submit order: '+(res.error||'unknown error')+'. Please try again.');
+    alert('Could not submit order: '+(res.error||'unknown error')+'. If this happens again, it is safe to click Submit again -- an order will never be duplicated.');
     if(btn){btn.disabled=false;btn.innerHTML='Submit order &#x2197;';}
     return;
   }
