@@ -1266,6 +1266,24 @@ function saveProductStockToDB(sku, stock, reorder){
   }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');});
 }
 
+// Atomic version used by the manual "Adjust stock" flow (doReceive): sends the AMOUNT to
+// add/subtract rather than a pre-computed absolute total, so the server can apply it to
+// whatever stock actually is in the database at that instant instead of to a number this
+// browser may have loaded a while ago. Returns a Promise resolving to the real post-adjustment
+// stock value (or null on failure) so the caller can sync its local copy to the true number
+// rather than trusting its own stale-prone math.
+function saveStockDeltaToDB(sku, delta, reorder){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve(null);
+  return fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku)+'/stock',{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({delta,reorder})
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){console.error('Failed to save stock adjustment:',d.error);toast('Stock adjustment did not save -- please try again');return null;}
+    return d.stock;
+  }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');return null;});
+}
+
 // Persists a permanent audit record of a manual inventory adjustment, so it survives refresh
 // and is visible to every admin -- on both the main Inventory page and the ACS Logistics page.
 function saveStockAdjustmentToDB(entry){
@@ -5519,7 +5537,7 @@ const ADJUSTMENT_SIGN={
   'Warehouse Lost':-1,'Warehouse Found':1,'Donation':-1,'Received Shipment':1,
   'BIN Update':0,'Other / Status Change':0
 };
-function doReceive(){
+async function doReceive(){
   const sku=document.getElementById('recv-sku').value;
   const casesIn=Math.abs(parseInt(document.getElementById('recv-cases').value)||0);
   const bottlesIn=Math.abs(parseInt(document.getElementById('recv-bottles').value)||0);
@@ -5539,11 +5557,23 @@ function doReceive(){
 
   const caseEquiv=casesIn+(bottlesIn/p.btl);
   const delta=sign*caseEquiv;
+  const newReorder=rv!==''?(parseInt(rv)||p.reorder):p.reorder;
+  // Show the change immediately using local math (optimistic), but the number that actually
+  // gets saved is computed by the database from its own current value -- not from p.stock here,
+  // which may be stale if stock changed since this page loaded. The response below overwrites
+  // this local guess with the real, authoritative post-adjustment total.
   p.stock=Math.max(0,p.stock+delta);
-  if(rv!=='')p.reorder=parseInt(rv)||p.reorder;
-  saveProductStockToDB(p.sku,p.stock,p.reorder);
-
+  p.reorder=newReorder;
+  closeModal('modal-receive');updateBadges();
   const warehouse=_receiveWarehouse;
+  if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
+
+  const realStock=await saveStockDeltaToDB(sku,delta,newReorder);
+  if(realStock!==null&&realStock!==undefined){
+    p.stock=realStock;
+    if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
+  }
+
   // Persisted server-side so the log survives refresh and is shared across every admin
   // session -- the local RECEIVE_LOG push below is only for showing the change immediately
   // without waiting on a round trip.
@@ -5553,11 +5583,9 @@ function doReceive(){
     cases:casesIn,bottles:bottlesIn,sign,reason,notes,warehouse,
     by:currentUser?currentUser.fname+' '+currentUser.lname:''
   });
-  closeModal('modal-receive');updateBadges();
   const dirWord=sign>0?'added to':'removed from';
   const qtyStr=[casesIn?casesIn+' cs':'',bottlesIn?bottlesIn+' btl':''].filter(Boolean).join(' + ')||'0';
   toast(`${qtyStr} ${dirWord} ${p.name} stock (${reason})`);
-  if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
 }
 
 // -- USERS ---------------------------------------------------------------------
