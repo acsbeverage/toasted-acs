@@ -107,7 +107,7 @@ router.get('/', requireAuth, async (req, res) => {
       rep: r.rep_id, repName: r.rep_fname ? r.rep_fname+' '+(r.rep_lname||'') : '',
       date: r.date ? r.date.toISOString().slice(0,10) : '',
       delivery: r.delivery ? r.delivery.toISOString().slice(0,10) : '',
-      status: r.status, orderType: r.order_type,
+      status: r.status, everDelivered: r.ever_delivered || false, orderType: r.order_type,
       po: r.po, notes: r.notes, isSample: r.is_sample,
       labelsPrinted: r.labels_printed||false,
       waiveDelivery: r.waive_delivery, waiveBrokenCase: r.waive_broken_case,
@@ -222,7 +222,7 @@ router.get('/report-data', requireAuth, async (req, res) => {
       rep: r.rep_id, repName: r.rep_fname ? r.rep_fname+' '+(r.rep_lname||'') : '',
       date: r.date ? r.date.toISOString().slice(0,10) : '',
       delivery: r.delivery ? r.delivery.toISOString().slice(0,10) : '',
-      status: r.status, orderType: r.order_type,
+      status: r.status, everDelivered: r.ever_delivered || false, orderType: r.order_type,
       po: r.po, notes: r.notes, isSample: r.is_sample,
       labelsPrinted: r.labels_printed||false,
       waiveDelivery: r.waive_delivery, waiveBrokenCase: r.waive_broken_case,
@@ -468,6 +468,10 @@ router.patch('/:id', requireAuth, async (req, res) => {
     const updates = [], values = [];
     let idx = 1;
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
+    // Moving an order TO delivered permanently flags that its stock physically left the
+    // warehouse. This flag is never cleared by any status change (including Unconfirm) --
+    // Unconfirm only corrects the record, it doesn't mean the product came back on the shelf.
+    if (status === 'delivered')     { updates.push(`ever_delivered=TRUE`); }
     if (paid !== undefined)         { updates.push(`paid=$${idx++}`);            values.push(paid); }
     if (paidDate !== undefined && paidDate !== '')     { updates.push(`paid_date=$${idx++}`);       values.push(paidDate); }
     if (paidAmount !== undefined)   { updates.push(`paid_amount=$${idx++}`);     values.push(paidAmount); }
@@ -572,22 +576,40 @@ router.patch('/:id', requireAuth, async (req, res) => {
 
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
-    // Restore inventory before deleting -- reverses exactly what was deducted when this
-    // order was originally created.
+    // Restore inventory before deleting -- reverses exactly what was deducted when this order
+    // was originally created -- BUT only when the product is still actually in the warehouse.
+    // Checking current `status` here isn't enough: "Unconfirm" moves a 'delivered' order's
+    // status back to 'unconfirmed' purely to fix the record (wrong invoice date, wrong PO,
+    // etc.) -- it does NOT mean the product came back onto the shelf. So this checks the
+    // permanent `ever_delivered` flag instead, which is set once the order is ever marked
+    // delivered and is never cleared afterward. An order that's never been delivered (still
+    // 'unconfirmed' or 'confirmed', pending delivery per the Deliveries page) still restores
+    // normally.
+    const orderRow = await getOne('SELECT status, ever_delivered FROM orders WHERE id=$1', [req.params.id]);
+    const alreadyDelivered = orderRow && orderRow.ever_delivered;
     const oldItems = await getAll('SELECT sku, cases, bottles, is_fee FROM order_items WHERE order_id=$1', [req.params.id]);
-    const prodSkus = [...new Set(oldItems.filter(i => !i.is_fee && i.sku).map(i => i.sku))];
-    const prodRows = prodSkus.length ? await getAll('SELECT sku, btl FROM products WHERE sku = ANY($1)', [prodSkus]) : [];
-    const btlBySku = {};
-    prodRows.forEach(r => { btlBySku[r.sku] = r.btl || 1; });
-    const caseEquivBySku = {};
-    for (const item of oldItems) {
-      if (item.is_fee || !item.sku) continue;
-      const btl = btlBySku[item.sku] || 1;
-      const caseEquiv = (item.cases||0) + (item.bottles||0)/btl;
-      caseEquivBySku[item.sku] = (caseEquivBySku[item.sku]||0) + caseEquiv;
-    }
-    for (const [sku, qty] of Object.entries(caseEquivBySku)) {
-      await query('UPDATE products SET stock = stock + $1 WHERE sku=$2', [qty, sku]);
+    if (!alreadyDelivered) {
+      const prodSkus = [...new Set(oldItems.filter(i => !i.is_fee && i.sku).map(i => i.sku))];
+      const prodRows = prodSkus.length ? await getAll('SELECT sku, btl FROM products WHERE sku = ANY($1)', [prodSkus]) : [];
+      const btlBySku = {};
+      prodRows.forEach(r => { btlBySku[r.sku] = r.btl || 1; });
+      const caseEquivBySku = {};
+      for (const item of oldItems) {
+        if (item.is_fee || !item.sku) continue;
+        const btl = btlBySku[item.sku] || 1;
+        const caseEquiv = (item.cases||0) + (item.bottles||0)/btl;
+        caseEquivBySku[item.sku] = (caseEquivBySku[item.sku]||0) + caseEquiv;
+      }
+      const restoreSkus = Object.keys(caseEquivBySku);
+      if (restoreSkus.length) {
+        const restoreQtys = restoreSkus.map(sku => caseEquivBySku[sku]);
+        await query(
+          `UPDATE products p SET stock = p.stock + u.qty
+           FROM unnest($1::text[], $2::numeric[]) AS u(sku, qty)
+           WHERE p.sku = u.sku`,
+          [restoreSkus, restoreQtys]
+        );
+      }
     }
 
     await query('DELETE FROM order_items WHERE order_id=$1', [req.params.id]);
