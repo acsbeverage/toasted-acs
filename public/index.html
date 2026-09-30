@@ -11870,8 +11870,18 @@ function deleteOrderFromDeliveries(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   const acct=acctById(o.acct);
   const acctName=acct?acct.name:'unknown account';
-  const statusLabel=o.status==='confirmed'?'confirmed (pending delivery)':o.status;
-  if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nStatus: '+statusLabel+'\n\nThis cannot be undone.'))return;
+  // Checking o.everDelivered here (not o.status) on purpose: "Unconfirm" moves a delivered
+  // order's status back to 'unconfirmed' just to fix the record -- it does NOT mean the
+  // product physically came back onto the shelf. everDelivered stays true permanently once an
+  // order has ever been marked delivered, so this warning (and the server's decision not to
+  // restore stock) stays correct even after an Unconfirm.
+  if(o.everDelivered){
+    const typed=prompt('This order has been DELIVERED at some point -- '+acctName+' has received this product, even if it now shows a different status. Deleting it removes the order, invoice, and commission history permanently, but Toasted will NOT add the stock back (it is not on your shelf).\n\nType DELETE to confirm permanently deleting '+orderId+':');
+    if(typed!=='DELETE')return;
+  } else {
+    const statusLabel=o.status==='confirmed'?'confirmed (pending delivery)':o.status;
+    if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nStatus: '+statusLabel+'\n\nThis cannot be undone.'))return;
+  }
   ORDERS=ORDERS.filter(x=>x.id!==orderId);
   deleteOrderFromDB(orderId);
   updateBadges();
@@ -11883,6 +11893,13 @@ function deleteOrder(orderId){
   if(o.status!=='unconfirmed'){toast('Only unconfirmed orders can be deleted');return;}
   const acct=acctById(o.acct);
   const acctName=acct?acct.name:'unknown account';
+  // Same everDelivered check as deleteOrderFromDeliveries -- an order can be back in
+  // 'unconfirmed' status (and so deletable from here) after being genuinely delivered and then
+  // Unconfirmed to fix its record. That history doesn't mean the stock is back on the shelf.
+  if(o.everDelivered){
+    const typed=prompt('This order has been DELIVERED at some point -- '+acctName+' has received this product, even though it currently shows Unconfirmed. Deleting it removes the order, invoice, and commission history permanently, but Toasted will NOT add the stock back (it is not on your shelf).\n\nType DELETE to confirm permanently deleting '+orderId+':');
+    if(typed!=='DELETE')return;
+  } else
   if(!confirm('Permanently delete order '+orderId+' for '+acctName+'?\n\nThis cannot be undone.'))return;
   ORDERS=ORDERS.filter(x=>x.id!==orderId);
   deleteOrderFromDB(orderId);
