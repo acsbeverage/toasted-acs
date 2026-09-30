@@ -7,6 +7,18 @@ const fs      = require('fs');
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
+
+// A fresh value every time this process starts, i.e. every deploy/restart -- the frontend
+// polls this so it can tell "a new version shipped" apart from "nothing changed" and force
+// a reload. This exists because Cache-Control alone (below) doesn't cover everything: iOS
+// Safari's back-forward cache (bfcache) restores a page from memory when a rep switches back
+// to the Toasted tab/app and makes NO network request at all, so no header can touch it --
+// that's the scenario reps were hitting requiring them to manually clear Safari's cache.
+const SERVER_BOOT_ID = String(Date.now());
+app.get('/api/app-version', (req, res) => {
+  res.json({ ok: true, version: SERVER_BOOT_ID });
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res) => {
     // This is a single-page app with no separate hashed/versioned asset files, so the
