@@ -229,6 +229,18 @@ async function migrate() {
   await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_request_id TEXT`);
   await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_request_id ON orders(client_request_id) WHERE client_request_id IS NOT NULL`);
 
+  // ever_delivered records, permanently, that this order's product physically left the
+  // warehouse at some point -- unlike the `status` column, which "Unconfirm" can freely move
+  // back to 'unconfirmed' to fix a record (wrong invoice date, wrong PO, etc.) without that
+  // meaning the product came back onto the shelf. Once true, it is never cleared by the app,
+  // so a later delete (of this order in whatever status it's in by then) knows never to add
+  // its stock back. Backfill covers orders already sitting in 'delivered' today; an order that
+  // was delivered and already unconfirmed before this migration ran can't be recovered here --
+  // there's no prior record of that -- so it's worth spot-checking older unconfirmed orders on
+  // accounts with known stock discrepancies.
+  await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ever_delivered BOOLEAN NOT NULL DEFAULT FALSE`);
+  await query(`UPDATE orders SET ever_delivered = TRUE WHERE status = 'delivered' AND ever_delivered = FALSE`);
+
   await query(`CREATE TABLE IF NOT EXISTS order_items (
     id SERIAL PRIMARY KEY,
     order_id TEXT REFERENCES orders(id) ON DELETE CASCADE,
