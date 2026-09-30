@@ -714,13 +714,30 @@ router.delete('/products/:sku', requireAdmin, async (req, res) => {
 // pricing/details when sent a partial payload.
 router.patch('/products/:sku/stock', requireAdmin, async (req, res) => {
   try {
-    const { stock, reorder } = req.body;
-    const result = await query(
-      `UPDATE products SET stock=COALESCE($1,stock), reorder=COALESCE($2,reorder) WHERE sku=$3`,
-      [stock !== undefined ? stock : null, reorder !== undefined ? reorder : null, req.params.sku]
-    );
+    const { stock, delta, reorder } = req.body;
+    let result;
+    if (delta !== undefined) {
+      // Atomic path, used by the "Adjust stock" (receive/deduct) flow. The new value is
+      // computed by the database from whatever stock is stored THIS INSTANT, not from a number
+      // the admin's browser loaded earlier -- so if the real stock changed in between (a sale
+      // went through, another admin made an adjustment) while their screen sat open, this still
+      // lands on the correct total instead of overwriting it with math done against a stale
+      // starting number. GREATEST(0, ...) preserves the same floor-at-zero behavior the old
+      // client-side Math.max(0, ...) had for deductions.
+      result = await query(
+        `UPDATE products SET stock=GREATEST(0, stock + $1), reorder=COALESCE($2,reorder) WHERE sku=$3 RETURNING stock`,
+        [delta, reorder !== undefined ? reorder : null, req.params.sku]
+      );
+    } else {
+      // Absolute-set path, used when the caller already has an authoritative total to write
+      // (e.g. syncing QuickBooks' own on-hand quantity) rather than an amount to add/subtract.
+      result = await query(
+        `UPDATE products SET stock=COALESCE($1,stock), reorder=COALESCE($2,reorder) WHERE sku=$3 RETURNING stock`,
+        [stock !== undefined ? stock : null, reorder !== undefined ? reorder : null, req.params.sku]
+      );
+    }
     if (result.rowCount === 0) return res.status(404).json({ ok: false, error: 'Product not found' });
-    res.json({ ok: true });
+    res.json({ ok: true, stock: parseFloat(result.rows[0].stock) });
   } catch (err) {
     console.error('Update product stock error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
