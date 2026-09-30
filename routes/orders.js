@@ -796,8 +796,19 @@ router.post('/:id/schedule-invoice-email', requireAdmin, async (req, res) => {
 // Called on a timer from server.js -- sends any scheduled invoice emails whose delivery
 // date has arrived. Exported so server.js can drive it without duplicating this logic.
 async function processScheduledInvoiceEmails() {
+  // CURRENT_DATE evaluates in the DATABASE's own timezone, which on Render is UTC -- 7-8 hours
+  // ahead of ACS's Pacific time. UTC's calendar day flips over at 5pm Pacific the PREVIOUS
+  // evening (midnight UTC), so this hourly check used to see "today" already matching tomorrow's
+  // delivery date starting at 5pm the day before, and send the invoice right then -- exactly the
+  // "accounts are getting their invoice the evening before delivery" complaint. Comparing against
+  // the date AND hour in America/Los_Angeles instead fixes the early date entirely, and the >=6
+  // hour guard keeps it from firing at, say, 12:05am Pacific -- these are meant to go out in the
+  // morning of the delivery date, not merely sometime after midnight on it.
   const due = await getAll(
-    `SELECT * FROM scheduled_invoice_emails WHERE sent=FALSE AND scheduled_for <= CURRENT_DATE`
+    `SELECT * FROM scheduled_invoice_emails
+     WHERE sent=FALSE
+       AND scheduled_for <= (NOW() AT TIME ZONE 'America/Los_Angeles')::date
+       AND EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'America/Los_Angeles')) >= 6`
   );
   for (const row of due) {
     try {
