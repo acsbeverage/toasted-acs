@@ -714,8 +714,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div class="modal-title"><i class="ti ti-brand-quickbooks" style="font-size:16px;vertical-align:-2px;margin-right:6px;color:#2CA01C"></i>Send Invoices to QuickBooks</div>
     <div id="qbo-batch-body"></div>
     <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-qbo-batch')">Cancel</button>
-      <button class="btn btn-success" onclick="qboBatchSubmit()"><i class="ti ti-send"></i> Send selected to QuickBooks</button>
+      <button class="btn" id="qbo-batch-cancel-btn" onclick="closeModal('modal-qbo-batch')">Cancel</button>
+      <button class="btn btn-success" id="qbo-batch-send-btn" onclick="qboBatchSubmit()"><i class="ti ti-send"></i> Send selected to QuickBooks</button>
     </div>
   </div>
 </div>
@@ -817,49 +817,6 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 <script src="/browserprint-zebra.js"></script>
 <script>
 const TOASTED_BACKEND_URL = 'https://toasted.acsbeverageco.com';
-
-// -- STALE-SESSION / iOS BFCACHE RECOVERY ---------------------------------------
-// Reps on iPhones were having to manually clear Safari's cache to get a working app --
-// classic symptom of iOS Safari's back-forward cache (bfcache): switching away from the
-// Toasted tab/app and back restores the EXACT in-memory page from before, with no network
-// request at all, so it can silently run on stale JS/data indefinitely. The server's
-// Cache-Control header (see server.js) only helps on an actual fresh load/reload; it can't
-// touch a bfcache restore, since that never hits the network to begin with.
-// Two-part fix:
-//  1) 'pageshow' with event.persisted=true means the page just came back from bfcache --
-//     force a real reload so it re-runs from scratch against the current server/version.
-//  2) Whenever the tab/app becomes visible again (covers the ordinary "switched apps, came
-//     back" case that ISN'T a bfcache restore, e.g. Android/desktop, or long-backgrounded
-//     iOS sessions the OS didn't bfcache), check the server's boot id. If it's different
-//     from what this page loaded with, a new version has shipped since -- reload to pick it
-//     up, unless an edit/order modal is open with data a rep could lose, in which case just
-//     toast a heads-up instead of yanking the screen out from under them mid-entry.
-let _appVersion=null;
-async function fetchAppVersion(){
-  try{
-    const r=await fetch(TOASTED_BACKEND_URL+'/api/app-version',{cache:'no-store'}).then(x=>x.json());
-    return r&&r.ok?r.version:null;
-  }catch(e){return null}
-}
-function hasUnsavedModalOpen(){
-  return document.querySelectorAll('.modal.open').length>0;
-}
-window.addEventListener('pageshow',(e)=>{
-  if(e.persisted){window.location.reload();}
-});
-document.addEventListener('visibilitychange',async()=>{
-  if(document.visibilityState!=='visible'||!_appVersion)return;
-  const latest=await fetchAppVersion();
-  if(latest&&latest!==_appVersion){
-    if(hasUnsavedModalOpen()){
-      toast('A new version of Toasted is available -- please save your work and refresh');
-    }else{
-      window.location.reload();
-    }
-  }
-});
-fetchAppVersion().then(v=>{if(v)_appVersion=v;});
-
 let PRODUCTS=[];
 // -- Fast O(1) lookups (self-rebuilding -- no need to touch this when data changes elsewhere) --
 let _acctMap=null,_acctMapLen=-1;
@@ -1307,6 +1264,24 @@ function saveProductStockToDB(sku, stock, reorder){
   }).then(r=>r.json()).then(d=>{
     if(!d.ok){console.error('Failed to save stock adjustment:',d.error);toast('Stock adjustment did not save -- please try again');}
   }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');});
+}
+
+// Atomic version used by the manual "Adjust stock" flow (doReceive): sends the AMOUNT to
+// add/subtract rather than a pre-computed absolute total, so the server can apply it to
+// whatever stock actually is in the database at that instant instead of to a number this
+// browser may have loaded a while ago. Returns a Promise resolving to the real post-adjustment
+// stock value (or null on failure) so the caller can sync its local copy to the true number
+// rather than trusting its own stale-prone math.
+function saveStockDeltaToDB(sku, delta, reorder){
+  if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve(null);
+  return fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku)+'/stock',{
+    method:'PATCH',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+    body:JSON.stringify({delta,reorder})
+  }).then(r=>r.json()).then(d=>{
+    if(!d.ok){console.error('Failed to save stock adjustment:',d.error);toast('Stock adjustment did not save -- please try again');return null;}
+    return d.stock;
+  }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');return null;});
 }
 
 // Persists a permanent audit record of a manual inventory adjustment, so it survives refresh
@@ -5562,7 +5537,7 @@ const ADJUSTMENT_SIGN={
   'Warehouse Lost':-1,'Warehouse Found':1,'Donation':-1,'Received Shipment':1,
   'BIN Update':0,'Other / Status Change':0
 };
-function doReceive(){
+async function doReceive(){
   const sku=document.getElementById('recv-sku').value;
   const casesIn=Math.abs(parseInt(document.getElementById('recv-cases').value)||0);
   const bottlesIn=Math.abs(parseInt(document.getElementById('recv-bottles').value)||0);
@@ -5582,11 +5557,23 @@ function doReceive(){
 
   const caseEquiv=casesIn+(bottlesIn/p.btl);
   const delta=sign*caseEquiv;
+  const newReorder=rv!==''?(parseInt(rv)||p.reorder):p.reorder;
+  // Show the change immediately using local math (optimistic), but the number that actually
+  // gets saved is computed by the database from its own current value -- not from p.stock here,
+  // which may be stale if stock changed since this page loaded. The response below overwrites
+  // this local guess with the real, authoritative post-adjustment total.
   p.stock=Math.max(0,p.stock+delta);
-  if(rv!=='')p.reorder=parseInt(rv)||p.reorder;
-  saveProductStockToDB(p.sku,p.stock,p.reorder);
-
+  p.reorder=newReorder;
+  closeModal('modal-receive');updateBadges();
   const warehouse=_receiveWarehouse;
+  if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
+
+  const realStock=await saveStockDeltaToDB(sku,delta,newReorder);
+  if(realStock!==null&&realStock!==undefined){
+    p.stock=realStock;
+    if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
+  }
+
   // Persisted server-side so the log survives refresh and is shared across every admin
   // session -- the local RECEIVE_LOG push below is only for showing the change immediately
   // without waiting on a round trip.
@@ -5596,11 +5583,9 @@ function doReceive(){
     cases:casesIn,bottles:bottlesIn,sign,reason,notes,warehouse,
     by:currentUser?currentUser.fname+' '+currentUser.lname:''
   });
-  closeModal('modal-receive');updateBadges();
   const dirWord=sign>0?'added to':'removed from';
   const qtyStr=[casesIn?casesIn+' cs':'',bottlesIn?bottlesIn+' btl':''].filter(Boolean).join(' + ')||'0';
   toast(`${qtyStr} ${dirWord} ${p.name} stock (${reason})`);
-  if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
 }
 
 // -- USERS ---------------------------------------------------------------------
@@ -13670,7 +13655,27 @@ function qboBatchSend(orderIds){
   const orders=ORDERS.filter(o=>orderIds.includes(o.id));
   const payloads=orders.map(qboOrderToInvoice);
   const originatingPage=_currentPage; // this can take a while for a batch -- only refresh later if the user is still on this page
-  toast('Sending '+payloads.length+' invoice'+( payloads.length!==1?'s':'')+'...');
+
+  // A batch can genuinely take a while (QuickBooks processes each invoice one at a time on the
+  // server), and the only feedback before this fix was a single toast that disappears after
+  // 2.8 seconds -- if the admin was looking at the modal rather than the corner of the screen,
+  // or the batch simply ran long, it looked exactly like the dialog had frozen, with no way to
+  // tell if anything had happened short of hitting Cancel and checking QuickBooks directly.
+  // This puts the sending/result state INSIDE the modal itself, and disables both buttons
+  // while in flight so Cancel can't be used to walk away mid-send without at least seeing that
+  // a request is still running.
+  const body=document.getElementById('qbo-batch-body');
+  const sendBtn=document.getElementById('qbo-batch-send-btn');
+  const cancelBtn=document.getElementById('qbo-batch-cancel-btn');
+  if(sendBtn){sendBtn.disabled=true;sendBtn.innerHTML='<i class="ti ti-loader-2"></i> Sending...';}
+  if(cancelBtn)cancelBtn.disabled=true;
+  if(body){
+    body.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--text2)">'
+      +'<i class="ti ti-loader-2" style="font-size:28px;display:block;margin-bottom:12px;color:var(--gold)"></i>'
+      +'<div style="font-weight:600;margin-bottom:4px">Sending '+payloads.length+' invoice'+(payloads.length!==1?'s':'')+' to QuickBooks...</div>'
+      +'<div style="font-size:12px">This can take a little while for a large batch -- please don\'t close this window.</div></div>';
+  }
+
   qboFetch('/api/qbo/invoices','POST',{invoices:payloads})
     .then(data=>{
       const results=data.results||[];
@@ -13687,21 +13692,37 @@ function qboBatchSend(orderIds){
       });
       const successCount=results.filter(r=>r.ok).length;
       const reconciledCount=results.filter(r=>r.alreadyExisted).length;
+      let summaryMsg;
       if(failures.length){
         const preview=failures.slice(0,3).map(f=>f.id+': '+f.error).join(' · ');
-        toast(successCount+' sent, '+failures.length+' failed -- '+preview+(failures.length>3?' ...':''));
+        summaryMsg=successCount+' sent, '+failures.length+' failed -- '+preview+(failures.length>3?' ...':'');
       } else if(reconciledCount){
-        toast(successCount+' invoice'+(successCount!==1?'s':'')+' processed ('+reconciledCount+' already existed in QuickBooks and '+(reconciledCount!==1?'were':'was')+' just linked)');
+        summaryMsg=successCount+' invoice'+(successCount!==1?'s':'')+' processed ('+reconciledCount+' already existed in QuickBooks and '+(reconciledCount!==1?'were':'was')+' just linked)';
       } else {
-        toast(successCount+' invoice'+(successCount!==1?'s':'')+' sent to QuickBooks');
+        summaryMsg=successCount+' invoice'+(successCount!==1?'s':'')+' sent to QuickBooks';
       }
-      renderQBOBatchModal(false);
+      toast(summaryMsg);
+      // A clear, persistent result banner inside the modal itself -- not just the toast, which
+      // can still be missed -- so there's no ambiguity about whether it actually finished.
+      if(body){
+        const icon=failures.length?'<i class="ti ti-alert-triangle" style="font-size:28px;display:block;margin-bottom:12px;color:var(--amber)"></i>':'<i class="ti ti-circle-check" style="font-size:28px;display:block;margin-bottom:12px;color:var(--green)"></i>';
+        body.innerHTML='<div style="padding:32px 20px;text-align:center">'+icon+'<div style="font-weight:600;margin-bottom:10px">'+summaryMsg+'</div></div>';
+      }
+      if(sendBtn){sendBtn.disabled=false;sendBtn.innerHTML='<i class="ti ti-send"></i> Send selected to QuickBooks';}
+      if(cancelBtn){cancelBtn.disabled=false;cancelBtn.textContent='Close';}
       if(_currentPage===originatingPage){
         const active=document.querySelector('.nav-item.active');
         if(active)showPage(active.id.replace('nav-',''));
       }
     })
-    .catch(e=>toast('QBO batch error: '+e.message));
+    .catch(e=>{
+      toast('QBO batch error: '+e.message);
+      if(body){
+        body.innerHTML='<div style="padding:32px 20px;text-align:center"><i class="ti ti-alert-triangle" style="font-size:28px;display:block;margin-bottom:12px;color:var(--red)"></i><div style="font-weight:600;margin-bottom:4px">Could not send to QuickBooks</div><div style="font-size:12px;color:var(--text2)">'+(e.message||'Unknown error')+'</div></div>';
+      }
+      if(sendBtn){sendBtn.disabled=false;sendBtn.innerHTML='<i class="ti ti-send"></i> Send selected to QuickBooks';}
+      if(cancelBtn){cancelBtn.disabled=false;cancelBtn.textContent='Close';}
+    });
 }
 function markOrderAlreadyInQBO(orderId){
   const order=ORDERS.find(o=>o.id===orderId);if(!order)return;
@@ -13718,18 +13739,31 @@ function openQBOBatch(){
     toast('Connect to QuickBooks first in Settings -> QuickBooks Online');return;
   }
   document.getElementById('modal-qbo-batch').classList.add('open');
+  const sendBtn=document.getElementById('qbo-batch-send-btn');
+  const cancelBtn=document.getElementById('qbo-batch-cancel-btn');
+  if(sendBtn){sendBtn.disabled=false;sendBtn.innerHTML='<i class="ti ti-send"></i> Send selected to QuickBooks';}
+  if(cancelBtn){cancelBtn.disabled=false;cancelBtn.textContent='Cancel';}
   renderQBOBatchModal(true);
 }
 function renderQBOBatchModal(initial){
+  // Reading the select's own current value BEFORE rebuilding its HTML, then baking that same
+  // value back in as the `selected` option below, is what keeps a non-default pick (7 days,
+  // 30 days, etc.) from being wiped out by this very function -- it's called again by the
+  // select's own onchange, which replaces this whole body's innerHTML (including the select
+  // itself) on every change. The old markup hardcoded `selected` only onto the 90-day option,
+  // so no matter what the admin actually picked, the very next render snapped the dropdown's
+  // displayed value back to 90 -- it only ever LOOKED like 90 and "All time" were the only
+  // options that "stuck".
   const rangeDays=parseInt(document.getElementById('qbo-batch-range')?.value)||90;
   const cutoff=plusDays(today(),-rangeDays);
   const eligibleAll=ORDERS.filter(o=>o.status==='delivered'&&!o.qboSyncedAt);
   const eligible=eligibleAll.filter(o=>o.date>=cutoff).sort((a,b)=>b.date.localeCompare(a.date));
   const synced=ORDERS.filter(o=>o.status==='delivered'&&o.qboSyncedAt);
   const body=document.getElementById('qbo-batch-body');if(!body)return;
+  const RANGE_OPTIONS=[[1,'Last 24 hours'],[7,'Last 7 days'],[14,'Last 14 days'],[30,'Last 30 days'],[60,'Last 60 days'],[90,'Last 90 days'],[36500,'All time']];
   let html='<div style="margin-bottom:14px">';
   html+='<label class="flabel" style="display:block;margin-bottom:4px">Show unsent invoices from</label>';
-  html+='<select class="finput" id="qbo-batch-range" onchange="renderQBOBatchModal()" style="margin-bottom:12px;font-size:12px"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="60">Last 60 days</option><option value="90" selected>Last 90 days</option><option value="36500">All time</option></select>';
+  html+='<select class="finput" id="qbo-batch-range" onchange="renderQBOBatchModal()" style="margin-bottom:12px;font-size:12px">'+RANGE_OPTIONS.map(([v,label])=>'<option value="'+v+'"'+(v===rangeDays?' selected':'')+'>'+label+'</option>').join('')+'</select>';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
   html+='<span style="font-weight:600;font-size:14px">Unsent delivered invoices ('+eligible.length+(eligible.length!==eligibleAll.length?' of '+eligibleAll.length+' total':'')+')</span>';
   html+='<label style="font-size:12px;color:var(--text2);cursor:pointer"><input type="checkbox" id="qbo-select-all" onchange="qboToggleAll(this.checked)"'+(eligible.length?'':' disabled')+'/> Select all</label>';
