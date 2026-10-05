@@ -1096,6 +1096,9 @@ const itemLineTotal=item=>{
   return gross*(1-disc/100);
 };
 const orderTotal=o=>o.items.reduce((s,x)=>s+itemLineTotal(x),0);
+// Dashboards recognize revenue in the month an order is DELIVERED (its delivery date), not the day it was
+// entered -- an order placed 9/30 for 10/3 delivery belongs to October. Falls back to order date if blank.
+const revDate=o=>o.delivery||o.date;
 // ACS Logistics is a separate, admin-only inventory pool for warehousing clients' stock --
 // kept fully separate from ACS's own sellable inventory everywhere in the app. Inactive
 // products are excluded here (browsing/ordering) for non-admin users, but NOT from the raw
@@ -2615,7 +2618,7 @@ function renderRepDashboard(){
   const lastYear=curYear-1;
   const monthlySales={};const monthlyLastYear={};
   confirmed.forEach(o=>{
-    const yr=parseInt(o.date.split('-')[0]);const m=parseInt(o.date.split('-')[1])-1;
+    const yr=parseInt(revDate(o).split('-')[0]);const m=parseInt(revDate(o).split('-')[1])-1;
     if(yr===curYear)monthlySales[m]=(monthlySales[m]||0)+orderTotal(o);
     else if(yr===lastYear)monthlyLastYear[m]=(monthlyLastYear[m]||0)+orderTotal(o);
   });
@@ -2623,7 +2626,7 @@ function renderRepDashboard(){
   const maxVal=Math.max(...chartData.flatMap(d=>[d.cur,d.prev]),1);
   const acctsByMonth={};const acctsByMonthLY={};
   confirmed.forEach(o=>{
-    const yr=parseInt(o.date.split('-')[0]);const m=parseInt(o.date.split('-')[1])-1;
+    const yr=parseInt(revDate(o).split('-')[0]);const m=parseInt(revDate(o).split('-')[1])-1;
     if(yr===curYear){if(!acctsByMonth[m])acctsByMonth[m]=new Set();acctsByMonth[m].add(o.acct);}
     else if(yr===lastYear){if(!acctsByMonthLY[m])acctsByMonthLY[m]=new Set();acctsByMonthLY[m].add(o.acct);}
   });
@@ -2633,16 +2636,16 @@ function renderRepDashboard(){
   // YTD figures (full current year vs full last year)
   const ytdRev=Object.values(monthlySales).reduce((a,b)=>a+b,0);
   const ytdRevLY=Object.values(monthlyLastYear).reduce((a,b)=>a+b,0);
-  const ytdAccts=new Set(confirmed.filter(o=>parseInt(o.date.split('-')[0])===curYear).map(o=>o.acct)).size;
-  const ytdAcctsLY=new Set(confirmed.filter(o=>parseInt(o.date.split('-')[0])===lastYear).map(o=>o.acct)).size;
-  const ytdOrders=myOrders.filter(o=>parseInt(o.date.split('-')[0])===curYear).length;
+  const ytdAccts=new Set(confirmed.filter(o=>parseInt(revDate(o).split('-')[0])===curYear).map(o=>o.acct)).size;
+  const ytdAcctsLY=new Set(confirmed.filter(o=>parseInt(revDate(o).split('-')[0])===lastYear).map(o=>o.acct)).size;
+  const ytdOrders=myOrders.filter(o=>parseInt(revDate(o).split('-')[0])===curYear).length;
 
   // MTD figures (current month vs the same month last year, for a fair comparison)
   const mtdRev=monthlySales[curMonth]||0;
   const mtdRevLY=monthlyLastYear[curMonth]||0;
   const mtdAccts=acctsByMonth[curMonth]?.size||0;
   const mtdAcctsLY=acctsByMonthLY[curMonth]?.size||0;
-  const mtdOrders=myOrders.filter(o=>{const d=o.date.split('-');return parseInt(d[0])===curYear&&parseInt(d[1])-1===curMonth;}).length;
+  const mtdOrders=myOrders.filter(o=>{const d=revDate(o).split('-');return parseInt(d[0])===curYear&&parseInt(d[1])-1===curMonth;}).length;
 
   const isMtd=period==='mtd';
   const shownRev=isMtd?mtdRev:ytdRev, shownRevPrev=isMtd?mtdRevLY:ytdRevLY;
@@ -2747,7 +2750,7 @@ function renderAdminDashboard(){
     else if(prd==='q4'){from=y+'-10-01';to=y+'-12-31';}
     else if(prd==='h1'){from=y+'-01-01';to=y+'-06-30';}
     else if(prd==='h2'){from=y+'-07-01';to=y+'-12-31';}
-    return ORDERS.filter(o=>(o.status==='delivered'||o.status==='confirmed')&&(!from||o.date>=from)&&(!to||o.date<=to));
+    return ORDERS.filter(o=>(o.status==='delivered'||o.status==='confirmed')&&(!from||revDate(o)>=from)&&(!to||revDate(o)<=to));
   }
 
   const orders = getPeriodOrders(period);
@@ -2757,8 +2760,8 @@ function renderAdminDashboard(){
 
   // Monthly chart data - current period vs prior year same months
   const monthlyCur={};const monthlyPrior={};
-  orders.forEach(o=>{const m=parseInt(o.date.split('-')[1])-1;monthlyCur[m]=(monthlyCur[m]||0)+orderTotal(o);});
-  lastYearOrders.forEach(o=>{const m=parseInt(o.date.split('-')[1])-1;monthlyPrior[m]=(monthlyPrior[m]||0)+orderTotal(o);});
+  orders.forEach(o=>{const m=parseInt(revDate(o).split('-')[1])-1;monthlyCur[m]=(monthlyCur[m]||0)+orderTotal(o);});
+  lastYearOrders.forEach(o=>{const m=parseInt(revDate(o).split('-')[1])-1;monthlyPrior[m]=(monthlyPrior[m]||0)+orderTotal(o);});
   const chartData=months.map((m,i)=>({month:m,cur:monthlyCur[i]||0,prior:monthlyPrior[i]||0}));
   const maxVal=Math.max(...chartData.flatMap(d=>[d.cur,d.prior]),1);
 
