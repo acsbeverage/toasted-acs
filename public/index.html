@@ -13639,7 +13639,9 @@ function qboSyncAccount(acctId){
   qboFetch('/api/qbo/customers/sync','POST',{accountId:acctId})
     .then(data=>{
       acct.qboId=data.qboId;
-      toast(acct.name+' synced to QuickBooks (#'+data.qboId+')');
+      toast(data.linkedExisting
+        ?acct.name+' linked to the existing QuickBooks customer (#'+data.qboId+')'+(data.reactivated?' -- it was inactive in QuickBooks, so it was reactivated':'')
+        :acct.name+' synced to QuickBooks (#'+data.qboId+')');
       openAccountDetail(acctId); // refresh to show the updated status
     })
     .catch(e=>toast('QBO sync error: '+e.message));
@@ -13752,7 +13754,48 @@ function markOrderAlreadyInQBO(orderId){
 }
 
 // -- BATCH MODAL ---------------------------------------------------------------
+let _qboVerifyMsg='';
+// Checks every invoice Toasted considers "sent" (within the date range selected above) against
+// QuickBooks itself. Any that QuickBooks doesn't have -- e.g. ones marked "Already in QB" by
+// hand that never really were -- are un-marked here so they reappear in the unsent list and can
+// be sent. Ones that ARE there get their QuickBooks invoice number recorded. If QuickBooks can't
+// be reached, nothing is changed.
+async function qboVerifySynced(){
+  const rangeDays=parseInt(document.getElementById('qbo-batch-range')?.value)||90;
+  const cutoff=plusDays(today(),-rangeDays);
+  const orders=ORDERS.filter(o=>o.status==='delivered'&&o.qboSyncedAt&&o.date>=cutoff);
+  if(!orders.length)return;
+  const btn=document.getElementById('qbo-verify-btn');
+  if(btn){btn.disabled=true;btn.textContent='Checking QuickBooks...';}
+  try{
+    const ids=orders.map(o=>o.id);
+    const found={};
+    for(let i=0;i<ids.length;i+=100){
+      const data=await qboFetch('/api/qbo/invoices/verify','POST',{orderIds:ids.slice(i,i+100)});
+      Object.assign(found,data.found||{});
+    }
+    let putBack=0,linked=0;
+    for(const o of orders){
+      if(found[o.id]){
+        if(!o.qboInvoiceId){o.qboInvoiceId=found[o.id];saveOrderStatusToDB(o.id,{qboInvoiceId:o.qboInvoiceId});linked++;}
+      } else {
+        o.qboSyncedAt=null;o.qboInvoiceId='';
+        saveOrderStatusToDB(o.id,{qboSyncedAt:null,qboInvoiceId:null});
+        putBack++;
+      }
+    }
+    _qboVerifyMsg='Checked '+orders.length+' invoice'+(orders.length!==1?'s':'')+': '+(orders.length-putBack)+' confirmed in QuickBooks'+(linked?' ('+linked+' newly linked to their QuickBooks invoice number)':'')+'. '+(putBack?'<strong>'+putBack+' were NOT in QuickBooks and are back in the unsent list above.</strong>':'None were missing.');
+    toast(putBack?putBack+' invoice'+(putBack!==1?'s were':' was')+' not in QuickBooks -- moved back to unsent':'All checked invoices are in QuickBooks');
+  }catch(e){
+    _qboVerifyMsg='Could not check QuickBooks ('+(e.message||'unknown error')+'). Nothing was changed.';
+    toast('QBO verify error: '+e.message);
+  }
+  renderQBOBatchModal(false);
+  const active=document.querySelector('.nav-item.active');
+  if(active)showPage(active.id.replace('nav-',''));
+}
 function openQBOBatch(){
+  _qboVerifyMsg='';
   if(!QBO_STATE.connected){
     toast('Connect to QuickBooks first in Settings -> QuickBooks Online');return;
   }
@@ -13803,7 +13846,15 @@ function renderQBOBatchModal(initial){
   }
   html+='</div>';
   if(synced.length){
-    html+='<div style="font-size:12px;color:var(--text2);padding:10px 0;border-top:1px solid var(--border)"><i class="ti ti-circle-check" style="color:var(--green);vertical-align:-2px;margin-right:4px"></i>'+synced.length+' invoice'+(synced.length!==1?'s':'')+' already synced to QuickBooks</div>';
+    const syncedInRange=synced.filter(o=>o.date>=cutoff);
+    const unverified=syncedInRange.filter(o=>!o.qboInvoiceId).length;
+    html+='<div style="font-size:12px;color:var(--text2);padding:10px 0;border-top:1px solid var(--border)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+      +'<span><i class="ti ti-circle-check" style="color:var(--green);vertical-align:-2px;margin-right:4px"></i>'+synced.length+' invoice'+(synced.length!==1?'s':'')+' marked as synced to QuickBooks'+(unverified?' ('+unverified+' in this range with no QuickBooks invoice number -- worth checking)':'')+'</span>'
+      +(syncedInRange.length?'<button type="button" class="btn btn-sm" id="qbo-verify-btn" onclick="qboVerifySynced()" title="Looks each of these up in QuickBooks. Any that are not actually there go back to the unsent list.">Verify '+syncedInRange.length+' in QuickBooks</button>':'')
+      +'</div>'
+      +(_qboVerifyMsg?'<div style="margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);color:var(--text)">'+_qboVerifyMsg+'</div>':'')
+      +'</div>';
   }
   body.innerHTML=html;
 }
