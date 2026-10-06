@@ -720,6 +720,20 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   </div>
 </div>
 
+<!-- PRODUCT ADD/EDIT MODAL: lives here, not inside the Manage Products page markup, so it exists on
+     every page -- ACS Logistics' "Add product" and Edit buttons open it too, and used to find nothing
+     to open because it was only created while Manage Products was on screen. -->
+<div class="modal-bg" id="modal-product" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;overflow-y:auto;padding:20px">
+  <div class="modal" style="max-width:680px;margin:0 auto;max-height:none;overflow:visible">
+    <div class="modal-title" id="prod-modal-title">Edit Product</div>
+    <div id="prod-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeProdModal()">Cancel</button>
+      <button class="btn btn-success" onclick="saveProduct()"><i class="ti ti-check"></i> Save product</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-confirm">
   <div class="modal" style="max-width:460px">
     <div class="modal-title" id="confirm-modal-title">Confirm order</div>
@@ -1096,6 +1110,12 @@ const itemLineTotal=item=>{
   return gross*(1-disc/100);
 };
 const orderTotal=o=>o.items.reduce((s,x)=>s+itemLineTotal(x),0);
+// ACS Logistics = warehousing clients' stock, a separate admin-only pool. An order is a "Logistics
+// sample" when its products come from that pool; the stock it deducts is that product's own
+// (logistics) stock, never ACS's regular inventory.
+const prodIsLogistics=sku=>{const p=PRODUCTS.find(x=>x.sku===sku);return !!p&&(p.warehouse||'main')==='acs_logistics';};
+const isLogisticsOrder=o=>(o.items||[]).some(i=>!i._fee&&prodIsLogistics(i.sku));
+const newOrderPullsFromLogistics=()=>currentOrder.orderType==='sample'&&currentOrder.sampleSource==='logistics';
 // Dashboards recognize revenue in the month an order is DELIVERED (its delivery date), not the day it was
 // entered -- an order placed 9/30 for 10/3 delivery belongs to October. Falls back to order date if blank.
 const revDate=o=>o.delivery||o.date;
@@ -2964,6 +2984,13 @@ function renderNewOrder(){
         <label class="order-type-pill" id="otp-draft"><input type="radio" name="order-type" value="draft" ${currentOrder.orderType==='draft'?'checked':''} onchange="setOrderType('draft')"/><i class="ti ti-file-text"></i> Draft order</label>
       </div>
       <div id="order-type-note" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
+      <div id="sample-source-wrap" style="display:none;margin-top:10px">
+        <label class="flabel">Pull sample stock from</label>
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <label class="order-type-pill" id="ssp-main"><input type="radio" name="sample-source" value="main" onchange="setSampleSource('main')"/><i class="ti ti-building-store"></i> ACS inventory</label>
+          <label class="order-type-pill" id="ssp-logistics"><input type="radio" name="sample-source" value="logistics" onchange="setSampleSource('logistics')"/><i class="ti ti-building-warehouse"></i> ACS Logistics inventory</label>
+        </div>
+      </div>
     </div>
     <div class="form-grid form-grid-4" style="gap:12px">
       <div>
@@ -3006,6 +3033,18 @@ function renderNewOrder(){
   if(currentOrder.acct)selectOrderAcct(currentOrder.acct);
 }
 function setOrderType(type){
+  // Leaving "sample" also leaves the Logistics stock pool -- a Logistics order can only be a sample.
+  if(type!=='sample'&&currentOrder.sampleSource==='logistics'){
+    const hadLogItems=currentOrder.items.some(i=>!i._fee&&prodIsLogistics(i.sku));
+    if(hadLogItems){
+      if(!confirm('Logistics products can only be ordered on a sample order.\n\nSwitching the order type will remove the Logistics products from this order. Continue?')){
+        const r=document.querySelector('input[name="order-type"][value="sample"]');if(r)r.checked=true;
+        return;
+      }
+      currentOrder.items=currentOrder.items.filter(i=>i._fee||!prodIsLogistics(i.sku));
+    }
+    currentOrder.sampleSource='main';
+  }
   currentOrder.orderType=type;
   document.querySelectorAll('.order-type-pill').forEach(el=>el.classList.remove('active'));
   const sel=document.getElementById('otp-'+type);if(sel)sel.classList.add('active');
@@ -3014,6 +3053,7 @@ function setOrderType(type){
   if(type==='sample'){
     if(note)note.innerHTML='<i class="ti ti-flask" style="vertical-align:-2px;margin-right:4px;color:#6B4FA0"></i>Sample order -- submitted as a real order for confirmation & delivery, but <strong>CRV is never applied</strong>.';
     if(btn)btn.innerHTML='Submit sample order ';
+    if(newOrderPullsFromLogistics()&&note)note.innerHTML='<i class="ti ti-building-warehouse" style="vertical-align:-2px;margin-right:4px;color:#6B4FA0"></i>Logistics sample -- products come from <strong>ACS Logistics inventory</strong> and that stock is what gets deducted. Free of charge, no CRV, and ACS\'s own inventory is not touched.';
   } else if(type==='draft'){
     if(note)note.innerHTML='<i class="ti ti-file-text" style="vertical-align:-2px;margin-right:4px;color:var(--text3)"></i>Draft order -- saved to the Draft Orders tab. Nothing is sent for confirmation until you convert it to a real order.';
     if(btn)btn.innerHTML='<i class="ti ti-device-floppy"></i> Save draft';
@@ -3021,7 +3061,35 @@ function setOrderType(type){
     if(note)note.innerHTML='';
     if(btn)btn.innerHTML='Submit order ';
   }
+  // Only admins can see/use the Logistics pool, and only on a sample order.
+  const ssw=document.getElementById('sample-source-wrap');
+  if(ssw){
+    const show=type==='sample'&&currentUser&&currentUser.role==='admin'&&logisticsInventory().length>0;
+    ssw.style.display=show?'block':'none';
+    const logi=currentOrder.sampleSource==='logistics';
+    const rm=document.querySelector('input[name="sample-source"][value="main"]'),rl=document.querySelector('input[name="sample-source"][value="logistics"]');
+    if(rm)rm.checked=!logi;if(rl)rl.checked=logi;
+    const pm=document.getElementById('ssp-main'),pl=document.getElementById('ssp-logistics');
+    if(pm)pm.classList.toggle('active',!logi);if(pl)pl.classList.toggle('active',logi);
+  }
   syncFees();renderLineItems();
+}
+// Switches a sample order between ACS's own inventory and the ACS Logistics pool. The two never
+// mix on one order, so any products already added from the other pool are removed (after asking).
+function setSampleSource(src){
+  const wantLog=src==='logistics';
+  if(wantLog===(currentOrder.sampleSource==='logistics'))return;
+  const mismatched=currentOrder.items.filter(i=>!i._fee&&prodIsLogistics(i.sku)!==wantLog);
+  if(mismatched.length){
+    if(!confirm('Switching the stock pool removes the '+mismatched.length+' product'+(mismatched.length!==1?'s':'')+' already on this order (they come from the other pool). Continue?')){
+      setOrderType('sample');return; // re-sync the radio buttons to the unchanged choice
+    }
+    currentOrder.items=currentOrder.items.filter(i=>i._fee||prodIsLogistics(i.sku)===wantLog);
+  }
+  currentOrder.sampleSource=wantLog?'logistics':'main';
+  if(wantLog)currentOrder.items.filter(i=>!i._fee).forEach(i=>{i.discountPct=100;});
+  setOrderType('sample');
+  renderFreqItemsPanel(currentOrder.acct);
 }
 
 function onAcctChange(){
@@ -3057,7 +3125,7 @@ function onAcctChange(){
 }
 function renderFreqItemsPanel(acctId){
   const wrap=document.getElementById('freq-items-wrap');if(!wrap)return;
-  if(!acctId){wrap.innerHTML='';return;}
+  if(!acctId||newOrderPullsFromLogistics()){wrap.innerHTML='';return;} // frequent items are ACS-inventory products
   const items=portalFrequentItems(acctId,5);
   if(!items.length){wrap.innerHTML='';return;}
   wrap.innerHTML=`
@@ -3092,8 +3160,9 @@ function selectOrderAcct(id){
 function onProdSearch(val){
   const dd=document.getElementById('prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
-  if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
+  const pool=newOrderPullsFromLogistics()?logisticsInventory():mainInventory();
+  const matches=pool.filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
+  if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found'+(newOrderPullsFromLogistics()?' in ACS Logistics':'')+'</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`
     <div class="dd-item" onmousedown="addLineItem('${p.sku.replace(/'/g,"\\'")}')">
       <div>
@@ -3121,6 +3190,7 @@ function renderApplyComboControl(){
 }
 function applyComboToOrder(comboId){
   const combo=COMBOS.find(c=>c.id===comboId);if(!combo)return;
+  if(newOrderPullsFromLogistics()){toast('Combos use ACS inventory and cannot be added to a Logistics sample');return}
   // Re-applying the same combo replaces its previous line items outright, rather than
   // stacking a second copy, so toggling the dropdown is always safe.
   currentOrder.items=currentOrder.items.filter(i=>i.comboId!==comboId);
@@ -3138,8 +3208,12 @@ function applyComboToOrder(comboId){
 }
 function addLineItem(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;
+  // Logistics and regular products never share an order (the stock pools are separate).
+  const logMode=newOrderPullsFromLogistics(),isLog=(p.warehouse||'main')==='acs_logistics';
+  if(logMode&&!isLog){toast('This sample pulls from ACS Logistics -- only Logistics products can be added');return}
+  if(!logMode&&isLog){toast('Logistics products can only be added to a sample order set to pull from ACS Logistics');return}
   const ex=currentOrder.items.find(x=>x.sku===sku&&!x._fee);
-  const freeItem=isSampleAcct(currentOrder.acct)?{discountPct:100}:{};
+  const freeItem=(logMode||isSampleAcct(currentOrder.acct))?{discountPct:100}:{};
   if(ex)ex.cases+=0;else currentOrder.items.unshift({sku,cases:0,bottles:0,tier:'frontline',...freeItem});
   if((p.stock||0)===0)toast(p.name+' is currently out of stock');
   closeProdDD();syncFees();renderLineItems();
@@ -5028,6 +5102,12 @@ async function openConfirm(orderId){
 // -- EDIT ORDER -----------------------------------------------------------------
 let _editingWaiveFlags={};
 function toggleEditSample(isSample){
+  // A Logistics order can only ever be a sample -- those products can't be on a regular order.
+  if(!isSample&&window._editItems.some(i=>!i._fee&&prodIsLogistics(i.sku))){
+    const cb=document.getElementById('edit-is-sample');if(cb)cb.checked=true;
+    toast('This order has ACS Logistics products, so it must stay a sample order');
+    return;
+  }
   _editingWaiveFlags.orderType=isSample?'sample':'standard';
   window._editItems.filter(x=>!x._fee).forEach(x=>{x.discountPct=isSample?100:0;});
   window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
@@ -5052,13 +5132,16 @@ async function openEditOrder(orderId){
 function onEditSearch(val){
   const dd=document.getElementById('edit-prod-dd');
   if(!val.trim()){dd.classList.remove('open');return}
-  const matches=mainInventory().filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
+  // An order already holding ACS Logistics products only offers Logistics products (and the
+  // reverse) -- the two stock pools never share an order.
+  const editingLogistics=window._editItems.some(i=>!i._fee&&prodIsLogistics(i.sku));
+  const matches=(editingLogistics?logisticsInventory():mainInventory()).filter(p=>matchesSearch(p.name+' '+p.sku+' '+(p.producer||''),val)).slice(0,50);
   if(!matches.length){dd.innerHTML='<div class="dd-item"><span style="color:var(--text3);font-size:13px">No products found</span></div>';dd.classList.add('open');return}
   dd.innerHTML=matches.map(p=>`<div class="dd-item" onmousedown="addEditItem('${p.sku.replace(/'/g,"\\'")}')"><div><div class="dd-name">${p.name}</div><div class="dd-meta">${p.sku} · ${p.producer} · ${p.btl}pk</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:var(--text)">${p.prices.frontline>0?fmt(p.prices.frontline*p.btl)+'/cs':'No price set'}</div><div style="margin-top:2px">${stockChip(p)}</div></div></div>`).join('');
   dd.classList.add('open');
 }
 function closeEditDD(){const dd=document.getElementById('edit-prod-dd');if(dd)dd.classList.remove('open');const s=document.getElementById('edit-prod-search');if(s)s.value=''}
-function addEditItem(sku){const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;const ex=window._editItems.find(x=>x.sku===sku);const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;const freeItem=isSampleAcct(editingAcctId)?{discountPct:100}:{};if(ex){ex.cases+=1;clampItemToStock(ex,p,'cases');}else window._editItems.unshift({sku,cases:0,bottles:0,tier:'frontline',...freeItem});if((p.stock||0)===0)toast(p.name+' is currently out of stock');window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);closeEditDD();renderEditItems()}
+function addEditItem(sku){const p=PRODUCTS.find(x=>x.sku===sku);if(!p)return;{const hasLog=window._editItems.some(i=>!i._fee&&prodIsLogistics(i.sku)),hasMain=window._editItems.some(i=>!i._fee&&!prodIsLogistics(i.sku)),isLog=(p.warehouse||'main')==='acs_logistics';if((isLog&&hasMain)||(!isLog&&hasLog)){toast('ACS Logistics products and regular products cannot be on the same order');return}}const ex=window._editItems.find(x=>x.sku===sku);const editingAcctId=ORDERS.find(o=>o.id===editingOrderId)?.acct;const freeItem=(isSampleAcct(editingAcctId)||(p.warehouse||'main')==='acs_logistics')?{discountPct:100}:{};if(ex){ex.cases+=1;clampItemToStock(ex,p,'cases');}else window._editItems.unshift({sku,cases:0,bottles:0,tier:'frontline',...freeItem});if((p.stock||0)===0)toast(p.name+' is currently out of stock');window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);closeEditDD();renderEditItems()}
 function removeEditItem(idx){window._editItems.splice(idx,1);window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);renderEditItems()}
 function updateEditField(idx,field,val){
   window._editItems[idx][field]=Math.max(0,parseInt(val)||0);
@@ -5338,7 +5421,7 @@ function filterHistory(){
     const btl=o.items.reduce((s,x)=>s+itemTotalBottles(x),0);
     const canEdit=o.status==='unconfirmed'&&(currentUser.role==='admin'||o.rep===currentUser.id);
     const idClick=o.status==='unconfirmed'?(canEdit?`onclick="openEditOrder('${o.id}')" title="Click to edit this order"`:''):`onclick="viewInvoice('${o.id}')" title="Click to view invoice"`;
-    return`<tr><td><input type="checkbox" class="hist-chk" data-id="${o.id}" ${_histSelected.has(o.id)?'checked':''} onchange="toggleHistSelect('${o.id}',this.checked)" style="cursor:pointer;width:15px;height:15px"/></td><td style="font-weight:600;color:var(--gold);${(canEdit||o.status!=='unconfirmed')?'cursor:pointer':''}" ${idClick}>${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
+    return`<tr><td><input type="checkbox" class="hist-chk" data-id="${o.id}" ${_histSelected.has(o.id)?'checked':''} onchange="toggleHistSelect('${o.id}',this.checked)" style="cursor:pointer;width:15px;height:15px"/></td><td style="font-weight:600;color:var(--gold);${(canEdit||o.status!=='unconfirmed')?'cursor:pointer':''}" ${idClick}>${o.id}${o.isSample?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#F0E8FA;color:#6B4FA0"><i class="ti ti-flask" style="font-size:10px;vertical-align:-1px"></i> Sample</span>':''}${isLogisticsOrder(o)?'<span class="tier-pill" style="margin-left:6px;font-size:10px;background:#FDF3DC;color:#7a6220"><i class="ti ti-building-warehouse" style="font-size:10px;vertical-align:-1px"></i> Logistics</span>':''}</td><td>${acct?acct.name:'--'}</td>${isAdmin?`<td style="color:var(--text2)">${rep?rep.fname+' '+rep.lname:'--'}</td>`:''}<td>${o.date}</td><td>${o.delivery}</td><td>${orderQtyLabel(o.items)}</td><td style="font-weight:600">${fmt(orderTotal(o))}</td><td>${statusBadge(o.status)}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       ${canEdit?`<button class="btn btn-sm btn-warning" onclick="openEditOrder('${o.id}')"><i class="ti ti-edit"></i> Edit</button>`:''}
       ${isAdmin&&o.status==='unconfirmed'?`<button class="btn btn-sm btn-success" onclick="openConfirm('${o.id}')"><i class="ti ti-check"></i> Confirm</button>`:''}
@@ -13064,18 +13147,6 @@ function renderProducts(){
       <tbody id="products-tbody"></tbody>
     </table></div>
     <div id="products-pagination" style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px"></div>
-  </div>
-
-  <!-- PRODUCT EDIT MODAL -->
-  <div class="modal-bg" id="modal-product" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;overflow-y:auto;padding:20px">
-    <div class="modal" style="max-width:680px;margin:0 auto;max-height:none;overflow:visible">
-      <div class="modal-title" id="prod-modal-title">Edit Product</div>
-      <div id="prod-modal-body"></div>
-      <div class="modal-footer">
-        <button class="btn" onclick="closeProdModal()">Cancel</button>
-        <button class="btn btn-success" onclick="saveProduct()"><i class="ti ti-check"></i> Save product</button>
-      </div>
-    </div>
   </div>`;
   filterProducts();
 }
