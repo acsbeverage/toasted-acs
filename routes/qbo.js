@@ -134,7 +134,12 @@ async function qboApi(method, path, body, attempt = 1) {
       // real reason is visible in server logs instead of being silently lost.
       console.error(`QBO API error ${res.status} on ${method} ${path}:`, rawText.slice(0, 1000));
     }
-    throw new Error(msg || `QBO API error ${res.status} on ${method} ${path.split('?')[0]}`);
+    const apiErr = new Error(msg || `QBO API error ${res.status} on ${method} ${path.split('?')[0]}`);
+    // Kept alongside the message (which stays exactly as before) so callers can react to
+    // specific failures -- e.g. a duplicate-name error's Detail names the existing record's Id.
+    apiErr.qboCode = data.Fault?.Error?.[0]?.code;
+    apiErr.qboDetail = data.Fault?.Error?.[0]?.Detail || '';
+    throw apiErr;
   }
   return data;
 }
@@ -143,16 +148,49 @@ async function qboQuery(realmId, sql) {
   return await qboApi('GET', `/v3/company/${conn.realm_id}/query?query=${encodeURIComponent(sql)}&minorversion=65`);
 }
 
+// ─── CUSTOMER NAME HELPERS ────────────────────────────────────────────────
+const qboEscape = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const normName = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+const isDuplicateNameErr = (e) => !!e && (String(e.qboCode) === '6240' || /duplicate name/i.test(e.message || ''));
+
+// Finds an existing QBO customer for a name -- INCLUDING inactive ones (QBO's query API hides
+// inactive records unless asked) and ignoring case/extra spaces, which is how QBO itself
+// decides two names are duplicates. The old exact, active-only lookup missed both, so the
+// create that followed was rejected with "Duplicate Name Exists".
+async function findCustomerByName(name) {
+  const exact = await qboQuery(null, `SELECT * FROM Customer WHERE DisplayName = '${qboEscape(name)}' AND Active IN (true,false)`);
+  const exactHit = exact.QueryResponse?.Customer?.[0];
+  if (exactHit) return exactHit;
+  const stem = String(name).trim().slice(0, 15);
+  const loose = await qboQuery(null, `SELECT * FROM Customer WHERE DisplayName LIKE '%${qboEscape(stem)}%' AND Active IN (true,false) MAXRESULTS 200`);
+  const want = normName(name);
+  return (loose.QueryResponse?.Customer || []).find(c => normName(c.DisplayName) === want) || null;
+}
+
+// QBO names are unique across Customers, Vendors, Employees and Other Names together, so a
+// duplicate-name rejection can come from a non-customer record that can't be linked as one.
+async function findNonCustomerWithName(name) {
+  for (const type of ['Vendor', 'Employee']) {
+    try {
+      const r = await qboQuery(null, `SELECT Id, DisplayName FROM ${type} WHERE DisplayName = '${qboEscape(name)}' AND Active IN (true,false)`);
+      if (r.QueryResponse?.[type]?.length) return type;
+    } catch (e) { /* best-effort diagnosis only */ }
+  }
+  return null;
+}
+
 // ─── OAUTH: START ─────────────────────────────────────────────────────────
 router.post('/auth-url', requireAdmin, async (req, res) => {
   try {
     const environment = req.body.environment === 'production' ? 'production' : 'sandbox';
     const creds = clientCreds(environment);
     if (!creds.id) return res.status(500).json({ ok: false, message: `QBO_CLIENT_ID_${environment.toUpperCase()} (or QBO_CLIENT_ID) not configured on the server` });
+    const redirect = redirectUri(environment);
+    if (!redirect) return res.status(500).json({ ok: false, message: `QBO_REDIRECT_URI_${environment.toUpperCase()} (or QBO_REDIRECT_URI) not configured on the server` });
     const state = Buffer.from(JSON.stringify({ environment, t: Date.now() })).toString('base64url');
     const params = new URLSearchParams({
       client_id: creds.id,
-      redirect_uri: redirectUri(environment),
+      redirect_uri: redirect,
       response_type: 'code',
       scope: 'com.intuit.quickbooks.accounting',
       state,
@@ -283,15 +321,43 @@ router.post('/disconnect', requireAdmin, async (req, res) => {
 
 // ─── RESOLVE OR CREATE A CUSTOMER ────────────────────────────────────────
 async function resolveCustomer(inv) {
-  const safeName = inv.customerName.replace(/'/g, "\\'");
-  const found = await qboQuery(null, `SELECT * FROM Customer WHERE DisplayName = '${safeName}'`);
-  if (found.QueryResponse?.Customer?.length) return found.QueryResponse.Customer[0];
-
-  const created = await qboApi('POST', `/v3/company/${(await getConnection()).realm_id}/customer?minorversion=65`, {
-    DisplayName: inv.customerName,
-    PrimaryEmailAddr: inv.customerEmail ? { Address: inv.customerEmail } : undefined,
-  });
-  return created.Customer;
+  // Same lookup the account-sync route uses: includes inactive customers and ignores case/extra
+  // spaces, so an invoice never trips QBO's "Duplicate Name Exists" on a customer that is
+  // really already there.
+  let found = await findCustomerByName(inv.customerName);
+  const realmId = (await getConnection()).realm_id;
+  if (!found) {
+    try {
+      const created = await qboApi('POST', `/v3/company/${realmId}/customer?minorversion=65`, {
+        DisplayName: inv.customerName,
+        PrimaryEmailAddr: inv.customerEmail ? { Address: inv.customerEmail } : undefined,
+      });
+      return created.Customer;
+    } catch (e) {
+      if (!isDuplicateNameErr(e)) throw e;
+      const idMatch = /Id=(\d+)/.exec(e.qboDetail || '');
+      if (idMatch) {
+        try {
+          const r = await qboApi('GET', `/v3/company/${realmId}/customer/${idMatch[1]}?minorversion=65`);
+          found = r.Customer || null;
+        } catch (e2) { /* that Id isn't a customer -- reported below */ }
+      }
+      if (!found) {
+        const other = await findNonCustomerWithName(inv.customerName);
+        throw new Error(other
+          ? `QuickBooks already has a ${other} named "${inv.customerName}" -- names must be unique across customers, vendors and employees. Rename it in QuickBooks, then retry.`
+          : `QuickBooks reports the name "${inv.customerName}" is already in use by a record that could not be located automatically.`);
+      }
+    }
+  }
+  if (found.Active === false) {
+    // QBO won't accept an invoice for an inactive customer.
+    const re = await qboApi('POST', `/v3/company/${realmId}/customer?minorversion=65`, {
+      Id: found.Id, SyncToken: found.SyncToken, sparse: true, Active: true,
+    });
+    found = re.Customer || found;
+  }
+  return found;
 }
 
 // ─── RESOLVE OR CREATE AN ITEM (non-inventory, so this never fights with QBO's own stock tracking) ─
@@ -313,6 +379,32 @@ async function resolveItem(name) {
 }
 
 // ─── CREATE INVOICE(S) ────────────────────────────────────────────────────
+// ─── VERIFY: WHICH OF THESE ORDERS ACTUALLY HAVE AN INVOICE IN QUICKBOOKS? ──
+// Read-only. For each order ID, looks for a QBO invoice whose DocNumber matches. Used to catch
+// orders that Toasted shows as "sent" (e.g. marked "Already in QB" by hand) that never made it
+// into QuickBooks. If the lookup itself fails the whole request fails -- the caller must never
+// treat "couldn't check" as "not there".
+router.post('/invoices/verify', requireAdmin, async (req, res) => {
+  try {
+    const orderIds = (req.body.orderIds || []).filter(x => typeof x === 'string' && x);
+    if (!orderIds.length) return res.status(400).json({ ok: false, message: 'No orders provided' });
+    const conn = await getConnection();
+    if (!conn || !conn.access_token) return res.status(400).json({ ok: false, message: 'Not connected to QuickBooks' });
+    const found = {};
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < orderIds.length; i += CHUNK_SIZE) {
+      const chunk = orderIds.slice(i, i + CHUNK_SIZE);
+      const list = chunk.map(id => `'${id.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`).join(',');
+      const r = await qboQuery(null, `SELECT Id, DocNumber FROM Invoice WHERE DocNumber IN (${list}) MAXRESULTS 1000`);
+      (r.QueryResponse?.Invoice || []).forEach(qi => { found[qi.DocNumber] = qi.Id; });
+    }
+    res.json({ ok: true, found, missing: orderIds.filter(id => !found[id]) });
+  } catch (err) {
+    console.error('QBO verify error:', err.message);
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
 router.post('/invoices', requireAdmin, async (req, res) => {
   try {
     const invoices = req.body.invoices || [];
@@ -490,39 +582,80 @@ router.post('/customers/sync', requireAdmin, async (req, res) => {
     } : undefined;
 
     let qboCustomer;
+    let linkedExisting = false, reactivated = false;
+    const dupMessage = async (name) => {
+      const other = await findNonCustomerWithName(name);
+      return other
+        ? `QuickBooks already has a ${other} named "${name}". QuickBooks requires names to be unique across customers, vendors and employees, so this account can't be created there under that name. Rename the ${other.toLowerCase()} in QuickBooks (or change the account name in Toasted) and sync again.`
+        : `QuickBooks reports another record already uses the name "${name}", but it could not be located automatically. Search QuickBooks (including inactive customers, vendors and employees) for that name, then rename it or link it manually.`;
+    };
 
     if (acct.qbo_id) {
       // Already linked -- fetch current SyncToken (required by QBO for any update) and push changes
       const current = await qboApi('GET', `/v3/company/${conn.realm_id}/customer/${acct.qbo_id}?minorversion=65`);
-      const result = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
-        Id: current.Customer.Id,
-        SyncToken: current.Customer.SyncToken,
-        sparse: true,
-        DisplayName: acct.name,
-        PrimaryEmailAddr: acct.email ? { Address: acct.email } : undefined,
-        PrimaryPhone: acct.phone ? { FreeFormNumber: acct.phone } : undefined,
-        BillAddr: addr,
-      });
-      qboCustomer = result.Customer;
-    } else {
-      // Not linked yet -- check QBO for an existing customer with this exact name first, to avoid creating a duplicate
-      const safeName = acct.name.replace(/'/g, "\\'");
-      const found = await qboQuery(null, `SELECT * FROM Customer WHERE DisplayName = '${safeName}'`);
-      if (found.QueryResponse?.Customer?.length) {
-        qboCustomer = found.QueryResponse.Customer[0];
-      } else {
-        const created = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
+      try {
+        const result = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
+          Id: current.Customer.Id,
+          SyncToken: current.Customer.SyncToken,
+          sparse: true,
           DisplayName: acct.name,
           PrimaryEmailAddr: acct.email ? { Address: acct.email } : undefined,
           PrimaryPhone: acct.phone ? { FreeFormNumber: acct.phone } : undefined,
           BillAddr: addr,
         });
-        qboCustomer = created.Customer;
+        qboCustomer = result.Customer;
+      } catch (e) {
+        // Renaming the account in Toasted onto a name another QBO record already holds.
+        if (isDuplicateNameErr(e)) return res.status(409).json({ ok: false, message: await dupMessage(acct.name) });
+        throw e;
+      }
+    } else {
+      // Not linked yet -- look for an existing QBO customer with this name first (active OR
+      // inactive, any capitalization) so we link to it instead of creating a duplicate.
+      let existing = await findCustomerByName(acct.name);
+      if (!existing) {
+        try {
+          const created = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
+            DisplayName: acct.name,
+            PrimaryEmailAddr: acct.email ? { Address: acct.email } : undefined,
+            PrimaryPhone: acct.phone ? { FreeFormNumber: acct.phone } : undefined,
+            BillAddr: addr,
+          });
+          qboCustomer = created.Customer;
+        } catch (e) {
+          if (!isDuplicateNameErr(e)) throw e;
+          // QBO says the name is taken but our lookup didn't find it. QBO's error detail
+          // normally names the conflicting record ("... : Id=123") -- try that record directly.
+          const idMatch = /Id=(\d+)/.exec(e.qboDetail || '');
+          if (idMatch) {
+            try {
+              const r = await qboApi('GET', `/v3/company/${conn.realm_id}/customer/${idMatch[1]}?minorversion=65`);
+              existing = r.Customer || null;
+            } catch (e2) { /* that Id isn't a customer (e.g. a vendor) -- handled below */ }
+          }
+          if (!existing) return res.status(409).json({ ok: false, message: await dupMessage(acct.name) });
+        }
+      }
+      if (existing) {
+        // Never point two Toasted accounts at the same QBO customer -- payments would land on the wrong one.
+        const clash = await getOne('SELECT id, name FROM accounts WHERE qbo_id=$1 AND id<>$2', [existing.Id, accountId]);
+        if (clash) {
+          return res.status(409).json({ ok: false, message: `The QuickBooks customer "${existing.DisplayName}" (#${existing.Id}) is already linked to the Toasted account "${clash.name}". Unlink or rename one of them before syncing this account.` });
+        }
+        linkedExisting = true;
+        qboCustomer = existing;
+        if (existing.Active === false) {
+          const re = await qboApi('POST', `/v3/company/${conn.realm_id}/customer?minorversion=65`, {
+            Id: existing.Id, SyncToken: existing.SyncToken, sparse: true, Active: true,
+          });
+          qboCustomer = re.Customer || existing;
+          reactivated = true;
+        }
       }
     }
 
     await query('UPDATE accounts SET qbo_id=$1 WHERE id=$2', [qboCustomer.Id, accountId]);
-    res.json({ ok: true, qboId: qboCustomer.Id, displayName: qboCustomer.DisplayName });
+    res.json({ ok: true, qboId: qboCustomer.Id, displayName: qboCustomer.DisplayName, linkedExisting, reactivated });
   } catch (err) {
     console.error('QBO customer sync error:', err.message);
     res.status(500).json({ ok: false, message: err.message });
