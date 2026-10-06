@@ -30,10 +30,19 @@ async function rebuildComboLineItems(combo, prodMap) {
   // somehow ended up with a non-integer case count (e.g. a bad edit that slipped past the
   // admin UI's own validation) must never be allowed to crash every order that applies it.
   // Round defensively here regardless of what's stored, on top of validating on save (below).
-  const items = (combo.items || []).map(i => ({ ...i, cases: Math.max(1, Math.round(i.cases || 0)) }));
+  // A combo item is whole cases, loose bottles, or both. An item somehow stored with neither
+  // is healed to 1 case (same as before bottles were supported) rather than crashing the order.
+  const items = (combo.items || []).map(i => {
+    let cases = Math.max(0, Math.round(i.cases || 0));
+    const bottles = Math.max(0, Math.round(i.bottles || 0));
+    if (cases + bottles === 0) cases = 1;
+    return { ...i, cases, bottles };
+  });
   const brand5PerBottle = (sku) => { const p = prodMap[sku]; return p ? parseFloat(p.price_brand5) || 0 : 0; };
   const btlOf = (sku) => { const p = prodMap[sku]; return p ? (p.btl || 1) : 1; };
-  const caseValue = (i) => (i.cases || 0) * brand5PerBottle(i.sku) * btlOf(i.sku);
+  // Value of a line in dollars, counting loose bottles at the same per-bottle 5-Case Brand
+  // Family rate as the bottles inside a full case.
+  const caseValue = (i) => ((i.cases || 0) * btlOf(i.sku) + (i.bottles || 0)) * brand5PerBottle(i.sku);
 
   const totalGrossValue = items.reduce((s, i) => s + caseValue(i), 0);
   const paidTargetValue = items.filter(i => !i.isBonus).reduce((s, i) => s + caseValue(i), 0);
@@ -44,7 +53,7 @@ async function rebuildComboLineItems(combo, prodMap) {
     : 0;
 
   return items.map(i => ({
-    sku: i.sku, cases: i.cases || 0, bottles: 0,
+    sku: i.sku, cases: i.cases || 0, bottles: i.bottles || 0,
     tier: 'brand5',
     discountPct,
     notes: i.isBonus ? '100% BB' : `Combo: ${combo.name}`,
