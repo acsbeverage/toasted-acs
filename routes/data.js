@@ -380,8 +380,19 @@ function validateComboItems(items) {
   if (!Array.isArray(items) || !items.length) return 'At least one item is required';
   for (const it of items) {
     if (!it.sku) return 'Each item needs a SKU';
-    if (!Number.isInteger(it.cases) || it.cases <= 0) {
-      return `"${it.sku}" needs a whole-number case count greater than 0 (got ${it.cases})`;
+    // A combo item is some number of whole cases, some number of loose bottles, or both --
+    // but never fractional, and never empty. `bottles` is optional on older combos (undefined
+    // counts as 0), so every combo saved before bottles were supported stays valid as-is.
+    const cs = it.cases === undefined ? 0 : it.cases;
+    const bt = it.bottles === undefined ? 0 : it.bottles;
+    if (!Number.isInteger(cs) || cs < 0) {
+      return `"${it.sku}" needs a whole-number case count of 0 or more (got ${it.cases})`;
+    }
+    if (!Number.isInteger(bt) || bt < 0) {
+      return `"${it.sku}" needs a whole-number bottle count of 0 or more (got ${it.bottles})`;
+    }
+    if (cs + bt <= 0) {
+      return `"${it.sku}" needs at least 1 case or 1 bottle`;
     }
   }
   return null;
