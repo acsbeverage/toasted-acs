@@ -61,6 +61,23 @@ async function rebuildComboLineItems(combo, prodMap) {
   }));
 }
 
+// ACS Logistics products (warehousing clients' stock) live in the same products table but are a
+// separate, admin-only pool. They may only be ordered on a SAMPLE order, only by an admin, and
+// never mixed with ACS's own sellable products -- so the stock that comes off is always the
+// logistics pool's, and a regular order can never quietly draw down (or be invoiced for)
+// warehoused client stock. Returns an error message, or null when the items are fine.
+async function validateLogisticsOrder(items, user, isSample) {
+  const skus = [...new Set((items || []).filter(i => !i.is_fee && !i._fee && i.sku).map(i => i.sku))];
+  if (!skus.length) return null;
+  const rows = await getAll(`SELECT sku, COALESCE(warehouse,'main') AS warehouse FROM products WHERE sku = ANY($1)`, [skus]);
+  const logisticsSkus = new Set(rows.filter(r => r.warehouse === 'acs_logistics').map(r => r.sku));
+  if (!logisticsSkus.size) return null;
+  if (!user || user.role !== 'admin') return 'Only an admin can order ACS Logistics products.';
+  if (skus.some(sku => !logisticsSkus.has(sku))) return 'An order cannot mix ACS Logistics products with regular products. Place them on separate orders.';
+  if (!isSample) return 'ACS Logistics products can only be ordered on a sample order.';
+  return null;
+}
+
 router.get('/', requireAuth, async (req, res) => {
   try {
     const isAdmin    = req.user.role === 'admin';
@@ -295,6 +312,11 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
+    {
+      const logisticsErr = await validateLogisticsOrder(items, req.user, !!isSample || orderType === 'sample');
+      if (logisticsErr) return res.status(400).json({ ok: false, error: logisticsErr });
+    }
+
     // Customers can only ever place orders under their own account --
     // never trust acct/rep values coming from a customer-role client.
     if (req.user.role === 'customer') {
@@ -473,6 +495,16 @@ router.patch('/:id', requireAuth, async (req, res) => {
     // into confirmed.
     if (status === 'confirmed' && req.user.role !== 'admin') {
       return res.status(403).json({ ok: false, error: 'Only an admin can confirm an order' });
+    }
+    // Checked BEFORE anything is saved, so a rejected edit changes nothing at all.
+    if (Array.isArray(items)) {
+      let effectiveSample = isSample;
+      if (effectiveSample === undefined) {
+        const cur = await getOne('SELECT is_sample FROM orders WHERE id=$1', [req.params.id]);
+        effectiveSample = !!(cur && cur.is_sample);
+      }
+      const logisticsErr = await validateLogisticsOrder(items, req.user, !!effectiveSample);
+      if (logisticsErr) return res.status(400).json({ ok: false, error: logisticsErr });
     }
     const updates = [], values = [];
     let idx = 1;
