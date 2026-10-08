@@ -7886,12 +7886,24 @@ function _buildInvoicePDF(o,callback,sharedDoc){(async()=>{
 
   // Bill To (second column)
   const col2=ML+235;
+  const col3=ML+235+140;
+  // The account name sits in a narrow column right next to Ship To, so a long name used to run
+  // straight into the next column. Shrink it (down to 9pt) until it fits the column; if even that
+  // isn't enough, wrap it onto extra lines and push the address down by the same amount. The one
+  // result is used for BOTH Bill To and Ship To so the two columns stay lined up.
+  const nameColW=col3-col2-10;
+  const acctNameStr=acct?acct.name:'--';
+  let nameFs=12,nameLines=[acctNameStr];
+  doc.setFont('helvetica','bold');
+  for(let fs=12;fs>=9;fs--){doc.setFontSize(fs);if(doc.getTextWidth(acctNameStr)<=nameColW){nameFs=fs;nameLines=[acctNameStr];break;}if(fs===9){nameFs=9;nameLines=doc.splitTextToSize(acctNameStr,nameColW);}}
+  const nameLH=nameFs+2;
+  const addrStartY=y+18+(nameLines.length-1)*nameLH+15;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
   doc.text('BILL TO',col2,y+8);
-  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(40,40,40);
-  doc.text(acct?acct.name:'--',col2,y+18);
+  doc.setFont('helvetica','bold');doc.setFontSize(nameFs);doc.setTextColor(40,40,40);
+  nameLines.forEach((ln,i)=>doc.text(ln,col2,y+18+i*nameLH));
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  let byBT=y+33;
+  let byBT=addrStartY;
   if(acct&&acct.shipStreet){doc.text(acct.shipStreet,col2,byBT);byBT+=10;}
   const cityLine=[acct&&acct.shipCity,acct&&acct.shipState,acct&&acct.shipZip].filter(Boolean).join(', ');
   if(cityLine){doc.text(cityLine,col2,byBT);byBT+=10;}
@@ -7899,13 +7911,12 @@ function _buildInvoicePDF(o,callback,sharedDoc){(async()=>{
   if(acct&&acct.lic){doc.setFontSize(7.5);doc.text('ABC: '+acct.lic,col2,byBT);byBT+=10;}
 
   // Ship To (third column)
-  const col3=ML+235+140;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
   doc.text('SHIP TO',col3,y+8);
-  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(40,40,40);
-  doc.text(acct?acct.name:'--',col3,y+18);
+  doc.setFont('helvetica','bold');doc.setFontSize(nameFs);doc.setTextColor(40,40,40);
+  nameLines.forEach((ln,i)=>doc.text(ln,col3,y+18+i*nameLH));
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(70,70,70);
-  let bySH=y+33;
+  let bySH=addrStartY;
   if(acct&&acct.shipStreet){doc.text(acct.shipStreet,col3,bySH);bySH+=10;}
   if(cityLine){doc.text(cityLine,col3,bySH);bySH+=10;}
 
@@ -12130,6 +12141,7 @@ function _renderInvoiceHTML(orderId, b64){
       .inv-meta td:last-child { font-weight: 600; }
       .sample-badge { display: inline-block; background: #f0e8ff; color: #6b3fa0; border: 1px solid #c8a8f0; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 700; margin-top: 4px; }
       .divider { border: none; border-top: 1.5px solid #222; margin: 12px 0; }
+      .addr-block { min-width: 0; overflow-wrap: anywhere; }
       .addr-block h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px; }
       .addr-block p { font-size: 12px; line-height: 1.5; }
       .addr-block p strong { font-size: 15px; display: block; margin-bottom: 2px; }
