@@ -302,10 +302,10 @@ router.patch('/orders/:id', requireAdmin, async (req, res) => {
     // this PO's current contents, so "Resend" should read as genuinely not-yet-sent until the
     // updated version actually goes out.
     await query(
-      `UPDATE purchase_orders SET payment_terms=$1, delivery_address=$2, notes=$3,
+      `UPDATE purchase_orders SET payment_terms=$1, delivery_address=$2, notes=COALESCE($3, notes),
        total_bottles=$4, total_cases=$5, grand_total=$6, email_status='pending'
        WHERE id=$7`,
-      [paymentTerms || 'Net 30', deliveryAddress || '', notes || '',
+      [paymentTerms || 'Net 30', deliveryAddress || '', (typeof notes === 'string' ? notes : null),
        totalBottles || 0, totalCases || 0, grandTotal || 0, req.params.id]
     );
 
