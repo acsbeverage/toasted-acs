@@ -855,7 +855,7 @@ function prodBySku(sku){
 let DRAFT_ORDERS=[];
 let TASTINGS=[];
 let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[],PO_SUPPLIER_CONTACTS=[];
-let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false,_poDetailSupplierId=null,_poEditingId=null,_poEditingNumber=null;
+let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false,_poDetailSupplierId=null,_poEditingId=null,_poEditingNumber=null,_poEditingNotes="";
 // SHARED_DOCS declared at top
 // -- CONFIG & STATIC DATA ------------------------------------------------------
 let COMPANY={name:'ACS Beverage Co. LLC',address:'531 Getty Ct. Ste D, Benicia, CA 94510',phone:'',email:'accounting@acsbeverage.com',license:'CA-DIS-00421',website:'acsbeverageco.com'};
@@ -4120,7 +4120,7 @@ function cancelEditPO(){
 async function openEditPO(id){
   const order=await _fetchPOOrder(id);if(!order)return;
   toast('Loading PO for editing...');
-  _poEditingId=id;_poEditingNumber=order.poNumber;_poSelectedSupplier=order.supplierId;_poSubview='new';
+  _poEditingId=id;_poEditingNumber=order.poNumber;_poEditingNotes=order.notes||'';_poSelectedSupplier=order.supplierId;_poSubview='new';
   await loadPOProducts(order.supplierId);
 
   // Merge the supplier's full current catalog (so new items can still be added) with the
@@ -4184,14 +4184,14 @@ function renderPOLineItems(){
     ${_poLineItems.map((item,idx)=>{
       const bottles=parseInt(item.inputBottles)||0;const cases=parseFloat(item.inputCases)||0;
       const lineTotal=item.isNoCharge?null:(cases>0?cases*item.casePrice:bottles*item.bottlePrice);
-      return`<tr style="${item.isNoCharge?'background:#FFF5F5':''}">
+      return`<tr id="po-row-${idx}" style="${item.isNoCharge?'background:#FFF5F5':''}">
         <td style="font-weight:500">${item.description}</td>
         <td style="font-size:12px;color:var(--text2)">${item.type} / ${item.bottleSize}</td>
         <td style="text-align:right;font-size:12px">${item.isNoCharge?'<span style="color:var(--red);font-weight:600">N/C</span>':fmt(item.casePrice)}</td>
         <td style="text-align:right;font-size:12px;color:var(--text2)">${item.isNoCharge?'<span style="color:var(--red)">N/C</span>':fmt(item.bottlePrice)}</td>
-        <td><input type="number" class="qty-input" min="0" step="0.5" value="${item.inputCases}" onchange="updatePOItem(${idx},'inputCases',this.value)"/></td>
-        <td><input type="number" class="qty-input" min="0" value="${item.inputBottles}" onchange="updatePOItem(${idx},'inputBottles',this.value)"/></td>
-        <td style="text-align:right;font-weight:600">${item.isNoCharge?'<span style="color:var(--red)">N/C</span>':(lineTotal>0?fmt(lineTotal):'--')}</td>
+        <td><input type="number" class="qty-input" id="po-cases-${idx}" min="0" step="0.5" value="${item.inputCases}" onchange="updatePOItem(${idx},'inputCases',this.value)"/></td>
+        <td><input type="number" class="qty-input" id="po-btl-${idx}" min="0" value="${item.inputBottles}" onchange="updatePOItem(${idx},'inputBottles',this.value)"/></td>
+        <td id="po-line-${idx}" style="text-align:right;font-weight:600">${item.isNoCharge?'<span style="color:var(--red)">N/C</span>':(lineTotal>0?fmt(lineTotal):'--')}</td>
         <td style="text-align:center"><input type="checkbox" ${item.isNoCharge?'checked':''} onchange="updatePOItem(${idx},'isNoCharge',this.checked)"/></td>
       </tr>`;
     }).join('')}
@@ -4201,7 +4201,7 @@ function renderPOLineItems(){
         <div><div class="flabel">PO Number</div><div style="font-weight:700;font-family:monospace">${_poEditingId?_poEditingNumber:(window._poNextNumberPreview||'ACS ---')}</div></div>
         <div><div class="flabel">Supplier</div><div style="font-weight:600">${supplier.name}</div></div>
         <div><div class="flabel">Terms</div><div style="font-weight:600">${supplier.paymentTerms}</div></div>
-        <div><div class="flabel">Grand Total</div><div style="font-weight:700;font-size:16px">${t.grandTotal>0?fmt(t.grandTotal):'--'}</div></div>
+        <div><div class="flabel">Grand Total</div><div id="po-grand-total" style="font-weight:700;font-size:16px">${t.grandTotal>0?fmt(t.grandTotal):'--'}</div></div>
       </div>
       <button class="btn btn-dark" onclick="submitPO()"><i class="ti ti-${_poEditingId?'device-floppy':'file-text'}"></i> ${_poEditingId?'Save changes':'Generate PO PDF'}</button>
     </div>`}
@@ -4220,7 +4220,17 @@ function updatePOItem(idx,field,value){
     item.inputBottles=value;
     item.inputCases=bottles>0?(bottles/bpc).toFixed(2):'';
   }
-  renderPOLineItems();
+  // Update in place rather than re-rendering the table: a full re-render on blur replaces the
+  // Save button mid-click, so the first click on "Save changes" was being swallowed.
+  const cEl=document.getElementById('po-cases-'+idx),bEl=document.getElementById('po-btl-'+idx);
+  if(!cEl||!bEl){renderPOLineItems();return}
+  cEl.value=item.inputCases;bEl.value=item.inputBottles;
+  const b=parseInt(item.inputBottles)||0,c=parseFloat(item.inputCases)||0;
+  const lt=item.isNoCharge?null:(c>0?c*item.casePrice:b*item.bottlePrice);
+  const lEl=document.getElementById('po-line-'+idx);
+  if(lEl)lEl.innerHTML=item.isNoCharge?'<span style="color:var(--red)">N/C</span>':(lt>0?fmt(lt):'--');
+  const gEl=document.getElementById('po-grand-total');
+  if(gEl){const t=poItemTotals();gEl.textContent=t.grandTotal>0?fmt(t.grandTotal):'--';}
 }
 async function submitPO(){
   const supplier=PO_SUPPLIERS.find(s=>s.id===_poSelectedSupplier);
@@ -4234,6 +4244,7 @@ async function submitPO(){
   const payload={
     supplierId:supplier.id,paymentTerms:supplier.paymentTerms,
     deliveryAddress:PO_SHIP_TO_ADDRESS,
+    notes:_poEditingId?(_poEditingNotes||''):'',
     totalBottles:t.totalBottles,totalCases:t.totalCases.toFixed(2),grandTotal:t.grandTotal.toFixed(2),
     lineItems:active.map((item,idx)=>{
       const bottles=parseInt(item.inputBottles)||0;const cases=parseFloat(item.inputCases)||0;
