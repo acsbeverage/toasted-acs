@@ -209,8 +209,11 @@ router.delete('/products/:id', requireAdmin, async (req, res) => {
 // ── PO NUMBER SEQUENCE ────────────────────────────────────────────────────────
 router.get('/next-number', requireAdmin, async (req, res) => {
   try {
+    // A number freed by a deleted PO is reused before the sequence advances.
+    const freed = await getOne('SELECT MIN(seq) AS seq FROM po_free_numbers');
     const row = await getOne('SELECT next_seq FROM po_sequence WHERE id=1');
-    res.json({ ok: true, poNumber: `ACS ${String(row.next_seq).padStart(3, '0')}` });
+    const n = freed && freed.seq ? freed.seq : row.next_seq;
+    res.json({ ok: true, poNumber: `ACS ${String(n).padStart(3, '0')}` });
   } catch (err) {
     console.error('Get next PO number error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -330,6 +333,20 @@ router.patch('/orders/:id', requireAdmin, async (req, res) => {
   }
 });
 
+router.delete('/orders/:id', requireAdmin, async (req, res) => {
+  try {
+    const po = await getOne('DELETE FROM purchase_orders WHERE id=$1 RETURNING po_number', [req.params.id]);
+    if (!po) return res.status(404).json({ ok: false, error: 'PO not found' });
+    // po_line_items cascade. Return the number so the next PO picks it up.
+    const m = String(po.po_number || '').match(/(\d+)\s*$/);
+    if (m) await query('INSERT INTO po_free_numbers (seq) VALUES ($1) ON CONFLICT DO NOTHING', [parseInt(m[1], 10)]);
+    res.json({ ok: true, poNumber: po.po_number });
+  } catch (err) {
+    console.error('Delete PO error:', err.message);
+    res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 router.post('/orders', requireAdmin, async (req, res) => {
   try {
     const { supplierId, paymentTerms, deliveryAddress, notes, totalBottles, totalCases, grandTotal, lineItems } = req.body;
@@ -337,15 +354,29 @@ router.post('/orders', requireAdmin, async (req, res) => {
     if (!Array.isArray(lineItems) || !lineItems.length) return res.status(400).json({ ok: false, error: 'At least one line item required' });
 
     // Atomically claim the next PO number
-    const seqRow = await getOne('UPDATE po_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
-    const poNumber = `ACS ${String(seqRow.claimed).padStart(3, '0')}`;
+    // Reuse the lowest number freed by a deleted PO first; otherwise advance the sequence.
+    let claimedSeq, fromPool = false;
+    const freed = await getOne('DELETE FROM po_free_numbers WHERE seq = (SELECT MIN(seq) FROM po_free_numbers) RETURNING seq');
+    if (freed) { claimedSeq = freed.seq; fromPool = true; }
+    else {
+      const seqRow = await getOne('UPDATE po_sequence SET next_seq = next_seq + 1 WHERE id=1 RETURNING next_seq - 1 as claimed');
+      claimedSeq = seqRow.claimed;
+    }
+    const poNumber = `ACS ${String(claimedSeq).padStart(3, '0')}`;
 
-    const po = await getOne(
+    let po;
+    try {
+    po = await getOne(
       `INSERT INTO purchase_orders (po_number,payment_terms,supplier_id,delivery_address,notes,total_bottles,total_cases,grand_total,created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [poNumber, paymentTerms || 'Net 30', supplierId, deliveryAddress || '', notes || '',
        totalBottles || 0, totalCases || 0, grandTotal || 0, req.user.email]
     );
+    } catch (e) {
+      // Don't burn the number if the insert failed -- hand it back for the next PO.
+      if (fromPool) await query('INSERT INTO po_free_numbers (seq) VALUES ($1) ON CONFLICT DO NOTHING', [claimedSeq]).catch(() => {});
+      throw e;
+    }
 
     for (let i = 0; i < lineItems.length; i++) {
       const item = lineItems[i];
