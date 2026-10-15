@@ -5966,6 +5966,52 @@ function filterAccountsTable(){
       <button class="btn btn-sm" ${_acctPage>=totalPages?'disabled':''} onclick="acctGoToPage(${_acctPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
   }
 }
+
+// -- Missing email report: scans every account's main email AND its saved contacts --------------
+async function openMissingEmailReport(){
+  const old=document.getElementById('missing-email-bg');if(old)old.remove();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="missing-email-bg" style="display:flex"><div class="modal" style="max-width:760px;width:96%"><div class="modal-title">Accounts missing an email</div><div id="missing-email-body" style="font-size:13px;color:var(--text2)">Scanning accounts...</div><div class="modal-footer"><button class="btn" onclick="document.getElementById('missing-email-bg').remove()">Close</button><button class="btn btn-dark" id="missing-email-csv" style="display:none" onclick="downloadMissingEmailCSV()"><i class="ti ti-file-export"></i> Download CSV</button></div></div></div>`);
+  const body=document.getElementById('missing-email-body');
+  const validEmail=e=>/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test((e||'').trim());
+  const accts=ACCOUNTS.filter(a=>a.isActive!==false);
+  const rows=[];let done=0,failed=0;
+  const queue=accts.slice();
+  async function worker(){
+    while(queue.length){
+      const a=queue.shift();
+      let contactEmails=[],ok=true;
+      try{
+        const r=await fetch(TOASTED_BACKEND_URL+'/api/accounts/'+encodeURIComponent(a.id)+'/contacts',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+        if(r.ok)contactEmails=(r.contacts||[]).map(c=>c.email).filter(validEmail);else ok=false;
+      }catch(e){ok=false}
+      if(!ok)failed++;
+      const mainOk=validEmail(a.email);
+      if(!mainOk){
+        const rep=USERS.find(u=>u.id===a.rep)||{};
+        rows.push({name:a.name,code:a.code||'',contact:a.contact||'',phone:a.phone||'',rep:((rep.fname||'')+' '+(rep.lname||'')).trim(),mainEmail:a.email||'',hasContactEmail:contactEmails.length>0,status:mainOk?'':(contactEmails.length?'No main email (contact email on file)':'No email at all'),checked:ok});
+      }
+      done++;
+      if(body)body.textContent='Scanning accounts... '+done+' of '+accts.length;
+    }
+  }
+  await Promise.all([worker(),worker(),worker(),worker(),worker()]);
+  rows.sort((x,y)=>(x.hasContactEmail-y.hasContactEmail)||x.name.localeCompare(y.name));
+  window._missingEmailRows=rows;
+  const none=rows.filter(r=>!r.hasContactEmail),some=rows.filter(r=>r.hasContactEmail);
+  const esc=t=>String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const tbl=list=>`<div style="overflow-x:auto;max-height:260px;overflow-y:auto"><table class="tbl"><thead><tr><th>Account</th><th>Contact</th><th>Phone</th><th>Rep</th></tr></thead><tbody>${list.map(r=>`<tr><td style="font-weight:600">${esc(r.name)}</td><td>${esc(r.contact)||'--'}</td><td>${esc(r.phone)||'--'}</td><td>${esc(r.rep)||'--'}</td></tr>`).join('')}</tbody></table></div>`;
+  if(body)body.innerHTML=`<div style="margin-bottom:10px;color:var(--text)"><b>${accts.length}</b> active accounts scanned &middot; <b style="color:var(--red)">${none.length}</b> have no email anywhere &middot; <b>${some.length}</b> have no main email but a contact does${failed?` &middot; <span style="color:var(--red)">${failed} could not check contacts</span>`:''}</div>
+  <div style="font-weight:600;margin:12px 0 6px;color:var(--text)">No email at all (${none.length})</div>${none.length?tbl(none):'<div>None -- every account has an email.</div>'}
+  ${some.length?`<div style="font-weight:600;margin:14px 0 6px;color:var(--text)">No main email, but a contact has one (${some.length})</div>${tbl(some)}`:''}`;
+  const b=document.getElementById('missing-email-csv');if(b&&rows.length)b.style.display='';
+}
+function downloadMissingEmailCSV(){
+  const rows=window._missingEmailRows||[];
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[['Account','Code','Contact','Phone','Rep','Main email','Status']].concat(rows.map(r=>[r.name,r.code,r.contact,r.phone,r.rep,r.mainEmail,r.status]));
+  const blob=new Blob([lines.map(l=>l.map(q).join(',')).join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accounts-missing-email.csv';a.click();
+}
 function openExportAccountsModal(){
   const isAdmin=currentUser&&currentUser.role==='admin';
   const reps=USERS.filter(u=>u.role==='rep'||u.role==='admin');
@@ -6116,7 +6162,7 @@ function renderAccountsPage(){
   _acctSearch='';_acctRepFilter='';_acctPage=1;
   const filtered=_filterAcctsList();
 
-  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="openExportAccountsModal()"><i class="ti ti-file-export"></i> Export</button>${isAdmin?`<input type="file" accept=".csv,.xlsx,.xls" id="acct-import-file" onchange="handleAccountsImport(this)" style="display:none"/><button class="btn btn-sm" onclick="document.getElementById('acct-import-file').click()"><i class="ti ti-upload"></i> Import</button>`:''}</div>`;
+  document.getElementById('topbar-right').innerHTML=`<div style="display:flex;gap:8px">${isAdmin?`<button class="btn btn-sm btn-dark" onclick="openAddAccount()"><i class="ti ti-plus"></i> Add Account</button>`:''}<button class="btn btn-sm" onclick="openExportAccountsModal()"><i class="ti ti-file-export"></i> Export</button>${isAdmin?`<button class="btn btn-sm" onclick="openMissingEmailReport()"><i class="ti ti-mail-off"></i> Missing emails</button>`:''}${isAdmin?`<input type="file" accept=".csv,.xlsx,.xls" id="acct-import-file" onchange="handleAccountsImport(this)" style="display:none"/><button class="btn btn-sm" onclick="document.getElementById('acct-import-file').click()"><i class="ti ti-upload"></i> Import</button>`:''}</div>`;
 
   document.getElementById('main-content').innerHTML=`
   ${isAdmin?`<div class="tabs"><div class="tab active" onclick="switchTab('tab-accts','tab-corpgroups',this)">Accounts</div><div class="tab" onclick="switchTab('tab-corpgroups','tab-accts',this);refreshCorpGroupsTab()">Corp Groups</div></div>`:''}
