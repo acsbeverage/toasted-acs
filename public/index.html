@@ -4127,6 +4127,19 @@ async function renderPONew(){
   <div id="po-lineitems-wrap"></div>`;
   if(_poSelectedSupplier) renderPOLineItems();
 }
+async function deletePO(id){
+  const o=PO_ORDERS.find(x=>x.id===id);if(!o)return;
+  const sent=o.emailStatus==='sent'?'\n\nThis PO was already emailed to the supplier.':'';
+  if(!confirm('Delete '+o.poNumber+' ('+o.supplierName+')?'+sent+'\n\nThe number '+o.poNumber+' will be reused by the next PO created.'))return;
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po/orders/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!res.ok){toast(res.error||'Failed to delete PO');return}
+    toast(o.poNumber+' deleted -- number will be reused');
+    await loadPOData(true);
+    await loadPONextNumber();
+    renderPOHistory();
+  }catch(e){toast('Failed to delete PO -- check connection');console.error(e);}
+}
 function cancelEditPO(){
   _poEditingId=null;_poEditingNumber=null;_poSelectedSupplier=null;_poLineItems=[];
   switchPOSubview('history');
@@ -4330,6 +4343,7 @@ function filterPOHistory(){
       <button class="btn btn-sm btn-warning" onclick="openEditPO(${o.id})"><i class="ti ti-edit"></i> Edit</button>
       <button class="btn btn-sm btn-pdf" onclick="exportPOPdf(${o.id})"><i class="ti ti-file-download"></i> PDF</button>
       <button class="btn btn-sm" onclick="sendPOEmailToSupplier(${o.id})"><i class="ti ti-mail"></i> ${o.emailStatus==='sent'?'Resend':'Send'}</button>
+      <button class="btn-delete-item" title="Delete PO" onclick="deletePO(${o.id})"><i class="ti ti-trash"></i></button>
     </td>
   </tr>`).join(''):'<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--text3)">No purchase orders match</td></tr>';
 }
