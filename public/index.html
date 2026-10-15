@@ -1164,6 +1164,8 @@ function isSampleAcct(acctId){
 function syncFeesFor(items,opts){
   opts=opts||{};
   items=items.filter(x=>x.sku!==CRV_SKU&&!(x.sku===BROKEN_CASE_SKU&&!x._manual));
+  // Only ever one delivery fee per order -- collapse any duplicates (e.g. from older orders).
+  {let seenDel=false;items=items.filter(x=>{if(x.sku!==DELIVERY_FEE_SKU)return true;if(seenDel)return false;seenDel=true;return true;});}
 
   // Broken case fee: $1.50 per line item with loose bottles that don't add up to a full case (auto)
   if(!opts.waiveBrokenCase){
@@ -3449,7 +3451,7 @@ function renderLineItems(){
     </div>`;
   }).join('');
 
-  wrap.innerHTML=`<div id="line-items-table-view">${tableHtml}</div><div id="line-items-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`;
+  wrap.innerHTML=deliveryFeeBar(currentOrder.items,'addDeliveryFee')+`<div id="line-items-table-view">${tableHtml}</div><div id="line-items-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`;
   renderTotals();
   updatePortalCartButton();
 }
@@ -3457,6 +3459,18 @@ function waiveDelivery(){
   currentOrder.waiveDelivery=true;
   currentOrder.items=currentOrder.items.filter(x=>x.sku!==DELIVERY_FEE_SKU);
   toast('Delivery fee removed');renderLineItems();
+}
+function deliveryFeeBar(items,fn){
+  if(!(currentUser&&currentUser.role==='admin'))return '';
+  if(items.find(x=>x.sku===DELIVERY_FEE_SKU))return '';
+  if(!items.some(x=>!x._fee))return '';
+  return `<div style="padding:8px 14px"><button class="btn btn-sm" onclick="${fn}()" style="font-size:12px"><i class="ti ti-truck-delivery"></i> + Add Delivery Fee</button></div>`;
+}
+function addDeliveryFee(){
+  currentOrder.waiveDelivery=false;
+  currentOrder.items=currentOrder.items.filter(x=>x.sku!==DELIVERY_FEE_SKU);
+  syncFees();
+  toast('Delivery fee added');renderLineItems();
 }
 function restoreDelivery(){
   currentOrder.waiveDelivery=false;
@@ -5182,6 +5196,12 @@ function waiveEditDelivery(){
   window._editItems=window._editItems.filter(x=>x.sku!==DELIVERY_FEE_SKU);
   toast('Delivery fee removed');renderEditItems();
 }
+function addEditDeliveryFee(){
+  _editingWaiveFlags.waiveDelivery=false;
+  window._editItems=window._editItems.filter(x=>x.sku!==DELIVERY_FEE_SKU);
+  window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
+  toast('Delivery fee added');renderEditItems();
+}
 function restoreEditDelivery(){
   _editingWaiveFlags.waiveDelivery=false;
   window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
@@ -5326,7 +5346,7 @@ function renderEditItems(){
     </div>`;
   }).join('');
 
-  wrap.innerHTML=`<div id="edit-items-table-view">${tableHtml}</div><div id="edit-items-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`;
+  wrap.innerHTML=deliveryFeeBar(window._editItems,'addEditDeliveryFee')+`<div id="edit-items-table-view">${tableHtml}</div><div id="edit-items-cards-view" style="display:none;padding:14px">${cardsHtml}</div>`;
   renderEditTotal();
 }
 function renderEditTotal(){
