@@ -349,6 +349,7 @@ async function migrate() {
   await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS email_status TEXT DEFAULT 'pending'`);
   await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMPTZ`);
 
+  await query(`CREATE TABLE IF NOT EXISTS po_free_numbers (seq INTEGER PRIMARY KEY)`);
   await query(`CREATE TABLE IF NOT EXISTS po_sequence (id INTEGER PRIMARY KEY DEFAULT 1, next_seq INTEGER DEFAULT 1)`);
   await query(`INSERT INTO po_sequence (id, next_seq) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
 
