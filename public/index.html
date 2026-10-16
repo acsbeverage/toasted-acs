@@ -1268,16 +1268,30 @@ function closeModal(id){document.getElementById(id).classList.remove('open')}
 // Returns true/false so callers that need to know whether a change actually reached the
 // server (e.g. confirming an order) can react to a failure instead of silently proceeding
 // as if it worked -- a caller that doesn't care can keep ignoring the return value as before.
+// Write tracking: a background refresh that STARTED before one of these saves finished would
+// otherwise come back carrying the old copy of the order and overwrite the change on screen
+// (and leave later clicks acting on detached, outdated order objects). loadAllDataFromBackend
+// checks these counters and throws away any order/product snapshot a write overlapped with.
+let _orderWritesInFlight=0,_orderWriteSeq=0;
+function _beginOrderWrite(){_orderWritesInFlight++;_orderWriteSeq++;}
+function _endOrderWrite(){_orderWritesInFlight=Math.max(0,_orderWritesInFlight-1);_orderWriteSeq++;}
 function saveOrderStatusToDB(orderId, updates){
   if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve(false);
+  _beginOrderWrite();
   return fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
     body:JSON.stringify(updates)
   }).then(r=>r.json()).then(d=>{
     if(!d.ok){console.error('Failed to save order status:',d.error);toast('Could not save order changes -- please try again');return false;}
+    // Mirror what was saved onto the CURRENT in-memory copy of the order (looked up fresh by id,
+    // not a reference captured before the save) so the screen can't drift from the database
+    // if the order list was reloaded while this request was in flight.
+    const cur=ORDERS.find(x=>x.id===orderId);
+    if(cur){Object.keys(updates).forEach(k=>{if(k!=='items'||Array.isArray(updates.items))cur[k]=updates[k];});}
     return true;
-  }).catch(e=>{console.error('Save order error:',e.message);toast('Could not save order changes -- check your connection and try again');return false;});
+  }).catch(e=>{console.error('Save order error:',e.message);toast('Could not save order changes -- check your connection and try again');return false;})
+  .finally(()=>_endOrderWrite());
 }
 
 function saveProductStockToDB(sku, stock, reorder){
@@ -1324,10 +1338,11 @@ function saveStockAdjustmentToDB(entry){
 
 function deleteOrderFromDB(orderId){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
+  _beginOrderWrite();
   fetch(TOASTED_BACKEND_URL+'/api/orders/'+orderId,{
     method:'DELETE',
     headers:{'Authorization':'Bearer '+window._authToken}
-  }).catch(e=>console.error('Delete order error:',e.message));
+  }).catch(e=>console.error('Delete order error:',e.message)).finally(()=>_endOrderWrite());
 }
 
 function saveDraftToDB(draft){
@@ -1404,6 +1419,7 @@ async function loadAllDataFromBackend(){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
   const safeFetch=(url)=>fetch(url,{headers}).then(r=>r.json()).catch(e=>({ok:false,_error:e.message}));
+  const writeSeqAtStart=_orderWriteSeq;
   try{
     const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes,combosRes,stockAdjRes]=await Promise.all([
       safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
@@ -1425,6 +1441,14 @@ async function loadAllDataFromBackend(){
       // Persisted inventory-adjustment audit log -- admin only (same restriction as the endpoint).
       (currentUser&&currentUser.role==='admin')?safeFetch(TOASTED_BACKEND_URL+'/api/stock-adjustments'):Promise.resolve({ok:false}),
     ]);
+    // If any order save started or finished while this reload was in flight, its order/product
+    // snapshot may predate that save -- applying it would visibly undo the change. Skip those two
+    // and refresh again shortly instead; everything else in this reload is unaffected.
+    const writeOverlapped=(_orderWritesInFlight>0||_orderWriteSeq!==writeSeqAtStart);
+    if(writeOverlapped){
+      ordersRes.ok=false;prodsRes.ok=false;
+      setTimeout(()=>{_lastBgRefresh=0;if(typeof triggerBackgroundRefresh==='function')triggerBackgroundRefresh(_currentPage);},1500);
+    }
     if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
     if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
     if(prodsRes.ok&&prodsRes.products){PRODUCTS=prodsRes.products;console.log('Loaded',PRODUCTS.length,'products from database');}
@@ -4990,12 +5014,13 @@ async function doConfirm(){
       // retry, rather than closing it and quietly landing back on Unconfirmed later.
       return;
     }
-    o.status='confirmed';o.confirmedBy=currentUser.id;o.confirmedAt=today();
+    const oNow=ORDERS.find(x=>x.id===o.id)||o; // fresh lookup -- ORDERS may have been reloaded during the save
+    oNow.status='confirmed';oNow.confirmedBy=currentUser.id;oNow.confirmedAt=today();
     updateBadges();
 
-    if(!o.labelsPrinted){
+    if(!oNow.labelsPrinted){
       printShippingLabel(o.id);
-      o.labelsPrinted=true;
+      oNow.labelsPrinted=true;
       await saveOrderStatusToDB(o.id,{labelsPrinted:true});
     } else if(confirm('Labels were already printed for '+o.id+'. Print them again?')){
       printShippingLabel(o.id);
