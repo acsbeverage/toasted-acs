@@ -483,7 +483,24 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-router.patch('/:id', requireAuth, async (req, res) => {
+// Serializes edits to the SAME order. Saving an order replaces all of its line items (delete
+// everything, then insert the new set) and applies a stock delta from the old set. If two saves of
+// one order overlapped -- a double-click on Save, a retry after a slow response -- both could delete
+// before either inserted, leaving every line item (and every fee) on the order twice and applying
+// the stock change twice. Running them one at a time makes the second save see the first's result.
+const _orderPatchLocks = new Map();
+async function withOrderLock(id, fn) {
+  const prev = _orderPatchLocks.get(id) || Promise.resolve();
+  let release;
+  const mine = new Promise(r => { release = r; });
+  const chain = prev.then(() => mine);
+  _orderPatchLocks.set(id, chain);
+  await prev;
+  try { return await fn(); }
+  finally { release(); if (_orderPatchLocks.get(id) === chain) _orderPatchLocks.delete(id); }
+}
+
+async function patchOrderHandler(req, res) {
   try {
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
@@ -613,7 +630,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
     console.error('Update order error:', err.message);
     res.status(500).json({ ok: false, error: 'Could not save order changes: ' + err.message });
   }
-});
+}
+router.patch('/:id', requireAuth, (req, res) => withOrderLock(req.params.id, () => patchOrderHandler(req, res)));
 
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
