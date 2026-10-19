@@ -5400,15 +5400,24 @@ function renderEditTotal(){
   else qtyLabel='0 items';
   document.getElementById('edit-total').textContent=`${qtyLabel} \u00b7 ${fmt(total)}`;
 }
+let _editSaveInFlight=false;
 async function saveEditOrder(){
+  if(_editSaveInFlight)return; // a double-click must never send the same edit twice
   const o=ORDERS.find(x=>x.id===editingOrderId);if(!o)return;
   if(!window._editItems.length){alert('Please add at least one product.');return}
+  _editSaveInFlight=true;
+  try{
+  await _saveEditOrderInner(o);
+  }finally{_editSaveInFlight=false;}
+}
+async function _saveEditOrderInner(o){
   o.date=document.getElementById('edit-date').value||o.date;o.delivery=document.getElementById('edit-delivery').value||o.delivery;
   o.po=document.getElementById('edit-po').value;o.notes=document.getElementById('edit-notes').value;
   o.items=window._editItems.map(x=>({...x}));
   o.waiveDelivery=!!_editingWaiveFlags.waiveDelivery;o.waiveBrokenCase=!!_editingWaiveFlags.waiveBrokenCase;o.waiveCRV=!!_editingWaiveFlags.waiveCRV;
   o.isSample=document.getElementById('edit-is-sample').checked;o.orderType=o.isSample?'sample':(o.orderType==='sample'?'standard':o.orderType);
-  await saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,isSample:o.isSample,orderType:o.orderType});
+  const savedOk=await saveOrderStatusToDB(editingOrderId,{date:o.date,delivery:o.delivery,po:o.po,notes:o.notes,items:o.items,waiveDelivery:o.waiveDelivery,waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,isSample:o.isSample,orderType:o.orderType});
+  if(!savedOk)return; // toast already explained; keep the edit window open so nothing is lost
   closeModal('modal-edit-order');toast('Order updated');
   const active=document.querySelector('.nav-item.active');if(active){const p=active.id.replace('nav-','');showPage(p)}
 }
