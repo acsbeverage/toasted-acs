@@ -2679,18 +2679,25 @@ function renderRepDashboard(){
   const acctChartData=months.map((m,i)=>({month:m,cur:(acctsByMonth[i]?.size||0),prev:(acctsByMonthLY[i]?.size||0)}));
   const maxAcct=Math.max(...acctChartData.flatMap(d=>[d.cur,d.prev]),1);
 
-  // YTD figures (full current year vs full last year)
+  // Prior-year comparison is limited to the SAME stretch of the calendar (through today's month/day
+  // last year) -- comparing this month/year so far against ALL of last year's month/year would make
+  // every in-progress period look like a steep drop.
+  const _t=new Date();const mdNow=String(_t.getMonth()+1).padStart(2,'0')+'-'+String(_t.getDate()).padStart(2,'0');
+  const lyToDate=confirmed.filter(o=>{const d=revDate(o);return parseInt(d.split('-')[0])===lastYear&&d.slice(5,10)<=mdNow;});
+  const lyFullMonth=confirmed.filter(o=>{const d=revDate(o);return parseInt(d.split('-')[0])===lastYear&&parseInt(d.split('-')[1])-1===curMonth;}); // MTD compares against the FULL same month last year
+
+  // YTD figures (this year so far vs the same date range last year)
   const ytdRev=Object.values(monthlySales).reduce((a,b)=>a+b,0);
-  const ytdRevLY=Object.values(monthlyLastYear).reduce((a,b)=>a+b,0);
+  const ytdRevLY=lyToDate.reduce((a,o)=>a+orderTotal(o),0);
   const ytdAccts=new Set(confirmed.filter(o=>parseInt(revDate(o).split('-')[0])===curYear).map(o=>o.acct)).size;
-  const ytdAcctsLY=new Set(confirmed.filter(o=>parseInt(revDate(o).split('-')[0])===lastYear).map(o=>o.acct)).size;
+  const ytdAcctsLY=new Set(lyToDate.map(o=>o.acct)).size;
   const ytdOrders=myOrders.filter(o=>parseInt(revDate(o).split('-')[0])===curYear).length;
 
   // MTD figures (current month vs the same month last year, for a fair comparison)
   const mtdRev=monthlySales[curMonth]||0;
-  const mtdRevLY=monthlyLastYear[curMonth]||0;
+  const mtdRevLY=lyFullMonth.reduce((a,o)=>a+orderTotal(o),0);
   const mtdAccts=acctsByMonth[curMonth]?.size||0;
-  const mtdAcctsLY=acctsByMonthLY[curMonth]?.size||0;
+  const mtdAcctsLY=new Set(lyFullMonth.map(o=>o.acct)).size;
   const mtdOrders=myOrders.filter(o=>{const d=revDate(o).split('-');return parseInt(d[0])===curYear&&parseInt(d[1])-1===curMonth;}).length;
 
   const isMtd=period==='mtd';
@@ -2700,7 +2707,7 @@ function renderRepDashboard(){
   const revDiff=shownRevPrev>0?((shownRev-shownRevPrev)/shownRevPrev*100):0;
   const acctDiff=shownAcctsPrev>0?((shownAccts-shownAcctsPrev)/shownAcctsPrev*100):0;
   const periodLabel=isMtd?months[curMonth]+' '+curYear:curYear+' YTD';
-  const prevPeriodLabel=isMtd?months[curMonth]+' '+lastYear:lastYear+' YTD';
+  const prevPeriodLabel=isMtd?months[curMonth]+' '+lastYear+' (full month)':'Jan 1-'+months[curMonth]+' '+_t.getDate()+', '+lastYear;
 
   const acctMap={};confirmed.forEach(o=>{acctMap[o.acct]=(acctMap[o.acct]||0)+orderTotal(o)});
   const topAccts=Object.entries(acctMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,val])=>({acct:ACCOUNTS.find(a=>a.id===id),val}));
@@ -2798,6 +2805,30 @@ function renderAdminDashboard(){
     else if(prd==='h2'){from=y+'-07-01';to=y+'-12-31';}
     return ORDERS.filter(o=>(o.status==='delivered'||o.status==='confirmed')&&(!from||revDate(o)>=from)&&(!to||revDate(o)<=to));
   }
+  // The same period one year earlier (full period; see effTo below for the one exception).
+  function getPriorYearSamePeriodOrders(prd){
+    const now=new Date();const y=now.getFullYear(),m=now.getMonth();
+    const pad=n=>String(n).padStart(2,'0');
+    let from='',to='';
+    if(prd==='thisYear'){from=y+'-01-01';to=y+'-12-31';}
+    else if(prd==='lastYear'){from=(y-1)+'-01-01';to=(y-1)+'-12-31';}
+    else if(prd==='thisMonth'){from=y+'-'+pad(m+1)+'-01';to=y+'-'+pad(m+1)+'-31';}
+    else if(prd==='lastMonth'){const lm=m===0?12:m;const ly=m===0?y-1:y;from=ly+'-'+pad(lm)+'-01';to=ly+'-'+pad(lm)+'-31';}
+    else if(prd==='q1'){from=y+'-01-01';to=y+'-03-31';}
+    else if(prd==='q2'){from=y+'-04-01';to=y+'-06-30';}
+    else if(prd==='q3'){from=y+'-07-01';to=y+'-09-30';}
+    else if(prd==='q4'){from=y+'-10-01';to=y+'-12-31';}
+    else if(prd==='h1'){from=y+'-01-01';to=y+'-06-30';}
+    else if(prd==='h2'){from=y+'-07-01';to=y+'-12-31';}
+    const shift=d=>(parseInt(d.slice(0,4))-1)+d.slice(4);
+    const todayStr=y+'-'+pad(m+1)+'-'+pad(now.getDate());
+    // Month/quarter/half periods compare against the FULL same period last year; only a running
+    // full-year view is cut at today's date, since a whole prior year would be meaningless mid-year.
+    const effTo=(prd==='thisYear'&&to>todayStr)?todayStr:to;
+    const pFrom=shift(from);
+    const pTo=shift(effTo<from?from:effTo);
+    return ORDERS.filter(o=>(o.status==='delivered'||o.status==='confirmed')&&revDate(o)>=pFrom&&revDate(o)<=pTo);
+  }
 
   const orders = getPeriodOrders(period);
   const lastYearOrders = getPeriodOrders('lastYear');
@@ -2813,7 +2844,7 @@ function renderAdminDashboard(){
 
   // KPIs
   const totalRev=orders.reduce((s,o)=>s+orderTotal(o),0);
-  const priorRev=lastYearOrders.reduce((s,o)=>s+orderTotal(o),0);
+  const priorRev=getPriorYearSamePeriodOrders(period).reduce((s,o)=>s+orderTotal(o),0);
   const revChg=priorRev>0?((totalRev-priorRev)/priorRev*100):0;
   const totalOrders=orders.length;
   const activeAccts=new Set(orders.map(o=>o.acct)).size;
