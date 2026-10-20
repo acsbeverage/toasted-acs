@@ -154,6 +154,21 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 /* INPUTS */
 .qty-input{width:58px;padding:5px 6px;font-size:13px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:inherit;text-align:center}
 .qty-input:focus{outline:none;border-color:var(--gold)}
+.qty-step{display:flex;align-items:stretch}
+.qty-step input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.qty-step input[type=number]::-webkit-outer-spin-button,.qty-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.qty-step button{background:var(--bg3);border:1px solid var(--border2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-family:inherit}
+.qty-step button:hover{background:var(--bg2);color:var(--text)}
+.qty-step-tbl input{width:44px;border-top-right-radius:0;border-bottom-right-radius:0}
+.qty-step-tbl .qs-col{display:flex;flex-direction:column}
+.qty-step-tbl .qs-col button{flex:1;width:20px;font-size:11px;border-left:0}
+.qty-step-tbl .qs-col button:first-child{border-top-right-radius:var(--radius);border-bottom:0}
+.qty-step-tbl .qs-col button:last-child{border-bottom-right-radius:var(--radius)}
+.qty-step-card{width:100%}
+.qty-step-card input{border-radius:0!important;min-width:0;flex:1;border-left:0;border-right:0}
+.qty-step-card button{width:46px;min-height:46px;font-size:18px}
+.qty-step-card button:first-child{border-radius:10px 0 0 10px}
+.qty-step-card button:last-child{border-radius:0 10px 10px 0}
 .inline-sel{padding:5px 7px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:inherit;cursor:pointer;max-width:160px}
 .inline-sel:focus{outline:none;border-color:var(--gold)}
 
@@ -2651,6 +2666,21 @@ function renderDashboard(){
   renderRepDashboard();
 }
 
+// Drill-down for the "vs prior year" comparison: lists exactly which last-year orders make up the
+// comparison figure (with order date AND delivery date, total, status), so a number that doesn't
+// match another report can be traced to specific orders -- duplicates, odd dates, etc.
+function showPriorYearOrders(){
+  const c=window._priorCmp;if(!c)return;
+  const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const rows=c.orders.slice().sort((a,b)=>revDate(a).localeCompare(revDate(b))||a.id.localeCompare(b.id));
+  const total=rows.reduce((s,o)=>s+orderTotal(o),0);
+  const old=document.getElementById('prior-cmp-bg');if(old)old.remove();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="prior-cmp-bg" style="display:flex"><div class="modal" style="max-width:860px;width:96%"><div class="modal-title">${esc(c.title)}</div>
+  <div style="font-size:13px;color:var(--text2);margin-bottom:10px">${rows.length} orders &middot; <b style="color:var(--text)">${fmt(total)}</b> &mdash; counted by delivery date (invoice date if none). Look here for duplicates or orders with unexpected dates.</div>
+  <div style="overflow:auto;max-height:55vh"><table class="tbl"><thead><tr><th>Order</th><th>Account</th><th>Order date</th><th>Delivery</th><th>Status</th><th style="text-align:right">Total</th></tr></thead><tbody>
+  ${rows.map(o=>`<tr><td style="font-weight:600;font-size:12px">${esc(o.id)}</td><td style="font-size:12px">${esc(o.acctName||(acctById(o.acct)||{}).name||o.acct)}</td><td style="font-size:12px">${esc(o.date)}</td><td style="font-size:12px">${esc(o.delivery||'--')}</td><td style="font-size:12px">${esc(o.status)}</td><td style="text-align:right;font-weight:600">${fmt(orderTotal(o))}</td></tr>`).join('')}
+  </tbody></table></div><div class="modal-footer"><button class="btn" onclick="document.getElementById('prior-cmp-bg').remove()">Close</button></div></div></div>`);
+}
 function renderRepDashboard(){
   const period=window._repDashPeriod||'mtd';
   // ORDERS is already correctly scoped by the backend to every order for accounts assigned
@@ -2706,6 +2736,8 @@ function renderRepDashboard(){
   const shownOrders=isMtd?mtdOrders:ytdOrders;
   const revDiff=shownRevPrev>0?((shownRev-shownRevPrev)/shownRevPrev*100):0;
   const acctDiff=shownAcctsPrev>0?((shownAccts-shownAcctsPrev)/shownAcctsPrev*100):0;
+  window._priorCmp={title:(isMtd?'Last year\'s comparison: '+months[curMonth]+' '+lastYear:'Last year\'s comparison: '+prevPeriodLabelPlain()),orders:isMtd?lyFullMonth:lyToDate};
+  function prevPeriodLabelPlain(){return 'Jan 1 - '+months[curMonth]+' '+_t.getDate()+', '+lastYear;}
   const periodLabel=isMtd?months[curMonth]+' '+curYear:curYear+' YTD';
   const prevPeriodLabel=isMtd?months[curMonth]+' '+lastYear+' (full month)':'Jan 1-'+months[curMonth]+' '+_t.getDate()+', '+lastYear;
 
@@ -2736,7 +2768,7 @@ function renderRepDashboard(){
   </div>
   <div class="dash-grid-3">
     <div class="metric"><div class="metric-label">${isMtd?'MTD':'YTD'} Revenue -- ${periodLabel}</div><div class="metric-value gold">${fmt(shownRev)}</div>
-      <div class="metric-sub" style="color:${revDiff>=0?'var(--green)':'var(--red)'}">${revDiff>=0?'▲':'▼'} ${Math.abs(revDiff).toFixed(1)}% vs ${prevPeriodLabel}</div></div>
+      <div class="metric-sub" style="color:${revDiff>=0?'var(--green)':'var(--red)'}">${revDiff>=0?'▲':'▼'} ${Math.abs(revDiff).toFixed(1)}% vs ${prevPeriodLabel}<br><a href="#" onclick="showPriorYearOrders();return false" style="color:var(--text2);font-size:11px;text-decoration:underline">${fmt(shownRevPrev)} last year &mdash; view orders</a></div></div>
     <div class="metric"><div class="metric-label">Accounts Sold -- ${periodLabel}</div><div class="metric-value">${shownAccts}</div>
       <div class="metric-sub" style="color:${acctDiff>=0?'var(--green)':'var(--red)'}">${acctDiff>=0?'▲':'▼'} ${Math.abs(acctDiff).toFixed(1)}% vs ${prevPeriodLabel}</div></div>
     <div class="metric"><div class="metric-label">Orders -- ${periodLabel}</div><div class="metric-value">${shownOrders}</div><div class="metric-sub">${confirmed.length} confirmed all-time</div></div>
@@ -2844,7 +2876,9 @@ function renderAdminDashboard(){
 
   // KPIs
   const totalRev=orders.reduce((s,o)=>s+orderTotal(o),0);
-  const priorRev=getPriorYearSamePeriodOrders(period).reduce((s,o)=>s+orderTotal(o),0);
+  const priorOrdersCmp=getPriorYearSamePeriodOrders(period);
+  window._priorCmp={title:'Last year\'s comparison for '+({thisYear:'This Year',lastYear:'Last Year',thisMonth:'This Month',lastMonth:'Last Month',q1:'Q1',q2:'Q2',q3:'Q3',q4:'Q4',h1:'H1',h2:'H2'}[period]||period),orders:priorOrdersCmp};
+  const priorRev=priorOrdersCmp.reduce((s,o)=>s+orderTotal(o),0);
   const revChg=priorRev>0?((totalRev-priorRev)/priorRev*100):0;
   const totalOrders=orders.length;
   const activeAccts=new Set(orders.map(o=>o.acct)).size;
@@ -2886,7 +2920,7 @@ function renderAdminDashboard(){
     <div class="metric" style="cursor:pointer" onclick="showPage('ar')">
       <div class="metric-label">Revenue</div>
       <div class="metric-value gold">${fmt(totalRev)}</div>
-      <div class="metric-sub" style="color:${revChg>=0?'var(--green)':'var(--red)'}">${revChg>=0?'▲':'▼'} ${Math.abs(revChg).toFixed(1)}% vs prior yr</div>
+      <div class="metric-sub" style="color:${revChg>=0?'var(--green)':'var(--red)'}">${revChg>=0?'▲':'▼'} ${Math.abs(revChg).toFixed(1)}% vs prior yr<br><a href="#" onclick="event.stopPropagation();showPriorYearOrders();return false" style="color:var(--text2);font-size:11px;text-decoration:underline">${fmt(priorRev)} last year &mdash; view orders</a></div>
     </div>
     <div class="metric" style="cursor:pointer" onclick="showPage('unconfirmed')">
       <div class="metric-label">Pending</div>
@@ -3298,6 +3332,21 @@ function clampItemToStock(item,p,changedField){
   }
   return true;
 }
+// Quantity box with up/down arrows. mode 'tbl' = compact stacked arrows (desktop table);
+// mode 'card' = large - / + buttons either side (touch-friendly card view).
+function qtyStep(ctx,idx,field,val,max,mode){
+  const handler=ctx==='new'?'updateField':'updateEditField';
+  const inp=`<input type="number" class="${mode==='card'?'li-qty-input':'qty-input'}" value="${val}" min="0"${max?` max="${max}"`:''} onchange="${handler}(${idx},'${field}',this.value)"/>`;
+  const step=d=>`stepQty('${ctx}',${idx},'${field}',${d})`;
+  if(mode==='card')return `<div class="qty-step qty-step-card"><button type="button" aria-label="Decrease" onclick="${step(-1)}"><i class="ti ti-minus"></i></button>${inp}<button type="button" aria-label="Increase" onclick="${step(1)}"><i class="ti ti-plus"></i></button></div>`;
+  return `<div class="qty-step qty-step-tbl">${inp}<span class="qs-col"><button type="button" aria-label="Increase" onclick="${step(1)}"><i class="ti ti-chevron-up"></i></button><button type="button" aria-label="Decrease" onclick="${step(-1)}"><i class="ti ti-chevron-down"></i></button></span></div>`;
+}
+function stepQty(ctx,idx,field,delta){
+  const items=ctx==='new'?currentOrder.items:window._editItems;
+  const item=items&&items[idx];if(!item)return;
+  const next=Math.max(0,(parseInt(item[field])||0)+delta);
+  if(ctx==='new')updateField(idx,field,next);else updateEditField(idx,field,next);
+}
 function updateField(idx,field,val){
   const v=Math.max(0,parseInt(val)||0);currentOrder.items[idx][field]=v;
   const item=currentOrder.items[idx];
@@ -3419,8 +3468,8 @@ function renderLineItems(){
         <div style="font-size:11px;color:var(--text3)">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>
         ${isAdmin?`<button onclick="openCustomPriceModal('new',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}
       </td>
-      <td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateField(${idx},'cases',this.value)"/></td>
-      <td><div style="display:flex;align-items:center;gap:4px"><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateField(${idx},'bottles',this.value)"/><span style="font-size:10px;color:var(--text3)">/${maxLoose}</span></div></td>
+      <td>${qtyStep('new',idx,'cases',item.cases||'',0,'tbl')}</td>
+      <td><div style="display:flex;align-items:center;gap:4px">${qtyStep('new',idx,'bottles',item.bottles||'',maxLoose,'tbl')}<span style="font-size:10px;color:var(--text3)">/${maxLoose}</span></div></td>
       <td id="tb-${idx}" style="font-size:12px;color:var(--text2);white-space:nowrap">${itemTotalBottles(item)} btl</td>
       <td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateItemDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td>
       <td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateItemNotes(${idx},this.value)"/></td>
@@ -3471,6 +3520,21 @@ function renderLineItems(){
         </select>
       </div>
 
+      <div class="li-field-row">
+        <div class="li-field" style="flex:0 0 52px">
+          <label class="li-label" style="font-size:13px">Avail.</label>
+          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
+        </div>
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">Cases</label>
+          ${qtyStep('new',idx,'cases',item.cases||'',0,'card')}
+        </div>
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">+ Loose</label>
+          ${qtyStep('new',idx,'bottles',item.bottles||'',maxLoose,'card')}
+        </div>
+      </div>
+
       <label class="li-label">% Disc.</label>
       <div class="li-row">
         <input type="number" class="li-disc-input" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateItemDiscount(${idx},this.value)"/>
@@ -3479,21 +3543,6 @@ function renderLineItems(){
       <label class="li-label">Notes</label>
       <div class="li-row">
         <input type="text" class="finput" style="font-size:15px;padding:10px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateItemNotes(${idx},this.value)"/>
-      </div>
-
-      <div class="li-field-row">
-        <div class="li-field">
-          <label class="li-label" style="font-size:13px">Avail.</label>
-          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
-        </div>
-        <div class="li-field">
-          <label class="li-label" style="font-size:13px">Cases</label>
-          <input type="number" class="li-qty-input" value="${item.cases||''}" min="0" onchange="updateField(${idx},'cases',this.value)"/>
-        </div>
-        <div class="li-field">
-          <label class="li-label" style="font-size:13px">+ Loose</label>
-          <input type="number" class="li-qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateField(${idx},'bottles',this.value)"/>
-        </div>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px">
@@ -5338,7 +5387,7 @@ function renderEditItems(){
     }
     const p=prodBySku(item.sku);if(!p)return'';const price=itemUnitPrice(item,p);const maxLoose=p.btl;
     const nameCell=`<td style="font-weight:500;color:var(--gold);cursor:pointer" onclick="closeModal('modal-edit-order');openProductPricing('${p.sku.replace(/'/g,"\\'")}')" title="View pricing for ${p.name.replace(/"/g,'&quot;')}">${p.name}</td>`;
-    return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,true,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>${isAdminUser?`<button onclick="openCustomPriceModal('edit',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}</td><td><input type="number" class="qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/></td><td><input type="number" class="qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/></td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td style="position:sticky;right:0;background:#fff"><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
+    return`<tr>${nameCell}<td>${stockChip(p)}</td><td><select class="inline-sel" onchange="updateEditTier(${idx},this.value)">${buildTierOptions(p,item,true,editingAcctId)}</select></td><td style="color:var(--text2);font-size:12px"><div style="font-weight:600;color:var(--text)">$${(price*p.btl).toFixed(2)}/cs</div><div style="font-size:11px">$${price.toFixed(2)}/btl${item._manual?' <span style="color:#8A6100;font-weight:600">(custom)</span>':''}</div>${isAdminUser?`<button onclick="openCustomPriceModal('edit',${idx})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:10px;text-decoration:underline;padding:0;margin-top:2px" title="Set custom price">Set price</button>`:''}</td><td>${qtyStep('edit',idx,'cases',item.cases||'',0,'tbl')}</td><td>${qtyStep('edit',idx,'bottles',item.bottles||'',maxLoose,'tbl')}</td><td id="etb-${idx}" style="color:var(--text2);font-size:12px">${itemTotalBottles(item)} btl</td><td><div style="display:flex;align-items:center;gap:2px"><input type="number" class="qty-input" style="width:54px" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/><span style="font-size:11px;color:var(--text3)">%</span></div></td><td><input type="text" class="finput" style="width:120px;font-size:12px;padding:6px 8px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/></td><td id="elt-${idx}" style="font-weight:600">${item.discountPct>0?`<div style="font-size:10px;color:var(--text3);text-decoration:line-through">${fmt(itemUnitPrice(item,p)*itemTotalBottles(item))}</div>`:''}${fmt(itemLineTotal(item))}</td><td style="position:sticky;right:0;background:#fff"><button class="btn-delete-item" onclick="removeEditItem(${idx})"><i class="ti ti-trash"></i></button></td></tr>`}).join('')+'</tbody></table></div>';
 
   const cardsHtml=window._editItems.map((item,idx)=>{
     if(item.sku===DELIVERY_FEE_SKU){
@@ -5381,6 +5430,21 @@ function renderEditItems(){
         </select>
       </div>
 
+      <div class="li-field-row">
+        <div class="li-field" style="flex:0 0 52px">
+          <label class="li-label" style="font-size:13px">Avail.</label>
+          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
+        </div>
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">Cases</label>
+          ${qtyStep('edit',idx,'cases',item.cases||'',0,'card')}
+        </div>
+        <div class="li-field">
+          <label class="li-label" style="font-size:13px">+ Loose</label>
+          ${qtyStep('edit',idx,'bottles',item.bottles||'',maxLoose,'card')}
+        </div>
+      </div>
+
       <label class="li-label">% Disc.</label>
       <div class="li-row">
         <input type="number" class="li-disc-input" value="${item.discountPct||0}" min="0" max="100" step="0.5" onchange="updateEditDiscount(${idx},this.value)"/>
@@ -5389,21 +5453,6 @@ function renderEditItems(){
       <label class="li-label">Notes</label>
       <div class="li-row">
         <input type="text" class="finput" style="font-size:15px;padding:10px" value="${(item.notes||'').replace(/"/g,'&quot;')}" placeholder="Optional..." onchange="updateEditNotes(${idx},this.value)"/>
-      </div>
-
-      <div class="li-field-row">
-        <div class="li-field">
-          <label class="li-label" style="font-size:13px">Avail.</label>
-          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
-        </div>
-        <div class="li-field">
-          <label class="li-label" style="font-size:13px">Cases</label>
-          <input type="number" class="li-qty-input" value="${item.cases||''}" min="0" onchange="updateEditField(${idx},'cases',this.value)"/>
-        </div>
-        <div class="li-field">
-          <label class="li-label" style="font-size:13px">+ Loose</label>
-          <input type="number" class="li-qty-input" value="${item.bottles||''}" min="0" max="${maxLoose}" onchange="updateEditField(${idx},'bottles',this.value)"/>
-        </div>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px">
