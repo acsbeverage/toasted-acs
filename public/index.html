@@ -1139,7 +1139,14 @@ const revDate=o=>o.delivery||o.date;
 // products are excluded here (browsing/ordering) for non-admin users, but NOT from the raw
 // PRODUCTS array itself -- calculations like orderTotal/itemLineTotal need every product,
 // including inactive ones, to correctly total historical orders that reference them.
-const mainInventory=()=>PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics').filter(p=>currentUser&&currentUser.role==='admin'?true:(p._details?.active||'Yes')!=='No');
+// Non-admins don't see inactive products, products marked "Admin Only", or products with "Orderable by Reps" turned off
+// (those flags are set in Manage Products). Existing orders that already contain such a product are unaffected -- this
+// only controls what can be searched for and added to an order.
+const mainInventory=()=>PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics').filter(p=>{
+  if(currentUser&&currentUser.role==='admin')return true;
+  const d=p._details||{};
+  return (d.active||'Yes')!=='No'&&d.orderableByReps!==false&&!d.adminOnly;
+});
 const logisticsInventory=()=>PRODUCTS.filter(p=>p.warehouse==='acs_logistics');
 // Shared sort logic for order lists (History, Unconfirmed, Deliveries) so "most recent first" means
 // the same thing everywhere, and every page offers the same sort choices.
