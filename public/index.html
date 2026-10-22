@@ -5667,19 +5667,36 @@ function renderInventory(){
 // Shared "Inventory adjustment log" card, used on both the main Inventory page and the
 // ACS Logistics page. Each is filtered to its own warehouse so the two pages show only the
 // history relevant to what's actually on that page, rather than one mixed list.
+window._adjPage=window._adjPage||{};
+function adjLogPage(warehouse,delta){
+  window._adjPage[warehouse]=(window._adjPage[warehouse]||1)+delta;
+  const el=document.getElementById('adjlog-'+warehouse);
+  if(el)el.outerHTML=renderAdjustmentLogCard(warehouse);
+}
 function renderAdjustmentLogCard(warehouse){
-  const rows=RECEIVE_LOG.filter(r=>(r.warehouse||'main')===warehouse);
-  if(!rows.length)return'';
-  return`<div class="card"><div class="card-header"><span class="card-title">Inventory adjustment log</span></div>
+  const all=RECEIVE_LOG.filter(r=>(r.warehouse||'main')===warehouse);
+  if(!all.length)return'';
+  const rows=all.slice().reverse(); // newest first
+  const PS=20,pages=Math.max(1,Math.ceil(rows.length/PS));
+  let pg=window._adjPage[warehouse]||1;
+  if(pg>pages)pg=pages;if(pg<1)pg=1;
+  window._adjPage[warehouse]=pg;
+  const slice=rows.slice((pg-1)*PS,pg*PS);
+  const pager=pages>1?`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border)">
+    <span style="font-size:12px;color:var(--text2)">Showing ${(pg-1)*PS+1}-${Math.min(pg*PS,rows.length)} of ${rows.length}</span>
+    <span><button class="btn btn-sm" ${pg<=1?'disabled':''} onclick="adjLogPage('${warehouse}',-1)">Prev</button>
+    <span style="font-size:12px;margin:0 8px">Page ${pg} of ${pages}</span>
+    <button class="btn btn-sm" ${pg>=pages?'disabled':''} onclick="adjLogPage('${warehouse}',1)">Next</button></span></div>`:'';
+  return`<div class="card" id="adjlog-${warehouse}"><div class="card-header"><span class="card-title">Inventory adjustment log</span></div>
   <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Reason</th><th>Adjustment</th><th>Notes</th><th>By</th></tr></thead>
-  <tbody>${rows.slice().reverse().slice(0,20).map(r=>{
+  <tbody>${slice.map(r=>{
     const sign=r.sign!==undefined?r.sign:1;
     const qtyParts=[r.cases?r.cases+' cs':'',r.bottles?r.bottles+' btl':''].filter(Boolean).join(' + ')||(r.cases||0)+' cs';
     const color=sign>0?'var(--green)':'var(--red)';
     const signChar=sign>0?'+':'-';
     return`<tr><td style="color:var(--text2)">${r.date}</td><td style="font-weight:500">${r.name}</td><td style="font-size:12px;color:var(--text2)">${r.sku}</td><td><span class="tier-pill" style="font-size:11px">${r.reason||'--'}</span></td><td style="font-weight:600;color:${color}">${signChar}${qtyParts}</td><td style="color:var(--text2);font-size:12px">${r.notes||'--'}</td><td style="color:var(--text2);font-size:12px">${r.by||'--'}</td></tr>`;
   }).join('')}</tbody>
-  </table></div></div>`;
+  </table></div>${pager}</div>`;
 }
 function filterInv(q){
   const cat=document.getElementById('inv-cat').value;const sf=document.getElementById('inv-stock').value;const pf=document.getElementById('inv-prod').value;
