@@ -165,8 +165,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
 .qty-step-tbl .qs-col button:first-child{border-top-right-radius:var(--radius);border-bottom:0}
 .qty-step-tbl .qs-col button:last-child{border-bottom-right-radius:var(--radius)}
 .qty-step-card{width:100%}
-.qty-step-card input{border-radius:0!important;min-width:0;flex:1;border-left:0;border-right:0}
-.qty-step-card button{width:46px;min-height:46px;font-size:18px}
+.qty-step-card input{border-radius:0!important;min-width:0;flex:1;border-left:0;border-right:0;padding:12px 2px!important}
+.qty-step-card button{width:38px;min-height:46px;font-size:17px;flex:0 0 38px}
 .qty-step-card button:first-child{border-radius:10px 0 0 10px}
 .qty-step-card button:last-child{border-radius:0 10px 10px 0}
 .inline-sel{padding:5px 7px;font-size:12px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:inherit;cursor:pointer;max-width:160px}
@@ -3527,11 +3527,8 @@ function renderLineItems(){
         </select>
       </div>
 
+      <div style="font-size:13px;color:var(--text2);margin-bottom:8px">Available: <b style="color:var(--text)">${p.stock||0}</b></div>
       <div class="li-field-row">
-        <div class="li-field" style="flex:0 0 52px">
-          <label class="li-label" style="font-size:13px">Avail.</label>
-          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
-        </div>
         <div class="li-field">
           <label class="li-label" style="font-size:13px">Cases</label>
           ${qtyStep('new',idx,'cases',item.cases||'',0,'card')}
@@ -5437,11 +5434,8 @@ function renderEditItems(){
         </select>
       </div>
 
+      <div style="font-size:13px;color:var(--text2);margin-bottom:8px">Available: <b style="color:var(--text)">${p.stock||0}</b></div>
       <div class="li-field-row">
-        <div class="li-field" style="flex:0 0 52px">
-          <label class="li-label" style="font-size:13px">Avail.</label>
-          <div style="font-size:17px;font-weight:600;padding:10px 0">${p.stock||0}</div>
-        </div>
         <div class="li-field">
           <label class="li-label" style="font-size:13px">Cases</label>
           ${qtyStep('edit',idx,'cases',item.cases||'',0,'card')}
