@@ -447,6 +447,8 @@ async function migrate() {
   // tier label itself, which is intentionally shared/global across the whole catalog.
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS tier_notes JSONB DEFAULT '{}'`);
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS spirit_type TEXT DEFAULT ''`);
+  // Manage Products fields without a dedicated column (flags like Orderable by Reps / Admin Only, code, notes, etc.)
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS details_extra JSONB DEFAULT '{}'`);
 
   // Critical performance indexes -- orders/order_items are by far the largest, most
   // frequently-queried tables (the full order history with line items loads on every app
