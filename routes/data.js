@@ -456,7 +456,7 @@ router.get('/stock-adjustments', requireAdmin, async (req, res) => {
     if (warehouse) { vals.push(warehouse); conds.push(`warehouse=$${vals.length}`); }
     if (sku) { vals.push(sku); conds.push(`sku=$${vals.length}`); }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-    vals.push(200);
+    vals.push(Math.min(parseInt(req.query.limit)||1000, 5000));
     const rows = await getAll(
       `SELECT * FROM stock_adjustments ${where} ORDER BY id DESC LIMIT $${vals.length}`,
       vals
