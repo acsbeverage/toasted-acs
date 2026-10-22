@@ -1,24 +1,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
+const compression = require('compression');
 const path    = require('path');
 const fs      = require('fs');
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
+// Compress API responses (the full order list is large JSON and shrinks ~90% when gzipped).
+app.use(compression());
 app.use(express.json({ limit: '50mb' }));
-
-// A fresh value every time this process starts, i.e. every deploy/restart -- the frontend
-// polls this so it can tell "a new version shipped" apart from "nothing changed" and force
-// a reload. This exists because Cache-Control alone (below) doesn't cover everything: iOS
-// Safari's back-forward cache (bfcache) restores a page from memory when a rep switches back
-// to the Toasted tab/app and makes NO network request at all, so no header can touch it --
-// that's the scenario reps were hitting requiring them to manually clear Safari's cache.
-const SERVER_BOOT_ID = String(Date.now());
-app.get('/api/app-version', (req, res) => {
-  res.json({ ok: true, version: SERVER_BOOT_ID });
-});
-
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res) => {
     // This is a single-page app with no separate hashed/versioned asset files, so the
@@ -378,24 +369,12 @@ app.post('/api/notify/order', async (req, res) => {
 
 app.get('/api/run-migration', async (req, res) => {
   if(req.query.secret !== 'toasted2026-runmigration') return res.status(403).json({ok:false});
-  // Was execSync -- Node is single-threaded, so a SYNCHRONOUS child-process call freezes the
-  // entire server for every logged-in user for as long as migrate.js runs, and if migrate.js
-  // ever hangs (e.g. waiting on a database lock, which happened in production), the whole site
-  // goes down with it until someone manually restarts the service. exec() below runs it in a
-  // real child process without blocking the event loop -- everyone else keeps working normally
-  // while it runs -- and the 60s timeout is a hard outer bound so this route can never hang
-  // forever again, even if something inside migrate.js someday fails to time out on its own.
-  const { exec } = require('child_process');
-  exec('node db/migrate.js', { timeout: 60000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
-    if (stdout) console.log(stdout);
-    if (stderr) console.error(stderr);
-    if (err) {
-      const msg = err.killed ? 'Migration timed out after 60s and was killed -- check the logs for where it stopped' : err.message;
-      console.error('Migration failed:', msg);
-      return res.status(500).json({ ok: false, error: msg });
-    }
-    res.json({ ok: true, message: 'Migration complete' });
-  });
+  try {
+    require('child_process').execSync('node db/migrate.js', { stdio: 'inherit' });
+    res.json({ok:true, message:'Migration complete'});
+  } catch (err) {
+    res.status(500).json({ok:false, error: err.message});
+  }
 });
 app.get('/api/migrate-accounts', async (req, res) => {
   if(req.query.secret !== 'toasted2026') return res.status(403).json({ok:false});
