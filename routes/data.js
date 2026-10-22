@@ -492,8 +492,31 @@ router.post('/stock-adjustments', requireAdmin, async (req, res) => {
   }
 });
 
+// Product detail fields that have no dedicated column of their own -- persisted together in the
+// products.details_extra JSONB column so nothing edited in Manage Products is lost on refresh.
+const EXTRA_DETAIL_KEYS = ['code','vendorCode','ttb','casesProd','closureType','notes',
+  'searchable','discontinued','taxable','btg','inventoryItem','packingSlip','priceTasting',
+  'adminOnly','orderableByReps','managerApproval','newVintageInStock','samplesAllowed'];
+function pickExtraDetails(details) {
+  const out = {};
+  if (details && typeof details === 'object') {
+    EXTRA_DETAIL_KEYS.forEach(k => { if (details[k] !== undefined) out[k] = details[k]; });
+  }
+  return out;
+}
+// Creates the column on first use (safe to repeat), so no separate migration step is needed.
+let _detailsExtraReady = null;
+function ensureDetailsExtraColumn() {
+  if (!_detailsExtraReady) {
+    _detailsExtraReady = query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS details_extra JSONB DEFAULT '{}'`)
+      .catch(err => { _detailsExtraReady = null; throw err; });
+  }
+  return _detailsExtraReady;
+}
+
 router.get('/products', requireAuth, async (req, res) => {
   try {
+    await ensureDetailsExtraColumn();
     const isCustomer = req.user.role === 'customer';
     const isAdmin = req.user.role === 'admin';
     const seesAllTiers = isAdmin || !!req.user.pricing_admin; // also governs restricted-product visibility
@@ -570,6 +593,7 @@ router.get('/products', requireAuth, async (req, res) => {
         core: r.core||'No',
         vintage: r.vintage||'',
         spiritType: r.spirit_type||'',
+        ...(r.details_extra || {}),
       },
       image: r.image_url||'',
       tierNotes: r.tier_notes||{},
@@ -779,6 +803,7 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
     const { name, producer, cat, btl, prices, da, stock, _details, image, warehouse, restricted, newSku } = req.body;
     const currentSku = req.params.sku;
+    await ensureDetailsExtraColumn();
     await query(`UPDATE products SET
       name=COALESCE($1,name), producer=COALESCE($2,producer), cat=COALESCE($3,cat), btl=COALESCE($4,btl),
       price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
@@ -786,7 +811,8 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
       stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
       redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25,
       comm_frontline=$26,comm_mix12=$27,comm_acs3=$28,comm_brand3=$29,comm_brand5=$30,
-      warehouse=COALESCE($31,warehouse), restricted=$32, spirit_type=$33
+      warehouse=COALESCE($31,warehouse), restricted=$32, spirit_type=$33,
+      details_extra=COALESCE(details_extra,'{}'::jsonb) || $34::jsonb
       WHERE sku=$24`,
       [name,producer,cat,btl,
        prices?.frontline||0,prices?.mix12||0,prices?.acs3||0,prices?.brand3||0,prices?.brand5||0,
@@ -799,7 +825,8 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
        _details?.vintage||'',
        prices?.__comm_frontline ?? null, prices?.__comm_mix12 ?? null,
        prices?.__comm_acs3 ?? null, prices?.__comm_brand3 ?? null, prices?.__comm_brand5 ?? null,
-       warehouse||null, !!restricted, _details?.spiritType||'']);
+       warehouse||null, !!restricted, _details?.spiritType||'',
+       JSON.stringify(pickExtraDetails(_details))]);
 
     // SKU rename -- product_tier_prices cascades automatically via the foreign key (see
     // migrate.js), but order_items.sku has no formal constraint, so it needs updating by hand
