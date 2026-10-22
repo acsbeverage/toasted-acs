@@ -749,19 +749,20 @@ router.delete('/products/:sku', requireAdmin, async (req, res) => {
 // pricing/details when sent a partial payload.
 router.patch('/products/:sku/stock', requireAdmin, async (req, res) => {
   try {
-    const { stock, delta, reorder } = req.body;
+    const { stock, delta, reorder, adjustment } = req.body;
     let result;
     if (delta !== undefined) {
-      // Atomic path, used by the "Adjust stock" (receive/deduct) flow. The new value is
-      // computed by the database from whatever stock is stored THIS INSTANT, not from a number
-      // the admin's browser loaded earlier -- so if the real stock changed in between (a sale
-      // went through, another admin made an adjustment) while their screen sat open, this still
-      // lands on the correct total instead of overwriting it with math done against a stale
-      // starting number. GREATEST(0, ...) preserves the same floor-at-zero behavior the old
-      // client-side Math.max(0, ...) had for deductions.
+      const d = Number(delta);
+      if (!Number.isFinite(d)) return res.status(400).json({ ok: false, error: 'delta must be a number' });
+      // Atomic path, used by the "Adjust stock" (receive/deduct) flow. The new value is computed by the
+      // database from whatever stock is stored THIS INSTANT, not from a number the admin's browser loaded
+      // earlier. Additions are applied exactly (so a shipment landing on a negative balance offsets it
+      // correctly -- -7 + 3 is -4, not 0). Deductions floor at zero but can never RAISE stock.
       result = await query(
-        `UPDATE products SET stock=GREATEST(0, stock + $1), reorder=COALESCE($2,reorder) WHERE sku=$3 RETURNING stock`,
-        [delta, reorder !== undefined ? reorder : null, req.params.sku]
+        `UPDATE products SET stock = CASE WHEN $1::numeric >= 0 THEN stock + $1::numeric
+                                          ELSE LEAST(stock, GREATEST(0, stock + $1::numeric)) END,
+                reorder=COALESCE($2,reorder) WHERE sku=$3 RETURNING stock`,
+        [d, reorder !== undefined ? reorder : null, req.params.sku]
       );
     } else {
       // Absolute-set path, used when the caller already has an authoritative total to write
@@ -772,7 +773,25 @@ router.patch('/products/:sku/stock', requireAdmin, async (req, res) => {
       );
     }
     if (result.rowCount === 0) return res.status(404).json({ ok: false, error: 'Product not found' });
-    res.json({ ok: true, stock: parseFloat(result.rows[0].stock) });
+
+    // The history entry is written HERE, in the same request, only after the stock change succeeded --
+    // so the log can never claim an adjustment that didn't actually reach the inventory.
+    let logged = true;
+    if (adjustment && typeof adjustment === 'object') {
+      try {
+        await query(
+          `INSERT INTO stock_adjustments (sku, warehouse, cases, bottles, sign, reason, notes, by_user_id, by_name)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [req.params.sku, adjustment.warehouse || 'main', parseInt(adjustment.cases) || 0, parseInt(adjustment.bottles) || 0,
+           (adjustment.sign === -1 ? -1 : 1), adjustment.reason || '', adjustment.notes || '',
+           req.user.id, (req.user.fname ? `${req.user.fname} ${req.user.lname||''}`.trim() : (req.user.email||''))]
+        );
+      } catch (logErr) {
+        logged = false;
+        console.error('Stock adjustment log insert failed (stock WAS updated):', logErr.message);
+      }
+    }
+    res.json({ ok: true, stock: parseFloat(result.rows[0].stock), logged });
   } catch (err) {
     console.error('Update product stock error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
@@ -799,6 +818,10 @@ router.patch('/products/:sku/tier-note', requireAdmin, async (req, res) => {
   }
 });
 
+// NOTE: this full-product save deliberately does NOT write stock. The browser's copy of `stock` can be hours
+// stale, and writing it back here silently undid inventory adjustments/sales made since the page loaded
+// (the adjustment history showed the change, but the real number had been overwritten). Stock only ever
+// changes through PATCH /products/:sku/stock (below) and order create/edit/delete.
 router.patch('/products/:sku', requireAdmin, async (req, res) => {
   try {
     const { name, producer, cat, btl, prices, da, stock, _details, image, warehouse, restricted, newSku } = req.body;
@@ -808,7 +831,7 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
       name=COALESCE($1,name), producer=COALESCE($2,producer), cat=COALESCE($3,cat), btl=COALESCE($4,btl),
       price_frontline=$5,price_mix12=$6,price_acs3=$7,price_brand3=$8,price_brand5=$9,
       da_frontline=$10,da_mix12=$11,da_acs3=$12,da_brand3=$13,da_brand5=$14,
-      stock=$15,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
+      stock=CASE WHEN $15::numeric IS NOT NULL THEN stock ELSE stock END,fob_price=$16,laid_in_cost=$17,active=$18,core=$19,
       redemption_entry=$20,bottle_size=$21,upc=$22,image_url=$23,vintage=$25,
       comm_frontline=$26,comm_mix12=$27,comm_acs3=$28,comm_brand3=$29,comm_brand5=$30,
       warehouse=COALESCE($31,warehouse), restricted=$32, spirit_type=$33,
