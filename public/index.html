@@ -1333,16 +1333,16 @@ function saveProductStockToDB(sku, stock, reorder){
 // browser may have loaded a while ago. Returns a Promise resolving to the real post-adjustment
 // stock value (or null on failure) so the caller can sync its local copy to the true number
 // rather than trusting its own stale-prone math.
-function saveStockDeltaToDB(sku, delta, reorder){
+function saveStockDeltaToDB(sku, delta, reorder, adjustment){
   if(!TOASTED_BACKEND_URL||!window._authToken) return Promise.resolve(null);
   return fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(sku)+'/stock',{
     method:'PATCH',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-    body:JSON.stringify({delta,reorder})
+    body:JSON.stringify({delta,reorder,adjustment})
   }).then(r=>r.json()).then(d=>{
-    if(!d.ok){console.error('Failed to save stock adjustment:',d.error);toast('Stock adjustment did not save -- please try again');return null;}
-    return d.stock;
-  }).catch(e=>{console.error('Save stock error:',e.message);toast('Stock adjustment did not save -- check your connection');return null;});
+    if(!d.ok){console.error('Failed to save stock adjustment:',d.error);return null;}
+    return d; // {ok, stock, logged}
+  }).catch(e=>{console.error('Save stock error:',e.message);return null;});
 }
 
 // Persists a permanent audit record of a manual inventory adjustment, so it survives refresh
@@ -5808,22 +5808,29 @@ async function doReceive(){
   // gets saved is computed by the database from its own current value -- not from p.stock here,
   // which may be stale if stock changed since this page loaded. The response below overwrites
   // this local guess with the real, authoritative post-adjustment total.
+  const prevStock=p.stock,prevReorder=p.reorder;
   p.stock=Math.max(0,p.stock+delta);
   p.reorder=newReorder;
   closeModal('modal-receive');updateBadges();
   const warehouse=_receiveWarehouse;
   if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
 
-  const realStock=await saveStockDeltaToDB(sku,delta,newReorder);
-  if(realStock!==null&&realStock!==undefined){
-    p.stock=realStock;
+  // One request does both: changes the stock AND writes the history entry, and the server only writes
+  // the entry after the stock change succeeded -- so the log can never show an adjustment that didn't
+  // reach the real inventory. (No automatic retry: an adjustment adds an amount, so repeating one whose
+  // reply was merely lost could apply it twice.)
+  const adjustment={warehouse,cases:casesIn,bottles:bottlesIn,sign,reason,notes};
+  let result=await saveStockDeltaToDB(sku,delta,newReorder,adjustment);
+  if(!result){
+    // Not saved -- undo the on-screen guess so the screen doesn't claim a change that never happened.
+    p.stock=prevStock;p.reorder=prevReorder;updateBadges();
     if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
+    alert('Could not confirm the inventory adjustment for '+p.name+'. Refresh Toasted and check the stock number and the adjustment history for this product BEFORE trying again, so the same amount is not applied twice.');
+    return;
   }
-
-  // Persisted server-side so the log survives refresh and is shared across every admin
-  // session -- the local RECEIVE_LOG push below is only for showing the change immediately
-  // without waiting on a round trip.
-  saveStockAdjustmentToDB({sku,warehouse,cases:casesIn,bottles:bottlesIn,sign,reason,notes});
+  p.stock=result.stock;
+  if(warehouse==='acs_logistics')renderACSLogistics();else renderInventory();
+  if(result.logged===false)toast('Stock was updated, but the history entry did not record -- please tell an admin');
   RECEIVE_LOG.push({
     date:today(),sku,name:p.name,
     cases:casesIn,bottles:bottlesIn,sign,reason,notes,warehouse,
