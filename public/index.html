@@ -1278,7 +1278,7 @@ function updateBadges(){
   const ub=document.getElementById('unconf-badge');if(ub)ub.textContent=unconfirmedCount();
   const lb=document.getElementById('low-badge');if(lb){const lc=lowStock().length+outOfStock().length;lb.textContent=lc;lb.classList.toggle('hidden',lc===0)}
   const db=document.getElementById('deliv-badge');if(db){const dc=pendingDeliveries().length;db.textContent=dc;db.style.display=dc>0?'inline':'none'}
-  const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.date,acctById(o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
+  const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.delivery||o.date,acctById(o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
   const drb=document.getElementById('drafts-badge');if(drb){const mine=currentUser&&currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>currentUser&&d.rep===currentUser.id);const dc=mine.length;drb.textContent=dc;drb.style.display=dc>0?'inline':'none'}
   const tsb=document.getElementById('tastings-badge');if(tsb){const tc=TASTINGS.length;tsb.textContent=tc;tsb.style.display=tc>0?'inline':'none'}
 }
@@ -1777,7 +1777,7 @@ function renderPortalAccount(){
         <tbody>${openInvoices.map(o=>`<tr style="border-bottom:1px solid #f5f5f5">
           <td style="padding:8px;font-weight:600;color:#D4967D">${o.id}</td>
           <td style="padding:8px;color:#555">${o.date}</td>
-          <td style="padding:8px;color:#555">${calcDue(o.date,acct)}</td>
+          <td style="padding:8px;color:#555">${calcDue(o.delivery||o.date,acct)}</td>
           <td style="padding:8px;text-align:right;font-weight:700">$${arBalanceDue(o).toFixed(2)}${(o.partialPaidAmount>0)?`<div style="font-size:10px;font-weight:500;color:#8A6100">of $${orderTotal(o).toFixed(2)}</div>`:''}</td>
           <td style="padding:8px"><button onclick="showPortalPage('invoices')" style="background:#f5f5f5;border:none;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer">View</button></td>
         </tr>`).join('')}</tbody>
@@ -1853,7 +1853,7 @@ function _portalInvoiceTable(orders,acct){
     <tbody>${orders.map(o=>`<tr style="border-bottom:1px solid #f5f5f5">
       <td style="padding:8px;font-weight:700;color:#D4967D">${o.id}</td>
       <td style="padding:8px;color:#555">${o.date}</td>
-      <td style="padding:8px;color:${calcDue(o.date,acct)<today()&&!o.paid?'#c00':'#555'}">${calcDue(o.date,acct)}</td>
+      <td style="padding:8px;color:${calcDue(o.delivery||o.date,acct)<today()&&!o.paid?'#c00':'#555'}">${calcDue(o.delivery||o.date,acct)}</td>
       <td style="padding:8px;text-align:right;font-weight:700">$${arBalanceDue(o).toFixed(2)}${(!o.paid&&o.partialPaidAmount>0)?`<div style="font-size:10px;font-weight:500;color:#8A6100">of $${orderTotal(o).toFixed(2)}</div>`:''}</td>
       <td style="padding:8px;text-align:center"><span class="portal-badge ${o.paid?'delivered':(o.partialPaidAmount>0?'unconfirmed':'confirmed')}">${o.paid?'Paid':(o.partialPaidAmount>0?'Partial':'Unpaid')}</span></td>
       <td style="padding:8px"><button onclick="portalViewInvoice('${o.id}')" style="background:#D4967D;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">View invoice</button></td>
@@ -8175,7 +8175,7 @@ function _buildInvoicePDF(o,callback,sharedDoc){(async()=>{
     ['Invoice #:',o.id],
     ['Invoice Date:',o.date],
     ['Delivery Date:',o.delivery],
-    ['Due Date:',calcDue(o.date,acct)],
+    ['Due Date:',calcDue(o.delivery||o.date,acct)],
     ['Terms:',acct&&acct.terms?acct.terms:'Net 30'],
     ['Account #:',acct&&acct.code?acct.code:'--'],
     ['PO #:',o.po||'--'],
@@ -9027,7 +9027,7 @@ function doExportFintech(){
     const acct=acctById(o.acct)||{};
     const rep=userById(o.rep)||{};
     const invoiceDate=fmtDate(dateMode==='delivery'?o.delivery:o.date);
-    const invoiceDueDate=fmtDate(calcDue(o.date,acct));
+    const invoiceDueDate=fmtDate(calcDue(o.delivery||o.date,acct));
     const po=o.po||'';
 
     const vendor_store_id=vendorId==='account_name'?(acct.name||'')
@@ -11828,7 +11828,7 @@ function arOrders(){
 }
 function arDue(o){
   const acct=acctById(o.acct);
-  return calcDue(o.date,acct);
+  return calcDue(o.delivery||o.date,acct);
 }
 function arDaysOverdue(o){
   const due=arDue(o);
@@ -12315,7 +12315,7 @@ function _renderInvoiceHTML(orderId, b64){
   })};
   const acct = acctById(o.acct)||{};
   const rep  = userById(o.rep)||{};
-  const due  = calcDue(o.date, acct);
+  const due  = calcDue(o.delivery||o.date, acct);
 
   // Build line items HTML
   let rows = '', subtotal = 0;
@@ -13864,7 +13864,7 @@ function qboOrderToInvoice(order){
 
   const due = (() => {
     const acctObj=ACCOUNTS.find(a=>a.id===order.acct);
-    return calcDue(order.date, acctObj);
+    return calcDue(order.delivery||order.date, acctObj);
   })();
 
   return {
