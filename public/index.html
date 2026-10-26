@@ -1696,7 +1696,7 @@ let _livePollInterval=null;
 const LIVE_POLL_INTERVAL=180000; // every 3 minutes -- each poll triggers a full data reload (including every order's line items), so this is intentionally much longer than the 20s nav-refresh throttle above to avoid placing repeated, heavy load on the database from every logged-in user simultaneously
 function startLivePortalPolling(){
   stopLivePortalPolling();
-  _livePortalPollInterval=setInterval(()=>{triggerBackgroundPortalRefresh(_currentPortalPage);},LIVE_POLL_INTERVAL);
+  _livePortalPollInterval=setInterval(()=>{if(document.hidden)return;triggerBackgroundPortalRefresh(_currentPortalPage);},LIVE_POLL_INTERVAL);
 }
 function stopLivePortalPolling(){
   if(_livePortalPollInterval){clearInterval(_livePortalPollInterval);_livePortalPollInterval=null;}
@@ -2605,7 +2605,7 @@ async function triggerBackgroundRefresh(page){
 // re-renders while someone's actively typing).
 function startLivePolling(){
   stopLivePolling(); // defensive -- never stack up more than one interval
-  _livePollInterval=setInterval(()=>{triggerBackgroundRefresh(_currentPage);},LIVE_POLL_INTERVAL);
+  _livePollInterval=setInterval(()=>{if(document.hidden)return;triggerBackgroundRefresh(_currentPage);},LIVE_POLL_INTERVAL);
 }
 function stopLivePolling(){
   if(_livePollInterval){clearInterval(_livePollInterval);_livePollInterval=null;}
