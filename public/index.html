@@ -4992,13 +4992,26 @@ const LABEL_LANDSCAPE_ROTATE=true;
 function buildLabelList(order){
   const prodItems=(order.items||[]).filter(x=>!x._fee);
   const list=[];
+  const loose=[]; // {name,sku,qty} across all products
   prodItems.forEach(it=>{
     const p=prodBySku(it.sku)||{};
     const perCase=p.btl||12;
-    for(let i=0;i<(it.cases||0);i++)list.push({kind:'case',sku:it.sku,name:p.name||it.name||it.sku||'',producer:p.producer||'',size:(p._details&&p._details.bottleSize)||'750ml',perCase,qty:perCase});
-    let loose=it.bottles||0;
-    while(loose>0){const q=Math.min(loose,perCase);list.push({kind:'loose',sku:it.sku,name:p.name||it.name||it.sku||'',producer:p.producer||'',size:(p._details&&p._details.bottleSize)||'750ml',perCase,qty:q});loose-=q;}
+    const nm=p.name||it.name||it.sku||'';
+    for(let i=0;i<(it.cases||0);i++)list.push({kind:'case',sku:it.sku,name:nm,producer:p.producer||'',size:(p._details&&p._details.bottleSize)||'750ml',perCase,qty:perCase});
+    if((it.bottles||0)>0)loose.push({name:nm,sku:it.sku,qty:it.bottles});
   });
+  // Loose bottles from every product share boxes: up to 12 bottles per box, one label per box.
+  let box=null,room=12;
+  loose.forEach(l=>{
+    let left=l.qty;
+    while(left>0){
+      if(!box){box={kind:'box',lines:[],qty:0};room=12;}
+      const q=Math.min(left,room);
+      box.lines.push({name:l.name,qty:q});box.qty+=q;left-=q;room-=q;
+      if(room===0){list.push(box);box=null;}
+    }
+  });
+  if(box)list.push(box);
   return list;
 }
 function calcLabelCount(order){
@@ -5028,10 +5041,13 @@ function buildZPLShippingLabel(acct,order,startAt,count){
     out+=txt(20,20,34,'ACS Beverage Co.',380);
     out+=txt(380,14,58,head,412,'R');
     out+=box(20,84,772,3);
-    if(L){
+    if(L&&L.kind==='case'){
       out+=txt(20,100,46,L.name,772,'L',2);
       out+=txt(20,196,28,[L.sku,L.producer].filter(Boolean).join('  |  '),772);
-      out+=txt(20,232,32,L.kind==='case'?`${L.qty} x ${L.size}  (full case)`:`LOOSE: ${L.qty} bottle${L.qty!==1?'s':''} x ${L.size}`,772);
+      out+=txt(20,232,32,`${L.qty} x ${L.size}  (full case)`,772);
+    }else if(L){
+      out+=txt(20,110,52,'MIXED CASE',772);
+      out+=txt(20,180,40,`${L.qty} bottle${L.qty!==1?'s':''}`,772);
     }
     out+=box(20,274,772,2);
     out+=txt(20,288,22,'SHIP TO:',200);
