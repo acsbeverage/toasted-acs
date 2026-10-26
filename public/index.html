@@ -777,6 +777,8 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
   <div class="modal" style="max-width:420px">
     <div class="modal-title">Reprint shipping labels</div>
     <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Order <strong id="reprint-order-id"></strong> -- <span id="reprint-default-note"></span></p>
+    <label class="flabel">Start at label #</label>
+    <input type="number" id="reprint-label-start" class="finput" min="1" step="1" value="1" style="margin-top:4px;margin-bottom:10px"/>
     <label class="flabel">Number of labels to print</label>
     <input type="number" id="reprint-label-count" class="finput" min="1" step="1" style="margin-top:4px"/>
     <div class="modal-footer">
@@ -4980,49 +4982,68 @@ function filterUnconfirmed(){
       <button class="btn btn-sm" ${_unconfPage>=totalPages?'disabled':''} onclick="unconfGoToPage(${_unconfPage+1})">Next <i class="ti ti-chevron-right"></i></button>`;
   }
 }
-// -- ZEBRA LABEL PRINTING (2.25in x 4in, 203dpi) --------------------------------
+// -- ZEBRA LABEL PRINTING (2.25in x 4in stock, 203dpi) ---------------------------
+// One label per physical case, in order: "CASE 2 of 5" with the product that goes in that case,
+// so the picker can check each case against the line item. Loose bottles get their own labels
+// ("LOOSE 6 btl") per product, chunked into case-sized boxes.
+// Layout is landscape: text runs along the 4in edge of the stock. If your labels come out
+// turned the wrong way, flip LABEL_LANDSCAPE_ROTATE below.
+const LABEL_LANDSCAPE_ROTATE=true;
+function buildLabelList(order){
+  const prodItems=(order.items||[]).filter(x=>!x._fee);
+  const list=[];
+  prodItems.forEach(it=>{
+    const p=prodBySku(it.sku)||{};
+    const perCase=p.btl||12;
+    for(let i=0;i<(it.cases||0);i++)list.push({kind:'case',sku:it.sku,name:p.name||it.name||it.sku||'',producer:p.producer||'',size:(p._details&&p._details.bottleSize)||'750ml',perCase,qty:perCase});
+    let loose=it.bottles||0;
+    while(loose>0){const q=Math.min(loose,perCase);list.push({kind:'loose',sku:it.sku,name:p.name||it.name||it.sku||'',producer:p.producer||'',size:(p._details&&p._details.bottleSize)||'750ml',perCase,qty:q});loose-=q;}
+  });
+  return list;
+}
 function calcLabelCount(order){
-  const prodItems=order.items.filter(x=>!x._fee);
-  const totalCases=prodItems.reduce((s,x)=>s+(x.cases||0),0);
-  const totalLooseBottles=prodItems.reduce((s,x)=>s+(x.bottles||0),0);
-  const looseLabels=totalLooseBottles>0?Math.ceil(totalLooseBottles/12):0;
-  return Math.max(1,totalCases+looseLabels);
+  return Math.max(1,buildLabelList(order).length);
 }
-function buildZPLShippingLabel(acct,order,copies){
-  const esc=s=>(s||'').toString().replace(/[\^~]/g,'').replace(/\\/g,'\\\\');
-  const name=esc(acct.name||'');
-  const street=esc(acct.shipStreet||acct.address||'');
-  const cityStateZip=esc([acct.shipCity,acct.shipState].filter(Boolean).join(', ')+(acct.shipZip?' '+acct.shipZip:''));
-  const orderId=esc(order.id||'');
-  const delivery=esc(order.delivery||'');
-  const qty=Math.max(1,copies||1);
-  return `^XA
-^PQ${qty}
-^PW456
-^LL812
-^LH0,0
-^CF0,32
-^FO20,30^FDACS Beverage Co.^FS
-^FO20,68^GB416,3,3^FS
-^CF0,24
-^FO20,90^FDSHIP TO:^FS
-^CF0,46
-^FO20,118^FB416,3,0,L^FD${name}^FS
-^CF0,28
-^FO20,378^FB416,2,0,L^FD${street}^FS
-^FO20,462^FB416,1,0,L^FD${cityStateZip}^FS
-^FO20,516^GB416,2,2^FS
-^CF0,22
-^FO20,538^FDOrder: ${orderId}^FS
-^FO20,566^FDDeliver: ${delivery}^FS
-^FO20,700^GB416,2,2^FS
-^CF0,18
-^FO20,722^FDShip From:^FS
-^CF0,20
-^FO20,746^FD531 Getty Ct. STE D, Benicia CA 94510^FS
-^XZ`;
+function buildZPLShippingLabel(acct,order,startAt,count){
+  const esc=s=>(s||'').toString().replace(/[\^~]/g,'').replace(/\\/g,'');
+  const list=buildLabelList(order);
+  const total=list.length;
+  const start=Math.max(1,startAt||1);
+  const n=Math.max(1,count||total||1);
+  const R=LABEL_LANDSCAPE_ROTATE;
+  // Logical canvas is landscape 812 wide x 456 tall. Map to the printer's coordinates.
+  const W=456,H=812;
+  const pos=(lx,ly,h)=>R?`^FO${W-ly-(h||0)},${lx}`:`^FO${lx},${ly}`;
+  const txt=(lx,ly,size,text,width,just,lines)=>`${pos(lx,ly,size*(lines||1))}^A0,${size},${size}^FB${width||770},${lines||1},0,${just||'L'}^FD${esc(text)}^FS\n`;
+  const box=(lx,ly,w,h)=>R?`^FO${W-ly-h},${lx}^GB${h},${w},${Math.min(h,w)}^FS\n`:`^FO${lx},${ly}^GB${w},${h},${Math.min(h,w)}^FS\n`;
+  const name=acct.name||'';
+  const street=acct.shipStreet||acct.address||'';
+  const cityStateZip=[acct.shipCity,acct.shipState].filter(Boolean).join(', ')+(acct.shipZip?' '+acct.shipZip:'');
+  let out='';
+  for(let k=0;k<n;k++){
+    const idx=start+k;                       // position in the order's label sequence
+    const L=list[idx-1];
+    const head=L?(L.kind==='case'?`CASE ${idx} of ${total}`:`BOX ${idx} of ${total}`):`LABEL ${idx}`;
+    out+=`^XA\n^PQ1\n^PW${R?W:H}\n^LL${R?H:W}\n^LH0,0\n${R?'^FWR\n':''}`;
+    out+=txt(20,20,34,'ACS Beverage Co.',380);
+    out+=txt(380,14,58,head,412,'R');
+    out+=box(20,84,772,3);
+    if(L){
+      out+=txt(20,100,46,L.name,772,'L',2);
+      out+=txt(20,196,28,[L.sku,L.producer].filter(Boolean).join('  |  '),772);
+      out+=txt(20,232,32,L.kind==='case'?`${L.qty} x ${L.size}  (full case)`:`LOOSE: ${L.qty} bottle${L.qty!==1?'s':''} x ${L.size}`,772);
+    }
+    out+=box(20,274,772,2);
+    out+=txt(20,288,22,'SHIP TO:',200);
+    out+=txt(20,314,34,name,772);
+    out+=txt(20,356,26,street+(cityStateZip?'  --  '+cityStateZip:''),772);
+    out+=txt(20,398,22,`Order: ${order.id||''}    Deliver: ${order.delivery||''}`,500);
+    out+=txt(20,426,18,'Ship from: 531 Getty Ct. STE D, Benicia CA 94510',772);
+    out+='^XZ\n';
+  }
+  return out;
 }
-function printShippingLabel(orderId,overrideCount){
+function printShippingLabel(orderId,overrideCount,startAt){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   const acct=acctById(o.acct);
   if(!acct){toast('Account not found -- cannot print label');return;}
@@ -5031,7 +5052,7 @@ function printShippingLabel(orderId,overrideCount){
     return;
   }
   const labelCount=Math.max(1,parseInt(overrideCount)||calcLabelCount(o));
-  const zpl=buildZPLShippingLabel(acct,o,labelCount);
+  const zpl=buildZPLShippingLabel(acct,o,startAt||1,labelCount);
   const doSend=(device)=>{
     if(!device||!device.name){
       toast('No label printer found -- open the Zebra Browser Print app and confirm your printer is listed');
@@ -5062,9 +5083,10 @@ function openReprintLabelsModal(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
   const defaultCount=calcLabelCount(o);
   document.getElementById('reprint-order-id').textContent=orderId;
-  document.getElementById('reprint-default-note').textContent='based on this order, that\'s normally '+defaultCount+' label'+(defaultCount!==1?'s':'')+'. Adjust below if you only need some, or more.';
+  document.getElementById('reprint-default-note').textContent='based on this order, that\'s normally '+defaultCount+' label'+(defaultCount!==1?'s':'')+'. Labels are numbered case by case (Case 1 of N...). To reprint just one case, set "Start at" to that number and print 1.';
   const input=document.getElementById('reprint-label-count');
   input.value=defaultCount;
+  const st=document.getElementById('reprint-label-start');if(st)st.value=1;
   window._reprintOrderId=orderId;
   document.getElementById('modal-reprint-labels').classList.add('open');
 }
@@ -5072,8 +5094,9 @@ function doReprintLabels(){
   const orderId=window._reprintOrderId;if(!orderId)return;
   const count=parseInt(document.getElementById('reprint-label-count').value);
   if(!count||count<1){toast('Enter a number of labels to print');return}
+  const startAt=parseInt((document.getElementById('reprint-label-start')||{}).value)||1;
   closeModal('modal-reprint-labels');
-  printShippingLabel(orderId,count);
+  printShippingLabel(orderId,count,startAt);
 }
 let _confirmInFlight=false;
 async function doConfirm(){
