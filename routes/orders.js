@@ -78,35 +78,49 @@ async function validateLogisticsOrder(items, user, isSample) {
   return null;
 }
 
-async function buildOrdersList(user) {
+// `since` (YYYY-MM-DD) limits the list to orders dated on/after that day PLUS every order that is
+// still open (unconfirmed, confirmed, or delivered-but-unpaid) no matter how old, so Accounts
+// Receivable and the Unconfirmed/Deliveries screens are always complete. Customers get all of
+// their own (small) history. Returns { orders, olderCount } where olderCount is how many
+// orders were left out.
+async function buildOrdersList(user, since) {
     const isAdmin    = user.role === 'admin';
     const isCustomer = user.role === 'customer';
-    let rows;
+    const useSince = !!since && !isCustomer;
+    const COLS = `o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount`;
+    let rows, total;
     if (isAdmin) {
+      const vals = []; let where = '';
+      if (useSince) { vals.push(since); where = `WHERE (o.date >= $1 OR o.status <> 'delivered' OR o.paid IS NOT TRUE)`; }
       rows = await getAll(`
-        SELECT o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        SELECT ${COLS}, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
-        ORDER BY o.created_at DESC`);
+        ${where}
+        ORDER BY o.created_at DESC`, vals);
+      total = useSince ? parseInt((await getOne('SELECT COUNT(*) AS n FROM orders')).n) : rows.length;
     } else if (isCustomer) {
       const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [user.id]);
-      if (!cust) return [];
+      if (!cust) return { orders: [], olderCount: 0 };
       rows = await getAll(`
-        SELECT o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, a.name as acct_name
+        SELECT ${COLS}, a.name as acct_name
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         WHERE o.acct_id=$1 ORDER BY o.created_at DESC`, [cust.acct_id]);
+      total = rows.length;
     } else {
       // Reps see every order for accounts assigned to them -- not just orders they personally
-      // placed. Previously this filtered on the order's own rep_id, meaning a rep couldn't see
-      // an order an admin (or a prior rep) placed for an account now assigned to them.
+      // placed (an admin or a prior rep may have placed it).
+      const vals = [user.id]; let extra = '';
+      if (useSince) { vals.push(since); extra = ` AND (o.date >= $2 OR o.status <> 'delivered' OR o.paid IS NOT TRUE)`; }
       rows = await getAll(`
-        SELECT o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        SELECT ${COLS}, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
-        WHERE a.rep=$1 ORDER BY o.created_at DESC`, [user.id]);
+        WHERE a.rep=$1${extra} ORDER BY o.created_at DESC`, vals);
+      total = useSince ? parseInt((await getOne('SELECT COUNT(*) AS n FROM orders o LEFT JOIN accounts a ON o.acct_id = a.id WHERE a.rep=$1', [user.id])).n) : rows.length;
     }
     const orderIds = rows.map(r => r.id);
     let items = [];
@@ -143,7 +157,7 @@ async function buildOrdersList(user) {
       partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
       items: itemsByOrder[r.id] || [],
     }));
-    return orders;
+    return { orders, olderCount: Math.max(0, total - rows.length) };
 }
 
 // ---- Memory protection for the bulk order list ---------------------------------------------
@@ -172,12 +186,12 @@ function _ordRelease() {
   const next = _ordWaiters.shift();
   if (next) next(); else _ordActive--;
 }
-function _ordKey(user) {
-  if (user.role === 'admin') return 'admin';
-  return (user.role === 'customer' ? 'c:' : 'r:') + user.id;
+function _ordKey(user, since) {
+  const base = user.role === 'admin' ? 'admin' : (user.role === 'customer' ? 'c:' : 'r:') + user.id;
+  return base + '|' + (since || 'all');
 }
-async function getOrdersJson(user) {
-  const key = _ordKey(user);
+async function getOrdersJson(user, since) {
+  const key = _ordKey(user, since);
   const hit = _ordCache.get(key);
   if (hit && Date.now() - hit.t < _ORD_TTL_MS) return hit.json;
   if (_ordInflight.has(key)) return _ordInflight.get(key);
@@ -185,8 +199,8 @@ async function getOrdersJson(user) {
     await _ordAcquire();
     const ver = _ordVersion;
     try {
-      const orders = await buildOrdersList(user);
-      const json = JSON.stringify({ ok: true, orders });
+      const { orders, olderCount } = await buildOrdersList(user, since);
+      const json = JSON.stringify({ ok: true, orders, olderCount, since: since || null });
       if (ver === _ordVersion) _ordCache.set(key, { t: Date.now(), json });
       return json;
     } finally { _ordRelease(); }
@@ -197,7 +211,8 @@ async function getOrdersJson(user) {
 
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const json = await getOrdersJson(req.user);
+    const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since || '') ? req.query.since : null;
+    const json = await getOrdersJson(req.user, since);
     res.type('application/json').send(json);
   } catch (err) {
     console.error('Get orders error:', err.message);
