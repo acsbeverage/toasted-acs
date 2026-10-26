@@ -78,23 +78,22 @@ async function validateLogisticsOrder(items, user, isSample) {
   return null;
 }
 
-router.get('/', requireAuth, async (req, res) => {
-  try {
-    const isAdmin    = req.user.role === 'admin';
-    const isCustomer = req.user.role === 'customer';
+async function buildOrdersList(user) {
+    const isAdmin    = user.role === 'admin';
+    const isCustomer = user.role === 'customer';
     let rows;
     if (isAdmin) {
       rows = await getAll(`
-        SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        SELECT o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
         ORDER BY o.created_at DESC`);
     } else if (isCustomer) {
-      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
-      if (!cust) return res.json({ ok: true, orders: [] });
+      const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [user.id]);
+      if (!cust) return [];
       rows = await getAll(`
-        SELECT o.*, a.name as acct_name
+        SELECT o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, a.name as acct_name
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         WHERE o.acct_id=$1 ORDER BY o.created_at DESC`, [cust.acct_id]);
@@ -103,17 +102,17 @@ router.get('/', requireAuth, async (req, res) => {
       // placed. Previously this filtered on the order's own rep_id, meaning a rep couldn't see
       // an order an admin (or a prior rep) placed for an account now assigned to them.
       rows = await getAll(`
-        SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        SELECT o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
-        WHERE a.rep=$1 ORDER BY o.created_at DESC`, [req.user.id]);
+        WHERE a.rep=$1 ORDER BY o.created_at DESC`, [user.id]);
     }
     const orderIds = rows.map(r => r.id);
     let items = [];
     if (orderIds.length > 0) {
       items = await getAll(
-        `SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY sort_order`,
+        `SELECT order_id, sku, cases, bottles, tier, discount_pct, is_fee, fee_amt, fee_count, is_manual, rate, notes FROM order_items WHERE order_id = ANY($1) ORDER BY sort_order`,
         [orderIds]);
     }
     const itemsByOrder = {};
@@ -144,7 +143,62 @@ router.get('/', requireAuth, async (req, res) => {
       partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
       items: itemsByOrder[r.id] || [],
     }));
-    res.json({ ok: true, orders });
+    return orders;
+}
+
+// ---- Memory protection for the bulk order list ---------------------------------------------
+// This route returns every order + every line item (8,600+ and growing). Each build allocates
+// many tens of MB transiently, and several people refreshing at once used to stack those up
+// until Render killed the instance for exceeding its memory limit. So:
+//  * identical concurrent requests share ONE build (single-flight),
+//  * the finished JSON is reused for a few seconds, and is dropped the moment any order is
+//    written (so it never serves stale data after a save),
+//  * at most 2 builds run at the same time; the rest wait their turn.
+const _ORD_TTL_MS = 8000;
+const _ordCache = new Map();      // key -> { t, json }
+const _ordInflight = new Map();   // key -> Promise<string>
+let _ordVersion = 0;
+function bustOrdersCache() { _ordVersion++; _ordCache.clear(); }
+router.use((req, res, next) => {
+  if (req.method !== 'GET') { bustOrdersCache(); res.on('finish', bustOrdersCache); }
+  next();
+});
+let _ordActive = 0; const _ordWaiters = [];
+async function _ordAcquire() {
+  if (_ordActive < 2) { _ordActive++; return; }
+  await new Promise(r => _ordWaiters.push(r));
+}
+function _ordRelease() {
+  const next = _ordWaiters.shift();
+  if (next) next(); else _ordActive--;
+}
+function _ordKey(user) {
+  if (user.role === 'admin') return 'admin';
+  return (user.role === 'customer' ? 'c:' : 'r:') + user.id;
+}
+async function getOrdersJson(user) {
+  const key = _ordKey(user);
+  const hit = _ordCache.get(key);
+  if (hit && Date.now() - hit.t < _ORD_TTL_MS) return hit.json;
+  if (_ordInflight.has(key)) return _ordInflight.get(key);
+  const p = (async () => {
+    await _ordAcquire();
+    const ver = _ordVersion;
+    try {
+      const orders = await buildOrdersList(user);
+      const json = JSON.stringify({ ok: true, orders });
+      if (ver === _ordVersion) _ordCache.set(key, { t: Date.now(), json });
+      return json;
+    } finally { _ordRelease(); }
+  })();
+  _ordInflight.set(key, p);
+  try { return await p; } finally { _ordInflight.delete(key); }
+}
+
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const json = await getOrdersJson(req.user);
+    res.type('application/json').send(json);
   } catch (err) {
     console.error('Get orders error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
