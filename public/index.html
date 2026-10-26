@@ -1439,6 +1439,46 @@ function saveNewOrderToDB(order){
   }).then(r=>r.json()).catch(e=>({ok:false,error:e.message}));
 }
 
+// ---- Order window -------------------------------------------------------------------------
+// The server sends orders from this date forward plus every still-open order (unconfirmed,
+// confirmed, or delivered-but-unpaid) of any age. Default reaches back 18 months, or to Jan 1
+// of last year if that is further, so the dashboard's year-over-year comparisons are exact.
+// "Load older orders" (Order History / account screens) widens it; '' means everything.
+let _ordersSince=null;          // null = use default; '' = all orders
+let _olderOrdersCount=0;        // how many orders the server left out
+function defaultOrdersSince(){
+  const d=new Date();d.setMonth(d.getMonth()-18);
+  const jan1=new Date(new Date().getFullYear()-1,0,1);
+  const e=d<jan1?d:jan1;
+  return e.getFullYear()+'-'+String(e.getMonth()+1).padStart(2,'0')+'-'+String(e.getDate()).padStart(2,'0');
+}
+function ordersQuery(){
+  const since=_ordersSince===null?defaultOrdersSince():_ordersSince;
+  return since?'?since='+since:'';
+}
+function ordersWindowNote(){
+  if(!_olderOrdersCount)return'';
+  const since=_ordersSince===null?defaultOrdersSince():_ordersSince;
+  return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px;background:var(--amber-bg,#fdf8ef);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text2)">
+    <span>Showing orders from <strong>${since}</strong> onward, plus all open/unpaid orders. ${_olderOrdersCount.toLocaleString()} older paid order${_olderOrdersCount!==1?'s are':' is'} not loaded.</span>
+    <button class="btn btn-sm" onclick="loadOlderOrders()"><i class="ti ti-history"></i> Load all older orders</button></div>`;
+}
+let _loadingOlder=false;
+async function loadOlderOrders(){
+  if(_loadingOlder)return;
+  _loadingOlder=true;
+  toast('Loading older orders...');
+  _ordersSince='';
+  try{
+    await loadAllDataFromBackend();
+    updateBadges();
+    if(window._openDetailView&&window._openDetailView.type==='account'&&_currentPage==='accounts')openAccountDetail(window._openDetailView.id);
+    else _dispatchPageRender(_currentPage);
+    toast('Loaded all '+ORDERS.length.toLocaleString()+' orders');
+  }catch(e){toast('Could not load older orders -- try again');}
+  finally{_loadingOlder=false;}
+}
+
 async function loadAllDataFromBackend(){
   if(!TOASTED_BACKEND_URL||!window._authToken) return;
   const headers={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
@@ -1446,7 +1486,7 @@ async function loadAllDataFromBackend(){
   const writeSeqAtStart=_orderWriteSeq;
   try{
     const [ordersRes,acctsRes,prodsRes,tierCfgRes,usersRes,custRes,draftsRes,tastingsRes,docsRes,schedRes,taxRes,bannerRes,combosRes,stockAdjRes]=await Promise.all([
-      safeFetch(TOASTED_BACKEND_URL+'/api/orders'),
+      safeFetch(TOASTED_BACKEND_URL+'/api/orders'+ordersQuery()),
       safeFetch(TOASTED_BACKEND_URL+'/api/accounts'),
       safeFetch(TOASTED_BACKEND_URL+'/api/products'),
       safeFetch(TOASTED_BACKEND_URL+'/api/pricing-tier-config'),
@@ -1473,7 +1513,7 @@ async function loadAllDataFromBackend(){
       ordersRes.ok=false;prodsRes.ok=false;
       setTimeout(()=>{_lastBgRefresh=0;if(typeof triggerBackgroundRefresh==='function')triggerBackgroundRefresh(_currentPage);},1500);
     }
-    if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;console.log('Loaded',ORDERS.length,'orders from database');}
+    if(ordersRes.ok&&ordersRes.orders){ORDERS=ordersRes.orders;_olderOrdersCount=ordersRes.olderCount||0;console.log('Loaded',ORDERS.length,'orders from database');}
     if(acctsRes.ok&&acctsRes.accounts){ACCOUNTS=acctsRes.accounts;console.log('Loaded',ACCOUNTS.length,'accounts from database');}
     if(prodsRes.ok&&prodsRes.products){PRODUCTS=prodsRes.products;console.log('Loaded',PRODUCTS.length,'products from database');}
     if(tierCfgRes.ok&&tierCfgRes.tiers&&tierCfgRes.tiers.length){TIERS=tierCfgRes.tiers.map(t=>({id:t.id,name:t.label}));console.log('Loaded',TIERS.length,'pricing tier configs from database');}
@@ -5547,6 +5587,7 @@ function renderHistory(){
   const isAdmin=currentUser.role==='admin';const mine=ORDERS; // ORDERS is already correctly scoped by the backend to this user
   _histPage=1;_histSort='date_desc';_histSelected=new Set();
   document.getElementById('main-content').innerHTML=`
+  ${ordersWindowNote()}
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <div class="search-wrap" style="max-width:280px"><i class="ti ti-search si"></i><input class="search-input" id="hist-search" placeholder="Search order ID or account..." oninput="_histPage=1;filterHistory()"/></div>
     <select class="finput" id="hist-status" onchange="_histPage=1;filterHistory()" style="width:160px;padding:7px 9px"><option value="">All statuses</option><option value="unconfirmed">Unconfirmed</option><option value="confirmed">Confirmed (Pending delivery)</option><option value="delivered">Delivered (In AR)</option></select>
@@ -6542,6 +6583,7 @@ function openAccountDetail(acctId){
   window._acctOrdersList=allOrders;
   window._acctOrdersPage=1;
 
+  html+=ordersWindowNote();
   html+='<div class="card"><div class="card-header"><span class="card-title">Order History ('+allOrders.length+')</span></div>';
   html+='<div id="acct-orders-table-view" style="overflow-x:auto;max-height:520px;overflow-y:auto"><table class="tbl"><thead><tr>';
   html+='<th>Order ID</th><th>Date</th><th>Delivery</th><th>Status</th><th>Total</th><th>Received</th><th>Balance owed</th><th>Paid</th><th></th>';
