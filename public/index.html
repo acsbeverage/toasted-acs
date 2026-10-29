@@ -3113,7 +3113,7 @@ function renderNewOrder(){
     if(currentOrder.notes===undefined)currentOrder.notes='';
     if(!currentOrder.orderType)currentOrder.orderType='standard';
   }
-  document.getElementById('topbar-right').innerHTML=`<button class="btn btn-sm" onclick="openBulkImportPO()" title="Upload many customer POs (PDF) at once" style="margin-right:6px"><i class="ti ti-files"></i> Bulk import POs</button><button class="btn btn-sm" onclick="openImportPO()" title="Upload a customer PO (PDF) to fill in this order"><i class="ti ti-file-import"></i> Import PO (PDF)</button><span style="font-size:12px;color:var(--text3);font-weight:500;margin-left:10px">New order -- number assigned on submit</span>`;
+  document.getElementById('topbar-right').innerHTML=`<button class="btn btn-sm" onclick="openBulkImportPO()" title="Upload many customer POs (PDF or HTML) at once" style="margin-right:6px"><i class="ti ti-files"></i> Bulk import POs</button><button class="btn btn-sm" onclick="openImportPO()" title="Upload a customer PO (PDF or HTML) to fill in this order"><i class="ti ti-file-import"></i> Import PO</button><span style="font-size:12px;color:var(--text3);font-weight:500;margin-left:10px">New order -- number assigned on submit</span>`;
   document.getElementById('main-content').innerHTML=`
   <div class="card"><div class="card-header"><span class="card-title">Order details</span></div><div class="card-body">
     <div style="margin-bottom:14px">
@@ -3872,33 +3872,141 @@ function openOrderSummaryModal(orderId){
   document.body.insertAdjacentHTML('beforeend',html);
 }
 
-// ==== IMPORT A CUSTOMER PURCHASE ORDER (PDF) ================================================
-// Upload a PO PDF -> read it -> review screen -> pre-fills the normal New Order screen.
-// Nothing is saved until the user presses Submit on that screen. CRV/delivery fees are added
-// by the normal order logic, so PO deposit columns are intentionally ignored.
-// To support another chain's layout, add a parser to PO_PARSERS: (lines) => result | null.
+// ==== IMPORT CUSTOMER PURCHASE ORDERS (PDF / HTML) ==========================================
+// Upload one PO (or many) -> review -> fill in New Order, or create all as Unconfirmed orders.
+// Nothing is saved until the user confirms. CRV/delivery fees come from the normal order logic,
+// so deposit columns on POs are intentionally ignored.
+// Each customer layout has a parser in PO_PARSERS: (ctx) => normalized PO | null, where ctx is
+// {kind:'pdf'|'html', lines, text, html, doc}. A normalized PO is:
+//  {chain, aliasScope, po, storeId, storeName, hintSets:[[words that must all be in the account name]],
+//   delivery:'YYYY-MM-DD'|'', items:[{code, desc, uom:'CS'|'BTL', qty, cost (per uom), perCase, codeIsACS}],
+//   expectedCases, expectedUnits}
+// Product matching order: remembered item code (poAliases) -> exact ACS item # -> name guess.
 const PO_PARSERS=[];
 const poEsc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-function poNum(x){return parseFloat(String(x).replace(/,/g,''))}
-// ---- Total Wine & More ----
-PO_PARSERS.push(function totalWineParser(lines){
-  const txt=lines.join('\n');
+function poNum(x){return parseFloat(String(x).replace(/[,$\s]/g,''))}
+const PO_MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+const poIso=(y,m,d)=>y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+// ---- Total Wine & More (PDF) ----
+PO_PARSERS.push(function totalWineParser(ctx){
+  const lines=ctx.lines,txt=lines.join('\n');
   if(!/Purchase Order/i.test(txt)||!/Total Wine/i.test(txt))return null;
   const po=(txt.match(/PO\s*#:\s*(\d+)/i)||[])[1];
   const store=txt.match(/^\s*(\d+)\s*-\s*(Total Wine[^\n]*)$/im);
   if(!po||!store)return null;
   const dm=txt.match(/Est\s*Delivery\s*Date:\s*(?:\w+,\s*)?(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
-  const delivery=dm?dm[3]+'-'+dm[1].padStart(2,'0')+'-'+dm[2].padStart(2,'0'):'';
   const items=[];
   lines.forEach(l=>{
     const m=l.match(/^(\d[\w-]*)\s+(.*?)\s(\d+)\s+\$([\d,]+\.\d{2})\b(?:\s+(\d+)\b)?/);
     if(!m||/^Totals/i.test(l))return;
-    items.push({code:m[1],desc:m[2].trim(),cases:parseInt(m[3]),cost:poNum(m[4]),perCase:m[5]?parseInt(m[5]):null});
+    items.push({code:m[1],desc:m[2].trim(),uom:'CS',qty:parseInt(m[3]),cost:poNum(m[4]),perCase:m[5]?parseInt(m[5]):null,codeIsACS:true});
   });
   const tc=txt.match(/Total Qty Cases:\s*(\d+)/i),tu=txt.match(/Total Qty Units:\s*(\d+)/i);
-  return{chain:'Total Wine & More',po,storeId:store[1],storeName:store[2].trim(),delivery,items,
+  return{chain:'Total Wine & More',aliasScope:'totalwine',po,storeId:store[1],storeName:store[2].trim(),
+    hintSets:[['total wine',store[2].replace(/Total Wine\s*-?\s*/i,'').trim().toLowerCase()],['total wine']],
+    delivery:dm?poIso(dm[3],dm[1],dm[2]):'',items,
     expectedCases:tc?parseInt(tc[1]):null,expectedUnits:tu?parseInt(tu[1]):0};
 });
+// ---- Hotel / procurement-portal HTML POs ("Item SKU" table), e.g. Maybourne Beverly Hills ----
+PO_PARSERS.push(function procurementHtmlParser(ctx){
+  if(ctx.kind!=='html'||!/Item SKU/i.test(ctx.html)||!/PURCHASE ORDER/i.test(ctx.html))return null;
+  const po=(ctx.doc.title.match(/Purchase order:\s*(\S+)/i)||ctx.text.match(/PO NUMBER\s*:\s*(\S+)/i)||[])[1];
+  if(!po)return null;
+  const shipTo=((ctx.html.match(/Ship To:\s*<\/b>\s*(?:&nbsp;|\s)*([^<]+)/i)||[])[1]||'').replace(/&nbsp;/g,' ').trim();
+  const dm=ctx.text.match(/Delivery date\s*:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  const items=[];
+  ctx.doc.querySelectorAll('tr').forEach(tr=>{
+    const c=[...tr.children].filter(x=>x.tagName==='TD').map(x=>x.textContent.replace(/ /g,' ').trim());
+    if(c.length>=7&&/^\d+$/.test(c[0])&&/\d/.test(c[1])&&/^[\d.,]+$/.test(c[3])){
+      const uom=/btl|bottle|ea/i.test(c[4])?'BTL':'CS';
+      items.push({code:c[1].replace(/\s*\*\s*$/,'').trim(),desc:c[2],uom,qty:Math.round(poNum(c[3])),cost:poNum(c[5])||0,perCase:null,codeIsACS:true});
+    }
+  });
+  if(!items.length)return null;
+  const hotel=shipTo||((ctx.html.match(/<b>([^<]*)<\/b><\/font><\/td><\/tr><tr><td colspan="2" align="center"><font size="2"><i>/)||[])[1]||'').trim();
+  return{chain:hotel||'Customer PO',aliasScope:hotel.toLowerCase().replace(/[^a-z0-9]+/g,''),po,storeId:'',storeName:hotel,
+    hintSets:[[hotel.toLowerCase().split(/\s+/)[0]].filter(Boolean)],delivery:dm?poIso(dm[3],dm[1],dm[2]):'',items,expectedCases:null,expectedUnits:0};
+});
+// ---- Whole Foods Market (HTML) ----
+PO_PARSERS.push(function wholeFoodsParser(ctx){
+  if(ctx.kind!=='html'||!/Whole Foods Market/i.test(ctx.html)||!/Item No\./i.test(ctx.html))return null;
+  const t=ctx.text;
+  const po=(t.match(/Order Number:\s*(\d+)/i)||[])[1];
+  if(!po)return null;
+  const store=(t.match(/Store No:\s*(\d+)/i)||[])[1]||'';
+  const dm=t.match(/Expected Delivery Date:\s*(\d{4})-(\d{2})-(\d{2})/i);
+  const city=((t.match(/Ship To\/Bill To\s+(.+?)\s+\d/i)||[])[1]||'').trim();
+  const items=[];
+  ctx.doc.querySelectorAll('tr').forEach(tr=>{
+    const c=[...tr.children].filter(x=>x.tagName==='TD').map(x=>x.textContent.replace(/ /g,' ').trim());
+    if(c.length>=7&&/^\d+$/.test(c[0])&&/^\d+$/.test(c[1])){
+      const q=c[2].match(/(\d+)\s*(\w+)/);if(!q)return;
+      items.push({code:c[1],desc:[c[3],c[4],c[5]].filter(Boolean).join(' '),uom:/^(CA|CS)/i.test(q[2])?'CS':'BTL',qty:parseInt(q[1]),cost:poNum(c[6])||0,perCase:null,codeIsACS:true});
+    }
+  });
+  if(!items.length)return null;
+  return{chain:'Whole Foods Market',aliasScope:'wholefoods',po,storeId:store,storeName:city,
+    hintSets:[['whole foods',city.toLowerCase()],['whole foods',store]].map(a=>a.filter(Boolean)),
+    delivery:dm?poIso(dm[1],dm[2],dm[3]):'',items,expectedCases:null,expectedUnits:0};
+});
+// ---- Costco (Fintech Electronic Purchase Order Report, PDF) ----
+PO_PARSERS.push(function costcoParser(ctx){
+  const t=ctx.text;
+  if(!/Fintech Electronic Purchase Order/i.test(t)||!/Costco/i.test(t))return null;
+  const po=(t.match(/PO Number:\s*(\d+)/i)||[])[1];if(!po)return null;
+  const store=(t.match(/Store Number:\s*(\d+)/i)||[])[1]||'';
+  const city=((t.match(/Customer Number:\s*COSTCO\s*\d+\s+(\w+)/i)||[])[1]||'').toLowerCase();
+  const dm=t.match(/Est\.?\s*Delivery Date:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  const items=[];
+  ctx.lines.forEach(l=>{
+    const m=l.match(/^(\d{5,})\s+(?:(\d+)\s+)?(.+?)\s+(CA|CS|EA|BT)\s+(\d+)\s+\$([\d,]+\.\d{2})/);
+    if(!m)return;
+    const pk=m[3].match(/(\d+)\s*\/\s*\d+(?:\.\d+)?\s*(?:ML|L|OZ)/i);
+    items.push({code:m[1],desc:m[3].trim(),uom:/^(CA|CS)$/i.test(m[4])?'CS':'BTL',qty:parseInt(m[5]),cost:poNum(m[6]),perCase:pk?parseInt(pk[1]):null,codeIsACS:false});
+  });
+  if(!items.length)return null;
+  const n=String(parseInt(store,10)||'');
+  return{chain:'Costco',aliasScope:'costco',po,storeId:store,storeName:'Costco '+n+(city?' '+city:''),
+    hintSets:[['costco',n],['costco',city]].map(a=>a.filter(Boolean)).filter(a=>a.length>1),
+    delivery:dm?poIso(dm[3],dm[1],dm[2]):'',items,expectedCases:null,expectedUnits:0};
+});
+// ---- Full Glass Enterprises / Speakeasy Co (PDF) ----
+PO_PARSERS.push(function fullGlassParser(ctx){
+  const t=ctx.text;
+  if(!/Full Glass Enterprises/i.test(t)||!/Speakeasy SKU/i.test(t))return null;
+  const po=(t.replace(/\n/g,' ').match(/PO No:?\s*(?:BILL TO:\s*)?([A-Z0-9-]{6,})/i)||[])[1];if(!po)return null;
+  const items=[];
+  ctx.lines.forEach(l=>{
+    const m=l.match(/^(.+?)\s+((?:\d+-)+\d*)\s+((?:\d+-)+\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d,]+\.\d{2})$/);
+    if(!m)return;
+    const per=parseInt(m[5]);
+    items.push({code:m[3],desc:m[1].trim(),uom:'CS',qty:parseInt(m[4]),cost:Math.round(poNum(m[7])*per*100)/100,perCase:per,codeIsACS:false});
+  });
+  if(!items.length)return null;
+  return{chain:'Full Glass Enterprises',aliasScope:'fullglass',po,storeId:'',storeName:'Full Glass Enterprises',
+    hintSets:[['full glass']],delivery:'',items,expectedCases:null,expectedUnits:0};
+});
+// ---- Tachi Palace Casino Resort (PDF) ----
+PO_PARSERS.push(function tachiParser(ctx){
+  const t=ctx.text;
+  if(!/Tachi Palace/i.test(t)||!/Vendor Item/i.test(t))return null;
+  const po=(t.replace(/\n/g,' ').match(/Revision Number\s+(\d+)/i)||[])[1];if(!po)return null;
+  const dm=t.replace(/\n/g,' ').match(/Delivery Date\s+\d{1,2}-\d{1,2}-\d{4}\s+(\d{1,2})-(\d{1,2})-(\d{4})/i);
+  const L=ctx.lines,items=[];
+  for(let i=0;i<L.length;i++){
+    const m=L[i].match(/^(\d+)\s+(.+?)\s+([\d.]+)\s+(CASE|CS|EA|BTL|BOTTLE)\s+([\d,.]+)\s+([\d,]+\.\d{2})$/i);
+    if(!m)continue;
+    const parts=m[2].split(/\s+-\s+/);
+    const code=parts[0].trim();let desc=(parts.slice(1).join(' - ')||'').trim();
+    if(desc.toLowerCase().endsWith(code.toLowerCase()))desc=desc.slice(0,desc.length-code.length).trim();
+    for(let j=i+1;j<L.length&&!/^(Line Item|Number$|LINES\b|\d+\s+\S.*\s[\d.]+\s+(CASE|CS|EA|BTL))/i.test(L[j])&&!/^\d+ of \d+$/.test(L[j]);j++)desc+=' '+L[j];
+    items.push({code,desc:desc.trim(),uom:/^(CASE|CS)$/i.test(m[4])?'CS':'BTL',qty:Math.round(poNum(m[3])),cost:poNum(m[5]),perCase:null,codeIsACS:false});
+  }
+  if(!items.length)return null;
+  return{chain:'Tachi Palace Casino Resort',aliasScope:'tachi',po,storeId:'',storeName:'Tachi Palace Casino Resort',
+    hintSets:[['tachi']],delivery:dm?poIso(dm[3],dm[1],dm[2]):'',items,expectedCases:null,expectedUnits:0};
+});
+
 function loadPdfJs(){
   if(window.pdfjsLib)return Promise.resolve();
   return new Promise((res,rej)=>{
@@ -3917,7 +4025,9 @@ async function pdfToLines(buf){
     const rows=[];
     tc.items.forEach(it=>{
       if(!it.str||!it.str.trim())return;
-      const y=it.transform[5],x=it.transform[4];
+      // Some PDFs (e.g. Costco's) are stored rotated 90 degrees; read them in visual order.
+      const rot=Math.abs(it.transform[0])<0.001&&Math.abs(it.transform[1])>0.001;
+      const y=rot?-it.transform[4]:it.transform[5],x=rot?it.transform[5]:it.transform[4];
       let r=rows.find(r=>Math.abs(r.y-y)<3);
       if(!r){r={y,cells:[]};rows.push(r);}
       r.cells.push({x,t:it.str});
@@ -3927,38 +4037,77 @@ async function pdfToLines(buf){
   }
   return out;
 }
-function parsePOLines(lines){
-  for(const fn of PO_PARSERS){const r=fn(lines);if(r)return r;}
+async function readPOFile(file){
+  if(/\.html?$/i.test(file.name)||file.type==='text/html'){
+    const html=await file.text();
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const text=(doc.body?doc.body.textContent:'').replace(/ /g,' ').replace(/\s+/g,' ');
+    return{kind:'html',html,doc,text,lines:[text]};
+  }
+  await loadPdfJs();
+  const lines=await pdfToLines(await file.arrayBuffer());
+  return{kind:'pdf',lines,text:lines.join('\n'),html:'',doc:null};
+}
+function parsePOCtx(ctx){
+  for(const fn of PO_PARSERS){try{const r=fn(ctx);if(r)return r;}catch(e){console.warn('PO parser failed',fn.name,e);}}
   return null;
 }
-function openImportPO(){
-  let inp=document.getElementById('po-import-file');
-  if(!inp){
-    inp=document.createElement('input');inp.type='file';inp.accept='application/pdf,.pdf';inp.id='po-import-file';inp.style.display='none';
-    inp.onchange=()=>{const f=inp.files[0];inp.value='';if(f)importPOFile(f);};
-    document.body.appendChild(inp);
-  }
-  inp.click();
-}
-async function importPOFile(file){
-  toast('Reading PO...');
-  try{
-    await loadPdfJs();
-    const lines=await pdfToLines(await file.arrayBuffer());
-    const po=parsePOLines(lines);
-    if(!po){alert('This PO is in a layout Toasted does not recognize yet. Currently supported: Total Wine & More. Send a sample of the new format to add it.');return;}
-    showPOReview(po);
-  }catch(e){console.error(e);alert('Could not read that PDF: '+e.message);}
-}
+// ---- Matching ----
+const poNorm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 function matchPOAccount(po){
-  const id=String(po.storeId).trim();
-  const chain=(po.chain||'').split(' ')[0].toLowerCase();
-  const exact=ACCOUNTS.filter(a=>String(a.code||'').trim()===id||String(a.warehouseCode||'').trim()===id);
-  const chainExact=exact.filter(a=>(a.name||'').toLowerCase().includes(chain));
-  if(chainExact.length===1)return chainExact[0];
-  if(exact.length===1)return exact[0];
-  const byName=ACCOUNTS.filter(a=>new RegExp('(^|\\D)'+id+'(\\D|$)').test(a.name||'')&&(a.name||'').toLowerCase().includes(chain));
-  return byName.length===1?byName[0]:null;
+  const act=ACCOUNTS.filter(a=>a.isActive!==false);
+  const idn=String(po.storeId||'').replace(/^0+/,'');
+  const sets=po.hintSets||[];
+  const hit=(a,hs)=>hs.every(h=>poNorm(a.name).includes(poNorm(h)));
+  if(idn){
+    const byId=act.filter(a=>[a.code,a.warehouseCode].some(c=>c&&String(c).replace(/^0+/,'').trim()===idn));
+    if(byId.length===1)return byId[0];
+    if(byId.length>1&&sets.length){const f=byId.filter(a=>sets.some(hs=>hit(a,hs)));if(f.length===1)return f[0];}
+  }
+  for(const hs of sets){
+    const f=act.filter(a=>hit(a,hs));
+    if(f.length===1)return f[0];
+  }
+  return null;
+}
+function poTokens(s){
+  const stop=new Set(['de','del','la','el','the','and','of','n','a','tequila','vodka','whiskey','whisky','gin','rum','wine','mx','jalisco','usa']);
+  return poNorm(s).replace(/\b\d+\s*\d*\s*(ml|l|oz|pk|pack)\b/g,' ').split(' ').filter(t=>t&&!/^\d+$/.test(t)&&!stop.has(t));
+}
+function poTokEq(a,b){
+  if(a===b)return true;
+  const [s,l]=a.length<=b.length?[a,b]:[b,a];
+  if(s.length>=4&&l.startsWith(s))return true;
+  if(s.length>=5&&Math.abs(a.length-b.length)<=1){
+    let d=0,i=0,j=0;
+    while(i<a.length&&j<b.length){if(a[i]===b[j]){i++;j++;}else{d++;if(d>1)return false;if(a.length>b.length)i++;else if(b.length>a.length)j++;else{i++;j++;}}}
+    return d+(a.length-i)+(b.length-j)<=1;
+  }
+  return false;
+}
+function poGuessByName(it){
+  const A=[...new Set(poTokens(it.desc+' '+String(it.code).replace(/^x-?\s*/i,'')))];
+  if(!A.length)return null;
+  const scored=PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics'&&(p._details||{}).active!=='No').map(p=>{
+    const B=poTokens(p.name);
+    const cov=A.filter(a=>B.some(b=>poTokEq(a,b))).length/A.length;
+    let sc=cov;
+    if(it.perCase&&p.btl)sc+=(p.btl===it.perCase?0.15:-0.3);
+    return{p,sc};
+  }).sort((x,y)=>y.sc-x.sc);
+  if(!scored.length||scored[0].sc<0.7)return null;
+  if(scored[1]&&scored[0].sc-scored[1].sc<0.15)return null;
+  return scored[0].p;
+}
+function poFindProduct(po,it){
+  if(po.aliasScope){
+    const key=po.aliasScope+'|'+it.code;
+    const a=PRODUCTS.find(p=>((p._details||{}).poAliases||[]).includes(key));
+    if(a)return{p:a,how:'alias'};
+  }
+  if(it.codeIsACS!==false){const e=PRODUCTS.find(x=>x.sku===it.code);if(e)return{p:e,how:'code'};}
+  const g=poGuessByName(it);
+  return g?{p:g,how:'name'}:{p:null,how:''};
 }
 function poTierFor(p,costPerCase){
   const cands=[];
@@ -3967,66 +4116,139 @@ function poTierFor(p,costPerCase){
   const hit=cands.find(c=>Math.abs(c.price-costPerCase)<0.015);
   return hit?hit.id:null;
 }
+// Fills in everything derived from the chosen product for one PO line.
+function poFillLine(po,l){
+  const p=l.sku?PRODUCTS.find(x=>x.sku===l.sku):null;
+  l.p=p||null;l.note='';l.cases=0;l.bottles=0;l.tier='frontline';l.costPerCase=null;
+  if(!p){l.note=l.how==='manual'?'':'No Toasted product matched -- pick one, or leave blank to skip this line';return;}
+  const notes=[];
+  if(l.uom==='BTL'){
+    l.cases=Math.floor(l.qty/(p.btl||1));l.bottles=l.qty%(p.btl||1);
+    if(l.bottles)notes.push('PO is in bottles: '+l.qty+' btl = '+l.cases+' cs + '+l.bottles+' btl');
+  }else l.cases=l.qty;
+  l.costPerCase=l.cost?(l.uom==='BTL'?l.cost*p.btl:l.cost):null;
+  if(l.how==='name')notes.push('Matched by NAME -- confirm this is the right product');
+  if(l.perCase&&p.btl&&p.btl!==l.perCase){
+    const base=n=>poTokens(n).join(' ');
+    const alts=PRODUCTS.filter(x=>x.sku!==p.sku&&x.btl===l.perCase&&(x.warehouse||'main')===(p.warehouse||'main')&&base(x.name)===base(p.name));
+    if(alts.length===1&&l.how!=='manual'){notes.push('Item # '+l.code+' is a '+p.btl+'-pack in Toasted but the PO says '+l.perCase+' per case -- used '+alts[0].name+' (item # '+alts[0].sku+') instead');l.sku=alts[0].sku;l.p=alts[0];return poFillLine2(l,notes);}
+    notes.push('WARNING: PO says '+l.perCase+' per case but this Toasted item is a '+p.btl+'-pack -- check this line');
+  }
+  poFillLine2(l,notes);
+}
+function poFillLine2(l,notes){
+  const p=l.p;
+  if((p.warehouse||'main')==='acs_logistics')notes.push('ACS Logistics product -- not imported');
+  if(l.costPerCase){
+    const tier=poTierFor(p,l.costPerCase);
+    if(tier)l.tier=tier;
+    else notes.push('PO price $'+l.costPerCase.toFixed(2)+'/cs does not match any Toasted price tier -- set to Frontline ($'+(itemPrice(p,'frontline')*p.btl).toFixed(2)+'/cs); adjust if needed');
+  }else notes.push('PO shows no price ($0) -- priced at Frontline; adjust if needed');
+  l.note=notes.join(' | ');
+}
+function poLineUsable(l){return !!(l.p&&(l.p.warehouse||'main')!=='acs_logistics'&&(l.cases>0||l.bottles>0));}
 function resolvePO(po){
   const acct=matchPOAccount(po);
   const warns=[];
-  if(!acct)warns.push('Could not find the account for store '+po.storeId+' automatically -- pick it below.');
+  if(!acct)warns.push('Could not find the account for '+(po.storeName||po.chain)+' automatically -- pick it.');
   if(po.expectedUnits>0)warns.push('This PO also lists '+po.expectedUnits+' loose unit(s). Only case quantities are imported -- add any loose bottles by hand.');
-  const baseName=n=>String(n||'').toLowerCase().replace(/\b\d+\s*\/\s*\d+(\.\d+)?\s*(ml|l)?\b/g,' ').replace(/\b\d+\s*-?\s*(pk|pack)\b/g,' ').replace(/\b\d+(\.\d+)?\s*(ml|l)\b/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
   const lines=po.items.map(it=>{
-    let p=PRODUCTS.find(x=>x.sku===it.code);
-    if(!p)return{...it,p:null,note:'No product with item # '+it.code+' in Toasted -- not imported'};
-    let packNote='';
-    // The PO states bottles per case. If the Toasted item with this code is a different pack size,
-    // look for the same product in the PO's pack size rather than silently ordering the wrong one.
-    if(it.perCase&&p.btl&&p.btl!==it.perCase){
-      const alts=PRODUCTS.filter(x=>x.sku!==p.sku&&x.btl===it.perCase&&(x.warehouse||'main')===(p.warehouse||'main')&&baseName(x.name)===baseName(p.name));
-      if(alts.length===1){packNote='Item # '+it.code+' is a '+p.btl+'-pack in Toasted but the PO says '+it.perCase+' per case -- used '+alts[0].name+' (item # '+alts[0].sku+') instead';p=alts[0];}
-      else packNote='WARNING: PO says '+it.perCase+' per case but Toasted item # '+it.code+' is a '+p.btl+'-pack -- check this line';
-    }
-    if((p.warehouse||'main')==='acs_logistics')return{...it,p,sku:p.sku,note:'ACS Logistics product -- not imported'};
-    const tier=poTierFor(p,it.cost);
-    const priceNote=tier?'':'PO price $'+it.cost.toFixed(2)+'/cs does not match any Toasted price tier -- set to Frontline ($'+(itemPrice(p,'frontline')*p.btl).toFixed(2)+'/cs); adjust if needed';
-    return{...it,p,sku:p.sku,tier:tier||'frontline',note:[packNote,priceNote].filter(Boolean).join(' | ')};
+    const f=poFindProduct(po,it);
+    const l={...it,sku:f.p?f.p.sku:'',how:f.how};
+    poFillLine(po,l);
+    return l;
   });
-  const imported=lines.filter(l=>l.p&&!(l.p.warehouse==='acs_logistics'));
-  const sum=po.items.reduce((s,i)=>s+i.cases,0);
+  const sum=po.items.reduce((s,i)=>s+(i.uom==='CS'?i.qty:0),0);
   if(po.expectedCases!==null&&po.expectedCases!==sum)warns.push('Line quantities add up to '+sum+' cases but the PO says '+po.expectedCases+' -- check the PDF.');
   const dup=ORDERS.find(o=>o.po&&String(o.po).trim()===String(po.po)&&(!acct||o.acct===acct.id));
   if(dup)warns.push('PO # '+po.po+' is already on order '+dup.id+' -- this may be a duplicate.');
   const t=today();
   let delivery=po.delivery;
-  if(!delivery||delivery<t){warns.push('The PO delivery date ('+(po.delivery||'none')+') is not in the future -- using the next valid delivery date instead.');delivery=nextValidDeliveryDate(t);}
-  return{acct,warns,lines,imported,delivery,duplicate:!!dup};
+  if(!delivery){warns.push('The PO has no delivery date -- using the next valid delivery date.');delivery=nextValidDeliveryDate(t);}
+  else if(delivery<t){warns.push('The PO delivery date ('+delivery+') is not in the future -- using the next valid delivery date instead.');delivery=nextValidDeliveryDate(t);}
+  return{acct,acctId:acct?acct.id:'',warns,lines,delivery,duplicate:!!dup};
 }
-function showPOReview(po){
-  const r=resolvePO(po);
-  const acct=r.acct,warns=r.warns,lines=r.lines,imported=r.imported,delivery=r.delivery;
-  window._poImport={po,lines:imported,delivery};
+// ---- Shared review pieces ----
+function poProdOptions(sel){
+  return '<option value="">-- not imported --</option>'+PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics').slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(p=>`<option value="${poEsc(p.sku)}" ${sel===p.sku?'selected':''}>${poEsc(p.name)} (${poEsc(p.sku)})</option>`).join('');
+}
+function poLinesTable(e,ref){
+  return `<table class="tbl" style="margin-top:6px"><thead><tr><th>PO item</th><th>Toasted product</th><th style="text-align:right">Qty</th><th style="text-align:right">PO $/cs</th></tr></thead><tbody>
+  ${e.lines.map((l,i)=>`<tr style="${poLineUsable(l)?'':'opacity:.75'}"><td><strong>${poEsc(l.code)}</strong><div style="font-size:11px;color:var(--text2)">${poEsc(l.desc)}</div></td>
+   <td><select class="finput" style="padding:4px 6px;font-size:12px;max-width:300px" onchange="${ref}.lines[${i}].sku=this.value;${ref}.lines[${i}].how='manual';poFillLine(${ref}.po,${ref}.lines[${i}]);poRerender()">${poProdOptions(l.sku)}</select>
+   ${l.note?`<div style="font-size:11px;color:${/WARNING|No Toasted|NAME/.test(l.note)?'var(--red)':'var(--amber)'}">${poEsc(l.note)}</div>`:''}</td>
+   <td style="text-align:right;white-space:nowrap">${l.p?(l.cases?l.cases+' cs':'')+(l.bottles?(l.cases?' + ':'')+l.bottles+' btl':''):l.qty+(l.uom==='BTL'?' btl':' cs')}</td>
+   <td style="text-align:right">${l.costPerCase?'$'+l.costPerCase.toFixed(2):(l.cost?'$'+l.cost.toFixed(2):'--')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+// Remember customer item codes the user matched by hand / by name, so next time they match instantly.
+function poRememberAliases(e){
+  let n=0;
+  (e.lines||[]).forEach(l=>{
+    if(!e.po.aliasScope||l.codeIsACS!==false||!l.p||(l.how!=='manual'&&l.how!=='name'))return;
+    const key=e.po.aliasScope+'|'+l.code;
+    l.p._details=l.p._details||{};
+    const arr=l.p._details.poAliases=(l.p._details.poAliases||[]).filter(x=>!x.startsWith(key)||x===key);
+    if(arr.includes(key))return;
+    // a code maps to exactly one product
+    PRODUCTS.forEach(x=>{if(x!==l.p&&x._details&&Array.isArray(x._details.poAliases)&&x._details.poAliases.includes(key)){x._details.poAliases=x._details.poAliases.filter(k=>k!==key);saveProductToDB(x.sku).catch(()=>{});}});
+    arr.push(key);n++;
+    saveProductToDB(l.p.sku).catch(err=>console.warn('Could not remember item code',err));
+  });
+  return n;
+}
+function poAcctOptions(sel){
+  return '<option value="">-- Select account --</option>'+ACCOUNTS.filter(a=>a.isActive!==false).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(a=>`<option value="${a.id}" ${sel===a.id?'selected':''}>${poEsc(a.name)}</option>`).join('');
+}
+function poRerender(){
+  if(document.getElementById('modal-po-bulk'))renderBulkPO();
+  else if(document.getElementById('modal-po-import'))renderPOSingle();
+}
+// ---- Single PO ----
+function openImportPO(){
+  let inp=document.getElementById('po-import-file');
+  if(!inp){
+    inp=document.createElement('input');inp.type='file';inp.accept='application/pdf,.pdf,text/html,.html,.htm';inp.id='po-import-file';inp.style.display='none';
+    inp.onchange=()=>{const f=inp.files[0];inp.value='';if(f)importPOFile(f);};
+    document.body.appendChild(inp);
+  }
+  inp.click();
+}
+async function importPOFile(file){
+  toast('Reading PO...');
+  try{
+    const po=parsePOCtx(await readPOFile(file));
+    if(!po){alert('This PO is in a layout Toasted does not recognize yet. Send a sample of it to have it added.');return;}
+    window._poSingle={file:file.name,po,...resolvePO(po)};
+    renderPOSingle();
+  }catch(e){console.error(e);alert('Could not read that file: '+e.message);}
+}
+function renderPOSingle(){
+  const e=window._poSingle;if(!e)return;
   let m=document.getElementById('modal-po-import');if(m)m.remove();
-  const acctOpts=ACCOUNTS.filter(a=>a.isActive!==false).sort((a,b)=>a.name.localeCompare(b.name)).map(a=>`<option value="${a.id}" ${acct&&acct.id===a.id?'selected':''}>${poEsc(a.name)}</option>`).join('');
-  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="modal-po-import"><div class="modal" style="max-width:720px;max-height:90vh;overflow-y:auto">
-    <div class="modal-title">Import PO ${poEsc(po.po)} -- ${poEsc(po.chain)}</div>
-    <p style="font-size:13px;color:var(--text2);margin-bottom:10px">Store: <strong>${poEsc(po.storeId)} - ${poEsc(po.storeName)}</strong> &nbsp;|&nbsp; Delivery: <strong>${delivery}</strong></p>
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="modal-po-import"><div class="modal" style="max-width:860px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title">Import PO ${poEsc(e.po.po)} -- ${poEsc(e.po.chain)}</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:10px">${poEsc(e.po.storeName||'')} &nbsp;|&nbsp; Delivery: <strong>${e.delivery}</strong></p>
     <label class="flabel">Toasted account</label>
-    <select class="finput" id="po-import-acct" style="margin:4px 0 12px"><option value="">-- Select account --</option>${acctOpts}</select>
-    ${warns.map(w=>`<div style="padding:8px 12px;margin-bottom:8px;background:var(--amber-bg,#fdf8ef);border:1px solid var(--border);border-radius:8px;font-size:12px">${poEsc(w)}</div>`).join('')}
-    <table class="tbl"><thead><tr><th>Item #</th><th>Product</th><th style="text-align:right">Cases</th><th style="text-align:right">PO $/cs</th></tr></thead><tbody>
-    ${lines.map(l=>`<tr style="${l.p&&l.p.warehouse!=='acs_logistics'?'':'opacity:.6'}"><td>${poEsc(l.code)}</td><td>${l.p?poEsc(l.p.name):poEsc(l.desc)}${l.note?`<div style="font-size:11px;color:var(--red)">${poEsc(l.note)}</div>`:''}</td><td style="text-align:right">${l.cases}</td><td style="text-align:right">$${l.cost.toFixed(2)}</td></tr>`).join('')}
-    </tbody></table>
+    <select class="finput" id="po-import-acct" style="margin:4px 0 12px" onchange="_poSingle.acctId=this.value">${poAcctOptions(e.acctId)}</select>
+    ${e.warns.filter(w=>!(e.acctId&&/Could not find the account/.test(w))).map(w=>`<div style="padding:8px 12px;margin-bottom:8px;background:var(--amber-bg,#fdf8ef);border:1px solid var(--border);border-radius:8px;font-size:12px">${poEsc(w)}</div>`).join('')}
+    ${poLinesTable(e,'_poSingle')}
     <div class="modal-footer"><button class="btn" onclick="document.getElementById('modal-po-import').remove()">Cancel</button>
     <button class="btn btn-success" onclick="applyPOImport()"><i class="ti ti-file-import"></i> Fill in New Order</button></div>
   </div></div>`);
 }
 function applyPOImport(){
-  const imp=window._poImport;if(!imp)return;
+  const e=window._poSingle;if(!e)return;
   const acctId=document.getElementById('po-import-acct').value;
   if(!acctId){alert('Select the account first.');return;}
-  if(!imp.lines.length){alert('None of the PO lines could be matched to Toasted products.');return;}
+  const use=e.lines.filter(poLineUsable);
+  if(!use.length){alert('None of the PO lines are matched to Toasted products yet -- pick a product for each line you want to import.');return;}
+  const n=poRememberAliases(e);
   document.getElementById('modal-po-import').remove();
   const acct=acctById(acctId);
-  currentOrder={acct:acctId,items:imp.lines.map(l=>({sku:l.sku,cases:l.cases,bottles:0,tier:l.tier,discountPct:0})),
-    date:today(),delivery:imp.delivery,po:imp.po.po,notes:(acct&&acct.deliveryNotes)||'',orderType:'standard',
+  currentOrder={acct:acctId,items:use.map(l=>({sku:l.sku,cases:l.cases,bottles:l.bottles,tier:l.tier,discountPct:0})),
+    date:today(),delivery:e.delivery,po:e.po.po,notes:(acct&&acct.deliveryNotes)||'',orderType:'standard',
     waiveDelivery:!!(acct&&acct.waiveDeliveryAlways)};
   if(typeof showPage==='function'&&_currentPage!=='neworder')showPage('neworder');
   renderNewOrder();
@@ -4035,15 +4257,15 @@ function applyPOImport(){
   const dl=document.getElementById('o-del');if(dl)dl.value=currentOrder.delivery;
   const pe=document.getElementById('o-po');if(pe)pe.value=currentOrder.po;
   syncFees();renderLineItems();
-  toast('PO '+imp.po.po+' loaded -- review the order and press Submit');
+  toast('PO '+e.po.po+' loaded -- review the order and press Submit'+(n?' (remembered '+n+' item code'+(n!==1?'s':'')+')':''));
 }
 
-// ---- Bulk import: many PO PDFs at once -> review table -> create all as Unconfirmed orders ----
+// ---- Bulk import: many PO files at once -> review -> create all as Unconfirmed orders ----
 let _bulkPO=[];
 function openBulkImportPO(){
   let inp=document.getElementById('po-bulk-file');
   if(!inp){
-    inp=document.createElement('input');inp.type='file';inp.accept='application/pdf,.pdf';inp.multiple=true;inp.id='po-bulk-file';inp.style.display='none';
+    inp=document.createElement('input');inp.type='file';inp.accept='application/pdf,.pdf,text/html,.html,.htm';inp.multiple=true;inp.id='po-bulk-file';inp.style.display='none';
     inp.onchange=()=>{const fs=[...inp.files];inp.value='';if(fs.length)bulkImportPOFiles(fs);};
     document.body.appendChild(inp);
   }
@@ -4052,53 +4274,56 @@ function openBulkImportPO(){
 async function bulkImportPOFiles(files){
   toast('Reading '+files.length+' PO file'+(files.length!==1?'s':'')+'...');
   _bulkPO=[];
-  try{await loadPdfJs();}catch(e){alert(e.message);return;}
   for(const f of files){
     const e={file:f.name,rid:(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('cid-'+Date.now()+'-'+Math.random().toString(36).slice(2)),state:'ready'};
     try{
-      const po=parsePOLines(await pdfToLines(await f.arrayBuffer()));
-      if(!po){e.state='skip';e.error='Layout not recognized (only Total Wine & More is supported so far)';}
+      const po=parsePOCtx(await readPOFile(f));
+      if(!po){e.state='skip';e.error='Layout not recognized -- send a sample of it to have it added';}
       else{
-        e.po=po;const r=resolvePO(po);Object.assign(e,r);e.acctId=r.acct?r.acct.id:'';
+        e.po=po;Object.assign(e,resolvePO(po));
         const sameBatch=_bulkPO.find(x=>x.po&&x.po.po===po.po&&x.acctId===e.acctId);
         if(sameBatch){e.warns=e.warns.concat(['Same PO # appears twice in this batch (also '+sameBatch.file+')']);e.duplicate=true;}
-        if(!r.imported.length){e.state='skip';e.error='No lines matched Toasted products';}
-        else if(e.duplicate||r.duplicate){e.checked=false;}
-        else e.checked=!!r.acct;
-        if(e.state==='ready'&&e.checked===undefined)e.checked=false;
+        const byName=e.lines.filter(l=>l.how==='name').length;
+        if(byName)e.warns=e.warns.concat([byName+' line'+(byName!==1?'s were':' was')+' matched by product NAME only -- check them, then tick this PO to include it']);
+        e.checked=!!e.acctId&&!e.duplicate&&!byName;
       }
-    }catch(err){e.state='skip';e.error='Could not read PDF: '+err.message;}
+    }catch(err){e.state='skip';e.error='Could not read file: '+err.message;}
     _bulkPO.push(e);
   }
   renderBulkPO();
 }
 function bulkEstTotal(e){
-  return (e.imported||[]).reduce((s,l)=>s+(l.cost||0)*l.cases,0);
+  return (e.lines||[]).filter(poLineUsable).reduce((s,l)=>s+(l.costPerCase||0)*(l.cases+l.bottles/(l.p.btl||1)),0);
 }
 function renderBulkPO(){
-  let m=document.getElementById('modal-po-bulk');if(m)m.remove();
-  const acctOpts=sel=>ACCOUNTS.filter(a=>a.isActive!==false).sort((a,b)=>a.name.localeCompare(b.name)).map(a=>`<option value="${a.id}" ${sel===a.id?'selected':''}>${poEsc(a.name)}</option>`).join('');
-  const rows=_bulkPO.map((e,i)=>{
-    if(e.state==='skip')return`<tr style="opacity:.7"><td></td><td colspan="5"><strong>${poEsc(e.file)}</strong><div style="font-size:11px;color:var(--red)">${poEsc(e.error)}</div></td></tr>`;
+  let m=document.getElementById('modal-po-bulk');const scroll=m?m.querySelector('.modal').scrollTop:0;if(m)m.remove();
+  const cards=_bulkPO.map((e,i)=>{
+    if(e.state==='skip')return`<div style="padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;opacity:.8"><strong>${poEsc(e.file)}</strong><div style="font-size:12px;color:var(--red)">${poEsc(e.error)}</div></div>`;
     const done=e.state==='done',fail=e.state==='failed';
-    return`<tr><td><input type="checkbox" ${e.checked?'checked':''} ${done?'disabled':''} onchange="_bulkPO[${i}].checked=this.checked;updateBulkCount()"/></td>
-      <td><strong>${poEsc(e.po.po)}</strong><div style="font-size:11px;color:var(--text2)">${poEsc(e.file)}</div></td>
-      <td>${done?poEsc((acctById(e.acctId)||{}).name||''):`<select class="finput" style="padding:4px 6px;font-size:12px;max-width:210px" onchange="_bulkPO[${i}].acctId=this.value;updateBulkCount()"><option value="">-- Select account --</option>${acctOpts(e.acctId)}</select>`}
-        <div style="font-size:11px;color:var(--text2)">${poEsc(e.po.storeId)} - ${poEsc(e.po.storeName)}</div></td>
-      <td style="text-align:right">${e.imported.reduce((s,l)=>s+l.cases,0)} cs<div style="font-size:11px;color:var(--text2)">PO $${bulkEstTotal(e).toFixed(2)}</div></td>
-      <td style="font-size:11px">${e.warns.filter(w=>!/Could not find the account/.test(w)).map(w=>`<div style="color:var(--amber)">${poEsc(w)}</div>`).join('')}${e.imported.filter(l=>l.note).map(l=>`<div style="color:var(--amber)">${poEsc(l.code)}: ${poEsc(l.note)}</div>`).join('')}</td>
-      <td style="font-size:12px;font-weight:600;color:${done?'var(--green)':'var(--red)'}">${done?poEsc(e.orderId):(fail?poEsc(e.error):'')}</td></tr>`;
+    const usable=e.lines.filter(poLineUsable).length;
+    return`<div style="padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <input type="checkbox" ${e.checked?'checked':''} ${done?'disabled':''} onchange="_bulkPO[${i}].checked=this.checked;updateBulkCount()"/>
+        <div style="min-width:150px"><strong>${poEsc(e.po.chain)} PO ${poEsc(e.po.po)}</strong><div style="font-size:11px;color:var(--text2)">${poEsc(e.file)} &middot; ${poEsc(e.po.storeName||'')}</div></div>
+        ${done?`<span>${poEsc((acctById(e.acctId)||{}).name||'')}</span>`:`<select class="finput" style="padding:4px 6px;font-size:12px;max-width:240px" onchange="_bulkPO[${i}].acctId=this.value;updateBulkCount()">${poAcctOptions(e.acctId)}</select>`}
+        <span style="font-size:12px;color:var(--text2)">${usable}/${e.lines.length} line${e.lines.length!==1?'s':''} &middot; est. $${bulkEstTotal(e).toFixed(2)} &middot; delivery ${e.delivery}</span>
+        <span style="margin-left:auto;font-size:12px;font-weight:600;color:${done?'var(--green)':'var(--red)'}">${done?poEsc(e.orderId):(fail?poEsc(e.error):'')}</span>
+      </div>
+      ${e.warns.filter(w=>!(e.acctId&&/Could not find the account/.test(w))).map(w=>`<div style="font-size:11px;color:var(--amber);margin-top:4px">${poEsc(w)}</div>`).join('')}
+      ${done?'':poLinesTable(e,'_bulkPO['+i+']')}
+    </div>`;
   }).join('');
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="modal-po-bulk"><div class="modal" style="max-width:1000px;max-height:90vh;overflow-y:auto">
     <div class="modal-title">Bulk import POs (${_bulkPO.length} file${_bulkPO.length!==1?'s':''})</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Checked POs are created as <strong>Unconfirmed</strong> orders (confirm them as usual). Possible duplicates and POs without an account start unchecked. No notification emails are sent for bulk-created orders.</p>
-    <table class="tbl"><thead><tr><th></th><th>PO / file</th><th>Account</th><th style="text-align:right">Qty</th><th>Notes</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Checked POs are created as <strong>Unconfirmed</strong> orders (confirm them as usual). POs that may be duplicates, or have no account, start unchecked. Lines matched only by name need a quick check. No notification emails are sent for bulk-created orders.</p>
+    ${cards}
     <div class="modal-footer"><button class="btn" onclick="document.getElementById('modal-po-bulk').remove()">Close</button>
     <button class="btn btn-success" id="po-bulk-go" onclick="runBulkPO()"><i class="ti ti-file-import"></i> <span id="po-bulk-go-txt"></span></button></div>
   </div></div>`);
+  const nm=document.getElementById('modal-po-bulk');if(nm&&scroll)nm.querySelector('.modal').scrollTop=scroll;
   updateBulkCount();
 }
-function bulkSelected(){return _bulkPO.filter(e=>e.state!=='skip'&&e.state!=='done'&&e.checked&&e.acctId);}
+function bulkSelected(){return _bulkPO.filter(e=>e.state!=='skip'&&e.state!=='done'&&e.checked&&e.acctId&&e.lines.some(poLineUsable));}
 function updateBulkCount(){
   const t=document.getElementById('po-bulk-go-txt');if(t)t.textContent='Create '+bulkSelected().length+' order'+(bulkSelected().length!==1?'s':'');
   const b=document.getElementById('po-bulk-go');if(b)b.disabled=bulkSelected().length===0;
@@ -4111,20 +4336,21 @@ async function runBulkPO(){
   _bulkRunning=true;
   const placedByLabel=(currentUser.fname||'')+' '+(currentUser.lname||'')+' ('+(currentUser.role==='admin'?'Admin':'Sales Rep')+')';
   _beginOrderWrite();
+  let remembered=0;
   try{
     for(const e of sel){
       const acct=acctById(e.acctId);if(!acct)continue;
-      const base=e.imported.map(l=>({sku:l.sku,cases:l.cases,bottles:0,tier:l.tier,discountPct:0}));
+      const base=e.lines.filter(poLineUsable).map(l=>({sku:l.sku,cases:l.cases,bottles:l.bottles,tier:l.tier,discountPct:0}));
       const items=syncFeesFor(base,{waiveBrokenCase:false,waiveCRV:false,waiveDelivery:!!acct.waiveDeliveryAlways,acct:acct.id,orderType:'standard'}).map(x=>({...x}));
       const newOrder={acct:acct.id,rep:acct.rep||currentUser.id,date:today(),delivery:e.delivery,status:'unconfirmed',po:e.po.po,notes:acct.deliveryNotes||'',orderType:'standard',isSample:false,waiveDelivery:!!acct.waiveDeliveryAlways,waiveBrokenCase:false,items};
       const res=await saveNewOrderToDB({...newOrder,placedByLabel,clientRequestId:e.rid});
-      if(res&&res.ok&&res.id){e.state='done';e.orderId=res.id;ORDERS.push({...newOrder,id:res.id});}
+      if(res&&res.ok&&res.id){e.state='done';e.orderId=res.id;ORDERS.push({...newOrder,id:res.id});remembered+=poRememberAliases(e);}
       else{e.state='failed';e.error='Failed: '+((res&&res.error)||'unknown error')+' (safe to retry)';}
       renderBulkPO();
     }
   }finally{_endOrderWrite();_bulkRunning=false;updateBadges();}
   const ok=_bulkPO.filter(e=>e.state==='done').length;
-  toast(ok+' order'+(ok!==1?'s':'')+' created -- awaiting confirmation');
+  toast(ok+' order'+(ok!==1?'s':'')+' created -- awaiting confirmation'+(remembered?' (remembered '+remembered+' item code'+(remembered!==1?'s':'')+')':''));
 }
 function resumeDraft(draftId){
   const d=DRAFT_ORDERS.find(x=>x.id===draftId);if(!d)return;
