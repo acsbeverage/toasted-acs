@@ -3891,9 +3891,9 @@ PO_PARSERS.push(function totalWineParser(lines){
   const delivery=dm?dm[3]+'-'+dm[1].padStart(2,'0')+'-'+dm[2].padStart(2,'0'):'';
   const items=[];
   lines.forEach(l=>{
-    const m=l.match(/^(\d[\w-]*)\s+(.*?)\s(\d+)\s+\$([\d,]+\.\d{2})\b/);
+    const m=l.match(/^(\d[\w-]*)\s+(.*?)\s(\d+)\s+\$([\d,]+\.\d{2})\b(?:\s+(\d+)\b)?/);
     if(!m||/^Totals/i.test(l))return;
-    items.push({code:m[1],desc:m[2].trim(),cases:parseInt(m[3]),cost:poNum(m[4])});
+    items.push({code:m[1],desc:m[2].trim(),cases:parseInt(m[3]),cost:poNum(m[4]),perCase:m[5]?parseInt(m[5]):null});
   });
   const tc=txt.match(/Total Qty Cases:\s*(\d+)/i),tu=txt.match(/Total Qty Units:\s*(\d+)/i);
   return{chain:'Total Wine & More',po,storeId:store[1],storeName:store[2].trim(),delivery,items,
@@ -3972,12 +3972,22 @@ function resolvePO(po){
   const warns=[];
   if(!acct)warns.push('Could not find the account for store '+po.storeId+' automatically -- pick it below.');
   if(po.expectedUnits>0)warns.push('This PO also lists '+po.expectedUnits+' loose unit(s). Only case quantities are imported -- add any loose bottles by hand.');
+  const baseName=n=>String(n||'').toLowerCase().replace(/\b\d+\s*\/\s*\d+(\.\d+)?\s*(ml|l)?\b/g,' ').replace(/\b\d+\s*-?\s*(pk|pack)\b/g,' ').replace(/\b\d+(\.\d+)?\s*(ml|l)\b/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
   const lines=po.items.map(it=>{
-    const p=PRODUCTS.find(x=>x.sku===it.code);
+    let p=PRODUCTS.find(x=>x.sku===it.code);
     if(!p)return{...it,p:null,note:'No product with item # '+it.code+' in Toasted -- not imported'};
-    if((p.warehouse||'main')==='acs_logistics')return{...it,p,note:'ACS Logistics product -- not imported'};
+    let packNote='';
+    // The PO states bottles per case. If the Toasted item with this code is a different pack size,
+    // look for the same product in the PO's pack size rather than silently ordering the wrong one.
+    if(it.perCase&&p.btl&&p.btl!==it.perCase){
+      const alts=PRODUCTS.filter(x=>x.sku!==p.sku&&x.btl===it.perCase&&(x.warehouse||'main')===(p.warehouse||'main')&&baseName(x.name)===baseName(p.name));
+      if(alts.length===1){packNote='Item # '+it.code+' is a '+p.btl+'-pack in Toasted but the PO says '+it.perCase+' per case -- used '+alts[0].name+' (item # '+alts[0].sku+') instead';p=alts[0];}
+      else packNote='WARNING: PO says '+it.perCase+' per case but Toasted item # '+it.code+' is a '+p.btl+'-pack -- check this line';
+    }
+    if((p.warehouse||'main')==='acs_logistics')return{...it,p,sku:p.sku,note:'ACS Logistics product -- not imported'};
     const tier=poTierFor(p,it.cost);
-    return{...it,p,tier:tier||'frontline',note:tier?'':'PO price $'+it.cost.toFixed(2)+'/cs does not match any Toasted price tier -- set to Frontline ($'+(itemPrice(p,'frontline')*p.btl).toFixed(2)+'/cs); adjust if needed'};
+    const priceNote=tier?'':'PO price $'+it.cost.toFixed(2)+'/cs does not match any Toasted price tier -- set to Frontline ($'+(itemPrice(p,'frontline')*p.btl).toFixed(2)+'/cs); adjust if needed';
+    return{...it,p,sku:p.sku,tier:tier||'frontline',note:[packNote,priceNote].filter(Boolean).join(' | ')};
   });
   const imported=lines.filter(l=>l.p&&!(l.p.warehouse==='acs_logistics'));
   const sum=po.items.reduce((s,i)=>s+i.cases,0);
@@ -4015,7 +4025,7 @@ function applyPOImport(){
   if(!imp.lines.length){alert('None of the PO lines could be matched to Toasted products.');return;}
   document.getElementById('modal-po-import').remove();
   const acct=acctById(acctId);
-  currentOrder={acct:acctId,items:imp.lines.map(l=>({sku:l.code,cases:l.cases,bottles:0,tier:l.tier,discountPct:0})),
+  currentOrder={acct:acctId,items:imp.lines.map(l=>({sku:l.sku,cases:l.cases,bottles:0,tier:l.tier,discountPct:0})),
     date:today(),delivery:imp.delivery,po:imp.po.po,notes:(acct&&acct.deliveryNotes)||'',orderType:'standard',
     waiveDelivery:!!(acct&&acct.waiveDeliveryAlways)};
   if(typeof showPage==='function'&&_currentPage!=='neworder')showPage('neworder');
@@ -4076,7 +4086,7 @@ function renderBulkPO(){
       <td>${done?poEsc((acctById(e.acctId)||{}).name||''):`<select class="finput" style="padding:4px 6px;font-size:12px;max-width:210px" onchange="_bulkPO[${i}].acctId=this.value;updateBulkCount()"><option value="">-- Select account --</option>${acctOpts(e.acctId)}</select>`}
         <div style="font-size:11px;color:var(--text2)">${poEsc(e.po.storeId)} - ${poEsc(e.po.storeName)}</div></td>
       <td style="text-align:right">${e.imported.reduce((s,l)=>s+l.cases,0)} cs<div style="font-size:11px;color:var(--text2)">PO $${bulkEstTotal(e).toFixed(2)}</div></td>
-      <td style="font-size:11px">${e.warns.filter(w=>!/Could not find the account/.test(w)).map(w=>`<div style="color:var(--amber)">${poEsc(w)}</div>`).join('')}${e.imported.some(l=>l.note)?'<div style="color:var(--amber)">Some lines are not at a Toasted price tier -- set to Frontline</div>':''}</td>
+      <td style="font-size:11px">${e.warns.filter(w=>!/Could not find the account/.test(w)).map(w=>`<div style="color:var(--amber)">${poEsc(w)}</div>`).join('')}${e.imported.filter(l=>l.note).map(l=>`<div style="color:var(--amber)">${poEsc(l.code)}: ${poEsc(l.note)}</div>`).join('')}</td>
       <td style="font-size:12px;font-weight:600;color:${done?'var(--green)':'var(--red)'}">${done?poEsc(e.orderId):(fail?poEsc(e.error):'')}</td></tr>`;
   }).join('');
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="modal-po-bulk"><div class="modal" style="max-width:1000px;max-height:90vh;overflow-y:auto">
@@ -4104,7 +4114,7 @@ async function runBulkPO(){
   try{
     for(const e of sel){
       const acct=acctById(e.acctId);if(!acct)continue;
-      const base=e.imported.map(l=>({sku:l.code,cases:l.cases,bottles:0,tier:l.tier,discountPct:0}));
+      const base=e.imported.map(l=>({sku:l.sku,cases:l.cases,bottles:0,tier:l.tier,discountPct:0}));
       const items=syncFeesFor(base,{waiveBrokenCase:false,waiveCRV:false,waiveDelivery:!!acct.waiveDeliveryAlways,acct:acct.id,orderType:'standard'}).map(x=>({...x}));
       const newOrder={acct:acct.id,rep:acct.rep||currentUser.id,date:today(),delivery:e.delivery,status:'unconfirmed',po:e.po.po,notes:acct.deliveryNotes||'',orderType:'standard',isSample:false,waiveDelivery:!!acct.waiveDeliveryAlways,waiveBrokenCase:false,items};
       const res=await saveNewOrderToDB({...newOrder,placedByLabel,clientRequestId:e.rid});
