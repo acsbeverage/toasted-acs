@@ -4119,7 +4119,7 @@ function poTierFor(p,costPerCase){
 // Fills in everything derived from the chosen product for one PO line.
 function poFillLine(po,l){
   const p=l.sku?PRODUCTS.find(x=>x.sku===l.sku):null;
-  l.p=p||null;l.note='';l.cases=0;l.bottles=0;l.tier='frontline';l.costPerCase=null;
+  l.p=p||null;l.note='';l.cases=0;l.bottles=0;l.tier='frontline';l.tierSet=false;l.costPerCase=null;
   if(!p){l.note=l.how==='manual'?'':'No Toasted product matched -- pick one, or leave blank to skip this line';return;}
   const notes=[];
   if(l.uom==='BTL'){
@@ -4173,12 +4173,28 @@ function poProdOptions(sel){
   return '<option value="">-- not imported --</option>'+PRODUCTS.filter(p=>(p.warehouse||'main')!=='acs_logistics').slice().sort((a,b)=>a.name.localeCompare(b.name))
     .map(p=>`<option value="${poEsc(p.sku)}" ${sel===p.sku?'selected':''}>${poEsc(p.name)} (${poEsc(p.sku)})</option>`).join('');
 }
+function poTierOptions(l){
+  const p=l.p;if(!p)return'';
+  const opts=[];
+  (typeof TIERS!=='undefined'?TIERS:[]).forEach(t=>opts.push({v:t.id,n:t.name,price:itemPrice(p,t.id)*p.btl}));
+  (p.extraTiers||[]).forEach(t=>opts.push({v:t.name,n:t.name,price:(t.price||0)*p.btl}));
+  return opts.map(o=>`<option value="${poEsc(o.v)}" ${l.tier===o.v?'selected':''}>${poEsc(o.n)} ($${o.price.toFixed(2)}/cs)</option>`).join('');
+}
+function poEditLine(e,i,field,val){
+  const l=e.lines[i];if(!l)return;
+  if(field==='tier'){l.tier=val;l.tierSet=true;}
+  else l[field]=Math.max(0,parseInt(val)||0);
+  poRerender();
+}
 function poLinesTable(e,ref){
-  return `<table class="tbl" style="margin-top:6px"><thead><tr><th>PO item</th><th>Toasted product</th><th style="text-align:right">Qty</th><th style="text-align:right">PO $/cs</th></tr></thead><tbody>
-  ${e.lines.map((l,i)=>`<tr style="${poLineUsable(l)?'':'opacity:.75'}"><td><strong>${poEsc(l.code)}</strong><div style="font-size:11px;color:var(--text2)">${poEsc(l.desc)}</div></td>
-   <td><select class="finput" style="padding:4px 6px;font-size:12px;max-width:300px" onchange="${ref}.lines[${i}].sku=this.value;${ref}.lines[${i}].how='manual';poFillLine(${ref}.po,${ref}.lines[${i}]);poRerender()">${poProdOptions(l.sku)}</select>
-   ${l.note?`<div style="font-size:11px;color:${/WARNING|No Toasted|NAME/.test(l.note)?'var(--red)':'var(--amber)'}">${poEsc(l.note)}</div>`:''}</td>
-   <td style="text-align:right;white-space:nowrap">${l.p?(l.cases?l.cases+' cs':'')+(l.bottles?(l.cases?' + ':'')+l.bottles+' btl':''):l.qty+(l.uom==='BTL'?' btl':' cs')}</td>
+  const num='style="width:56px;padding:4px 6px;font-size:12px;text-align:right"';
+  return `<table class="tbl" style="margin-top:6px"><thead><tr><th>PO item</th><th>Toasted product</th><th style="text-align:right">Cases</th><th style="text-align:right">Btl</th><th>Price tier</th><th style="text-align:right">PO $/cs</th></tr></thead><tbody>
+  ${e.lines.map((l,i)=>`<tr style="${poLineUsable(l)?'':'opacity:.75'}"><td><strong>${poEsc(l.code)}</strong><div style="font-size:11px;color:var(--text2)">${poEsc(l.desc)}${l.uom==='BTL'?' &middot; PO qty: '+l.qty+' btl':''}</div></td>
+   <td><select class="finput" style="padding:4px 6px;font-size:12px;max-width:260px" onchange="${ref}.lines[${i}].sku=this.value;${ref}.lines[${i}].how='manual';${ref}.lines[${i}].tierSet=false;poFillLine(${ref}.po,${ref}.lines[${i}]);poRerender()">${poProdOptions(l.sku)}</select>
+   ${l.note&&!(l.tierSet&&/does not match any Toasted price tier/.test(l.note)&&l.note.split(' | ').length===1)?`<div style="font-size:11px;color:${/WARNING|No Toasted|NAME/.test(l.note)?'var(--red)':'var(--amber)'}">${poEsc(l.tierSet?l.note.split(' | ').filter(x=>!/price tier|no price/.test(x)).join(' | '):l.note)}</div>`:''}</td>
+   <td style="text-align:right">${l.p?`<input type="number" class="finput" min="0" ${num} value="${l.cases}" onchange="poEditLine(${ref},${i},'cases',this.value)"/>`:'--'}</td>
+   <td style="text-align:right">${l.p?`<input type="number" class="finput" min="0" ${num} value="${l.bottles}" onchange="poEditLine(${ref},${i},'bottles',this.value)"/>`:'--'}</td>
+   <td>${l.p?`<select class="finput" style="padding:4px 6px;font-size:12px;max-width:190px" onchange="poEditLine(${ref},${i},'tier',this.value)">${poTierOptions(l)}</select>`:'--'}</td>
    <td style="text-align:right">${l.costPerCase?'$'+l.costPerCase.toFixed(2):(l.cost?'$'+l.cost.toFixed(2):'--')}</td></tr>`).join('')}
   </tbody></table>`;
 }
