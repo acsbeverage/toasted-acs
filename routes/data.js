@@ -496,7 +496,7 @@ router.post('/stock-adjustments', requireAdmin, async (req, res) => {
 // products.details_extra JSONB column so nothing edited in Manage Products is lost on refresh.
 const EXTRA_DETAIL_KEYS = ['code','vendorCode','ttb','casesProd','closureType','notes',
   'searchable','discontinued','taxable','btg','inventoryItem','packingSlip','priceTasting',
-  'adminOnly','orderableByReps','managerApproval','newVintageInStock','samplesAllowed'];
+  'adminOnly','orderableByReps','managerApproval','newVintageInStock','samplesAllowed','poAliases'];
 function pickExtraDetails(details) {
   const out = {};
   if (details && typeof details === 'object') {
