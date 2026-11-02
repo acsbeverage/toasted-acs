@@ -1010,6 +1010,8 @@ function applyPortalBrandFamilyTiers(){
     groupTotals[producer]=(groupTotals[producer]||0)+caseEquiv;
     groupSolidCases[producer]=(groupSolidCases[producer]||0)+(item.cases||0);
   });
+  // 12 Btl Mix: 12+ bottles across the WHOLE order (any products; same rule the server enforces).
+  const orderTotalBottles=currentOrder.items.filter(i=>!i._fee).reduce((sum,i)=>{const pp=prodBySku(i.sku);return sum+(i.cases||0)*(pp?pp.btl||1:1)+(i.bottles||0);},0);
   currentOrder.items.filter(i=>!i._fee).forEach(item=>{
     const p=prodBySku(item.sku);if(!p)return;
     const isStandardTier=TIERS.some(t=>t.id===item.tier);
@@ -1021,6 +1023,11 @@ function applyPortalBrandFamilyTiers(){
     if(groupTotal>=5&&itemPrice(p,'brand5')>0)bestTier='brand5';
     else if(groupTotal>=3&&itemPrice(p,'brand3')>0)bestTier='brand3';
     else if(hasSolidCase&&itemPrice(p,'acs3')>0)bestTier='acs3';
+    // Bottle-only lines (no whole cases) get 12 Btl Mix once the order reaches 12 bottles,
+    // unless a brand-family tier is already cheaper for them.
+    if(!(item.cases>0)&&(item.bottles||0)>0&&orderTotalBottles>=12&&itemPrice(p,'mix12')>0){
+      if(bestTier==='frontline'||itemPrice(p,'mix12')<itemPrice(p,bestTier))bestTier='mix12';
+    }
     item.tier=bestTier;
   });
 }
