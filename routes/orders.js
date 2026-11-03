@@ -84,10 +84,11 @@ async function validateLogisticsOrder(items, user, isSample) {
 // their own (small) history. Returns { orders, olderCount } where olderCount is how many
 // orders were left out.
 async function buildOrdersList(user, since) {
+    await ensureConfirmedAtColumn();
     const isAdmin    = user.role === 'admin';
     const isCustomer = user.role === 'customer';
     const useSince = !!since && !isCustomer;
-    const COLS = `o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount`;
+    const COLS = `o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, ${CONFIRMED_DATE_SQL} AS confirmed_date`;
     let rows, total;
     if (isAdmin) {
       const vals = []; let where = '';
@@ -155,10 +156,24 @@ async function buildOrdersList(user, since) {
       paidAmount: r.paid_amount ? parseFloat(r.paid_amount) : null,
       qboInvoiceId: r.qbo_invoice_id, qboSyncedAt: r.qbo_synced_at,
       partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
+      confirmedAt: r.confirmed_date || null,
       items: itemsByOrder[r.id] || [],
     }));
     return { orders, olderCount: Math.max(0, total - rows.length) };
 }
+
+// confirmed_at records WHEN an order was confirmed (set once; never cleared), so reports can
+// bucket an order into the month it was confirmed regardless of when it is delivered.
+// Created on first use (safe to repeat), so no separate migration step is required.
+let _confirmedAtReady = null;
+function ensureConfirmedAtColumn() {
+  if (!_confirmedAtReady) {
+    _confirmedAtReady = query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`)
+      .catch(err => { _confirmedAtReady = null; throw err; });
+  }
+  return _confirmedAtReady;
+}
+const CONFIRMED_DATE_SQL = `to_char(o.confirmed_at AT TIME ZONE 'America/Los_Angeles', 'YYYY-MM-DD')`;
 
 // ---- Memory protection for the bulk order list ---------------------------------------------
 // This route returns every order + every line item (8,600+ and growing). Each build allocates
@@ -266,31 +281,37 @@ router.get('/report-data', requireAuth, async (req, res) => {
     const isCustomer = req.user.role === 'customer';
     const from = req.query.from || null;
     const to = req.query.to || null;
+    await ensureConfirmedAtColumn();
+    // basis=confirmed: bucket orders by the date they were confirmed (falls back to the order
+    // date for orders confirmed before confirmation dates were recorded).
+    const dateExpr = req.query.basis === 'confirmed'
+      ? `COALESCE((o.confirmed_at AT TIME ZONE 'America/Los_Angeles')::date, o.date)`
+      : 'o.date';
     let rows;
     if (isAdmin) {
       rows = await getAll(`
-        SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        SELECT o.*, ${CONFIRMED_DATE_SQL} AS confirmed_date, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
-        WHERE ($1::date IS NULL OR o.date >= $1) AND ($2::date IS NULL OR o.date <= $2)
+        WHERE ($1::date IS NULL OR ${dateExpr} >= $1) AND ($2::date IS NULL OR ${dateExpr} <= $2)
         ORDER BY o.created_at DESC`, [from, to]);
     } else if (isCustomer) {
       const cust = await getOne('SELECT acct_id FROM customer_users WHERE id=$1', [req.user.id]);
       if (!cust) return res.json({ ok: true, orders: [] });
       rows = await getAll(`
-        SELECT o.*, a.name as acct_name
+        SELECT o.*, ${CONFIRMED_DATE_SQL} AS confirmed_date, a.name as acct_name
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
-        WHERE o.acct_id=$1 AND ($2::date IS NULL OR o.date >= $2) AND ($3::date IS NULL OR o.date <= $3)
+        WHERE o.acct_id=$1 AND ($2::date IS NULL OR ${dateExpr} >= $2) AND ($3::date IS NULL OR ${dateExpr} <= $3)
         ORDER BY o.created_at DESC`, [cust.acct_id, from, to]);
     } else {
       rows = await getAll(`
-        SELECT o.*, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
+        SELECT o.*, ${CONFIRMED_DATE_SQL} AS confirmed_date, a.name as acct_name, u.fname as rep_fname, u.lname as rep_lname
         FROM orders o
         LEFT JOIN accounts a ON o.acct_id = a.id
         LEFT JOIN users u ON o.rep_id = u.id
-        WHERE a.rep=$1 AND ($2::date IS NULL OR o.date >= $2) AND ($3::date IS NULL OR o.date <= $3)
+        WHERE a.rep=$1 AND ($2::date IS NULL OR ${dateExpr} >= $2) AND ($3::date IS NULL OR ${dateExpr} <= $3)
         ORDER BY o.created_at DESC`, [req.user.id, from, to]);
     }
     const orderIds = rows.map(r => r.id);
@@ -326,6 +347,7 @@ router.get('/report-data', requireAuth, async (req, res) => {
       paidAmount: r.paid_amount ? parseFloat(r.paid_amount) : null,
       qboInvoiceId: r.qbo_invoice_id, qboSyncedAt: r.qbo_synced_at,
       partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
+      confirmedAt: r.confirmed_date || null,
       items: itemsByOrder[r.id] || [],
     }));
     res.json({ ok: true, orders });
@@ -571,6 +593,7 @@ async function withOrderLock(id, fn) {
 
 async function patchOrderHandler(req, res) {
   try {
+    await ensureConfirmedAtColumn();
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
             date, delivery, po, notes, items: itemsIn, labelsPrinted, partialPaidAmount,
@@ -599,6 +622,8 @@ async function patchOrderHandler(req, res) {
     // warehouse. This flag is never cleared by any status change (including Unconfirm) --
     // Unconfirm only corrects the record, it doesn't mean the product came back on the shelf.
     if (status === 'delivered')     { updates.push(`ever_delivered=TRUE`); }
+    // First time an order is confirmed, stamp when. Kept on later status changes/unconfirm.
+    if (status === 'confirmed')     { updates.push(`confirmed_at=COALESCE(confirmed_at, NOW())`); }
     if (paid !== undefined)         { updates.push(`paid=$${idx++}`);            values.push(paid); }
     if (paidDate !== undefined && paidDate !== '')     { updates.push(`paid_date=$${idx++}`);       values.push(paidDate); }
     if (paidAmount !== undefined)   { updates.push(`paid_amount=$${idx++}`);     values.push(paidAmount); }
