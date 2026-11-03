@@ -1470,7 +1470,7 @@ function ordersQuery(){
   return since?'?since='+since:'';
 }
 function ordersWindowNote(){
-  if(!_olderOrdersCount)return'';
+  if(!_olderOrdersCount||!currentUser||currentUser.role!=='admin')return'';
   const since=_ordersSince===null?defaultOrdersSince():_ordersSince;
   return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px;background:var(--amber-bg,#fdf8ef);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text2)">
     <span>Showing orders from <strong>${since}</strong> onward, plus all open/unpaid orders. ${_olderOrdersCount.toLocaleString()} older paid order${_olderOrdersCount!==1?'s are':' is'} not loaded.</span>
