@@ -1123,7 +1123,13 @@ const CRV_RATES={
 // The per-bottle price to actually use for a given order line item: a manual/flat-rate
 // item (e.g. imported historical orders) carries its own preserved price and must use it
 // directly, rather than looking up current live tier pricing.
-const itemUnitPrice=(item,p)=>(item._manual&&item.rate!==undefined&&item.rate!==null)?item.rate:itemPrice(p,item.tier);
+const itemUnitPrice=(item,p)=>{
+  if(item._manual&&item.rate!==undefined&&item.rate!==null)return item.rate;
+  const v=itemPrice(p,item.tier);
+  // special-lane prices the viewer's product list doesn't contain come from the server with the line
+  if(!v&&item.lanePrice)return item.lanePrice;
+  return v;
+};
 const itemLineTotal=item=>{
   if(item.sku===DELIVERY_FEE_SKU)return item.feeAmt||DELIVERY_FEE_AMT;
   if(item.sku===BROKEN_CASE_SKU)return (item.feeAmt||BROKEN_CASE_FEE_AMT)*(item.count||1);
@@ -3415,7 +3421,7 @@ function updateField(idx,field,val){
   }
   syncFees();renderLineItems();
 }
-function updateItemTier(idx,tier){const item=currentOrder.items[idx];item.tier=tier;delete item._manual;delete item.rate;renderLineItems()}
+function updateItemTier(idx,tier){const item=currentOrder.items[idx];item.tier=tier;delete item._manual;delete item.rate;delete item.lanePrice;renderLineItems()}
 function openCustomPriceModal(context,idx){
   const item=context==='new'?currentOrder.items[idx]:window._editItems[idx];
   if(!item)return;
@@ -5887,7 +5893,7 @@ function updateEditField(idx,field,val){
   window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
   renderEditItems();
 }
-function updateEditTier(idx,tier){const item=window._editItems[idx];item.tier=tier;delete item._manual;delete item.rate;renderEditItems()}
+function updateEditTier(idx,tier){const item=window._editItems[idx];item.tier=tier;delete item._manual;delete item.rate;delete item.lanePrice;renderEditItems()}
 function updateEditDiscount(idx,val){
   let pct=parseFloat(val)||0;
   pct=Math.min(Math.max(pct,0),100);
