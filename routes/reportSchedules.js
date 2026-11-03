@@ -79,6 +79,11 @@ const TIER_LABELS = {
 };
 
 async function buildRA5(from, to, producers, producerLabel) {
+  // Depletions count an order in the month it was CONFIRMED (whether or not it has been
+  // delivered yet). Orders confirmed before confirmation dates were recorded fall back to
+  // their order date.
+  await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);
+  const dateExpr = `COALESCE((o.confirmed_at AT TIME ZONE 'America/Los_Angeles')::date, o.date)`;
   // One row per order line item, matching the real RA5 export -- not an aggregated summary.
   const rows = await getAll(
     `SELECT p.name as wine_name, p.sku as wine_code, p.vintage, p.producer, p.cat, p.btl, p.bottle_size,
@@ -102,10 +107,10 @@ async function buildRA5(from, to, producers, producerLabel) {
      JOIN products p ON oi.sku = p.sku
      LEFT JOIN accounts a ON o.acct_id = a.id
      LEFT JOIN users u ON o.rep_id = u.id
-     WHERE o.status='delivered' AND oi.is_fee=FALSE
-       AND ($1::date IS NULL OR o.date >= $1) AND ($2::date IS NULL OR o.date <= $2)
+     WHERE o.status IN ('confirmed','delivered') AND oi.is_fee=FALSE
+       AND ($1::date IS NULL OR ${dateExpr} >= $1) AND ($2::date IS NULL OR ${dateExpr} <= $2)
        AND ($3::text[] IS NULL OR p.producer = ANY($3))
-     ORDER BY p.name, o.date`,
+     ORDER BY p.name, ${dateExpr}`,
     [from || null, to || null, (producers && producers.length) ? producers : null]
   );
 
