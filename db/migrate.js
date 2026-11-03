@@ -240,6 +240,7 @@ async function migrate() {
   // accounts with known stock discrepancies.
   await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ever_delivered BOOLEAN NOT NULL DEFAULT FALSE`);
   await query(`UPDATE orders SET ever_delivered = TRUE WHERE status = 'delivered' AND ever_delivered = FALSE`);
+  await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);
 
   await query(`CREATE TABLE IF NOT EXISTS order_items (
     id SERIAL PRIMARY KEY,
