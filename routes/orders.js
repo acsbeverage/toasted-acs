@@ -130,6 +130,8 @@ async function buildOrdersList(user, since) {
         `SELECT order_id, sku, cases, bottles, tier, discount_pct, is_fee, fee_amt, fee_count, is_manual, rate, notes FROM order_items WHERE order_id = ANY($1) ORDER BY sort_order`,
         [orderIds]);
     }
+    const _acctOfOrder = {}; rows.forEach(r => { _acctOfOrder[r.id] = r.acct_id; });
+    const _lanes = await laneLookup(items.map(i => ({ sku: i.sku, tier: i.tier, fee: i.is_fee, acct: _acctOfOrder[i.order_id] })));
     const itemsByOrder = {};
     items.forEach(item => {
       if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
@@ -140,6 +142,7 @@ async function buildOrdersList(user, since) {
         count: item.fee_count, _manual: item.is_manual,
         rate: item.rate !== null ? parseFloat(item.rate) : undefined,
         notes: item.notes || '',
+        lanePrice: lanePriceOf(_lanes, item, _acctOfOrder[item.order_id]),
       });
     });
     const orders = rows.map(r => ({
@@ -174,6 +177,40 @@ function ensureConfirmedAtColumn() {
   return _confirmedAtReady;
 }
 const CONFIRMED_DATE_SQL = `to_char(o.confirmed_at AT TIME ZONE 'America/Los_Angeles', 'YYYY-MM-DD')`;
+
+// ---- Special-lane prices on order lines -------------------------------------------------------
+// A line priced on a special/negotiated lane (anything other than the five standard tiers) has no
+// stored price of its own -- the app looks the price up from the product's lane list. But the
+// product list a rep or customer receives only contains lanes they've been given visibility to,
+// so such lines priced out at $0.00 for them (invoice total showing just fees) while the admin
+// saw the correct amount. To keep invoices/order totals identical for everyone who may view the
+// order, the server attaches each line's lane price (per bottle) alongside it.
+const STANDARD_TIER_IDS = ['frontline', 'mix12', 'acs3', 'brand3', 'brand5'];
+async function laneLookup(entries) {
+  const out = new Map();
+  const custom = entries.filter(e => e.tier && !e.fee && !STANDARD_TIER_IDS.includes(e.tier));
+  if (!custom.length) return out;
+  const skus = [...new Set(custom.map(e => e.sku))];
+  const tiers = [...new Set(custom.map(e => e.tier))];
+  const rows = await getAll(
+    'SELECT sku, tier_name, price, account_id, account_ids, corp_groups FROM product_tier_prices WHERE sku = ANY($1) AND tier_name = ANY($2)',
+    [skus, tiers]);
+  const bySkuTier = {};
+  rows.forEach(r => { (bySkuTier[r.sku + '|' + r.tier_name] = bySkuTier[r.sku + '|' + r.tier_name] || []).push(r); });
+  custom.forEach(e => {
+    const cands = bySkuTier[e.sku + '|' + e.tier];
+    if (!cands || !cands.length) return;
+    const forAcct = cands.find(c => c.account_id === e.acct || (c.account_ids || []).includes(e.acct));
+    const open = cands.find(c => !c.account_id && !(c.account_ids || []).length && !(c.corp_groups || []).length);
+    const pick = forAcct || open || cands[0];
+    out.set(e.sku + '|' + e.tier + '|' + e.acct, parseFloat(pick.price) || 0);
+  });
+  return out;
+}
+const lanePriceOf = (lanes, item, acct) => {
+  const v = lanes.get(item.sku + '|' + item.tier + '|' + acct);
+  return v === undefined ? undefined : v;
+};
 
 // ---- Memory protection for the bulk order list ---------------------------------------------
 // This route returns every order + every line item (8,600+ and growing). Each build allocates
@@ -255,6 +292,7 @@ router.get('/:id/items', requireAuth, async (req, res) => {
     }
 
     const rows = await getAll('SELECT * FROM order_items WHERE order_id=$1 ORDER BY sort_order', [req.params.id]);
+    const _lanes = await laneLookup(rows.map(i => ({ sku: i.sku, tier: i.tier, fee: i.is_fee, acct: order.acct_id })));
     const items = rows.map(item => ({
       sku: item.sku, cases: item.cases, bottles: item.bottles,
       tier: item.tier, discountPct: parseFloat(item.discount_pct) || 0,
@@ -262,6 +300,7 @@ router.get('/:id/items', requireAuth, async (req, res) => {
       count: item.fee_count, _manual: item.is_manual,
       rate: item.rate !== null ? parseFloat(item.rate) : undefined,
       notes: item.notes || '',
+      lanePrice: lanePriceOf(_lanes, item, order.acct_id),
     }));
     res.json({ ok: true, items });
   } catch (err) {
@@ -321,6 +360,8 @@ router.get('/report-data', requireAuth, async (req, res) => {
         `SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY sort_order`,
         [orderIds]);
     }
+    const _acctOfOrder = {}; rows.forEach(r => { _acctOfOrder[r.id] = r.acct_id; });
+    const _lanes = await laneLookup(items.map(i => ({ sku: i.sku, tier: i.tier, fee: i.is_fee, acct: _acctOfOrder[i.order_id] })));
     const itemsByOrder = {};
     items.forEach(item => {
       if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
@@ -331,6 +372,7 @@ router.get('/report-data', requireAuth, async (req, res) => {
         count: item.fee_count, _manual: item.is_manual,
         rate: item.rate !== null ? parseFloat(item.rate) : undefined,
         notes: item.notes || '',
+        lanePrice: lanePriceOf(_lanes, item, _acctOfOrder[item.order_id]),
       });
     });
     const orders = rows.map(r => ({
