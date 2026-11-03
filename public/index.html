@@ -10110,6 +10110,8 @@ async function renderActiveReport(reportId){
       const params=new URLSearchParams();
       if(from)params.set('from',from);
       if(to)params.set('to',to);
+      // Depletion reports (RA5/RA6/RA42) count an order in the month it was CONFIRMED, whether or not it has been delivered.
+      if(['RA5','RA6','RA42'].includes(reportId))params.set('basis','confirmed');
       const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
       if(!res.ok){el.innerHTML=filterBar+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
       orders=res.orders.filter(o=>o.status==='delivered'||o.status==='confirmed');
@@ -10282,6 +10284,7 @@ function renderRA5(el, orders, producerFilter){
         accountRegion:acct.region||'',
         salesRep:rep.fname+' '+(rep.lname||''),
         date:o.date,
+        confirmedDate:o.confirmedAt||'',
         quantity:qty,
         unitPrice:unitPrice,
         total:itemLineTotal(item),
@@ -10321,7 +10324,7 @@ function renderRA5(el, orders, producerFilter){
   const totalCases=rows.reduce((s,r)=>s+r.quantity,0);
 
   window._lastReportRows=rows;
-  window._lastReportCols=['wineName','wineCode','vintage','producer','account','accountRegion','salesRep','date','quantity','unitPrice','total','notes','deliveryNotes','invoice','poNumber','warehouse','warehouseCode','sampleOrder','billBackAmount','billBackTotal','priceLabel','abcNumber','shipStreet','shipCity','shipState','shipZip','fobPrice','accountKindPrimary','accountKindSecondary','accountId','bottleSize','packSize'];
+  window._lastReportCols=['wineName','wineCode','vintage','producer','account','accountRegion','salesRep','date','quantity','unitPrice','total','notes','deliveryNotes','invoice','poNumber','warehouse','warehouseCode','sampleOrder','billBackAmount','billBackTotal','priceLabel','abcNumber','shipStreet','shipCity','shipState','shipZip','fobPrice','accountKindPrimary','accountKindSecondary','accountId','bottleSize','packSize','confirmedDate'];
   showReportReadyCard(el,'RA5 — Depletion by Producer',rows.length,'line item');
 }
 
