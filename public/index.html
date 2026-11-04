@@ -872,6 +872,7 @@ function prodBySku(sku){
 let DRAFT_ORDERS=[];
 let TASTINGS=[];
 let PO_SUPPLIERS=[],PO_ORDERS=[],PO_PRODUCTS=[],PO_SUPPLIER_CONTACTS=[];
+let PO_RECV={statuses:{},received:{},skuMap:{}};
 let _poSubview='new',_poSelectedSupplier=null,_poLineItems=[],_poDataLoaded=false,_poDetailSupplierId=null,_poEditingId=null,_poEditingNumber=null,_poEditingNotes="";
 // SHARED_DOCS declared at top
 // -- CONFIG & STATIC DATA ------------------------------------------------------
@@ -4714,8 +4715,15 @@ async function loadPOData(force){
     ]);
     if(supRes.ok) PO_SUPPLIERS=supRes.suppliers;
     if(ordRes.ok) PO_ORDERS=ordRes.orders;
+    await loadPOReceiving();
     _poDataLoaded=true;
   }catch(e){console.error('Failed to load PO data:',e.message);toast('Could not load Purchase Orders -- check connection');}
+}
+async function loadPOReceiving(){
+  try{
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/po-receiving/summary',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(r.ok)PO_RECV={statuses:r.statuses||{},received:r.received||{},skuMap:r.skuMap||{}};
+  }catch(e){console.error('Could not load PO receiving status:',e.message);}
 }
 async function loadPOProducts(supplierId){
   const headers={'Authorization':'Bearer '+window._authToken};
@@ -4789,7 +4797,8 @@ async function renderPONew(){
 }
 async function deletePO(id){
   const o=PO_ORDERS.find(x=>x.id===id);if(!o)return;
-  const sent=o.emailStatus==='sent'?'\n\nThis PO was already emailed to the supplier.':'';
+  const rs=(PO_RECV.statuses[id]||{}).status;
+  const sent=(o.emailStatus==='sent'?'\n\nThis PO was already emailed to the supplier.':'')+(rs?'\n\nThis PO has already been received into inventory. Deleting it does NOT take that stock back out.':'');
   if(!confirm('Delete '+o.poNumber+' ('+o.supplierName+')?'+sent+'\n\nThe number '+o.poNumber+' will be reused by the next PO created.'))return;
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/po/orders/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
@@ -4975,11 +4984,129 @@ function renderPOHistory(){
     <div class="card-header"><span class="card-title">${sorted.length} purchase order${sorted.length!==1?'s':''}</span>
       <div class="search-wrap" style="max-width:260px"><i class="ti ti-search si"></i><input class="search-input" id="po-hist-search" placeholder="Search PO # or supplier..." oninput="filterPOHistory()"/></div>
     </div>
-    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Terms</th><th style="text-align:right">Bottles</th><th style="text-align:right">Cases</th><th style="text-align:right">Total</th><th>Email</th><th></th></tr></thead>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>PO #</th><th>Supplier</th><th>Date</th><th>Terms</th><th style="text-align:right">Bottles</th><th style="text-align:right">Cases</th><th style="text-align:right">Total</th><th>Status</th><th>Email</th><th></th></tr></thead>
     <tbody id="po-hist-body"></tbody></table></div>
   </div>`;
   window._poHistOrders=sorted;
   filterPOHistory();
+}
+
+// ---- PO Received: add a delivered PO to inventory ---------------------------------------------
+function _poRecvBadge(id){
+  const st=PO_RECV.statuses[id];
+  if(!st)return'<span class="tier-pill" style="font-size:11px">Open</span>';
+  if(st.status==='partial')return'<span class="tier-pill" style="font-size:11px;background:#FFF3D6;color:#8A6100">Partially received</span>';
+  return'<span class="tier-pill" style="font-size:11px;background:#E3F5EC;color:#0a6a50">'+(st.closedShort?'Received (short)':'Received')+'</span>';
+}
+let _recvPO=null;
+function poRecvGuessSku(li){
+  const mapped=PO_RECV.skuMap[li.productId];
+  if(mapped&&PRODUCTS.some(p=>p.sku===mapped))return{sku:mapped,guess:false};
+  const A=[...new Set(poTokens((li.brandName||'')+' '+(li.description||'')))];
+  if(!A.length)return{sku:'',guess:false};
+  const scored=PRODUCTS.filter(p=>(p._details||{}).active!=='No').map(p=>{
+    const B=poTokens(p.name);
+    let sc=A.filter(a=>B.some(b=>poTokEq(a,b))).length/A.length;
+    if(li.bottlesPerCase&&p.btl)sc+=(p.btl===li.bottlesPerCase?0.15:-0.3);
+    return{p,sc};
+  }).sort((x,y)=>y.sc-x.sc);
+  if(scored.length&&scored[0].sc>=0.7&&(!scored[1]||scored[0].sc-scored[1].sc>=0.15))return{sku:scored[0].p.sku,guess:true};
+  return{sku:'',guess:false};
+}
+async function openReceivePO(id){
+  const order=await _fetchPOOrder(id);if(!order)return;
+  await loadPOReceiving();
+  const got=PO_RECV.received[id]||{};
+  const lines=[];
+  (order.lineItems||[]).forEach(li=>{
+    const bpc=li.bottlesPerCase||6;
+    const ordered=Math.round((li.quantityCases||0)*bpc+(li.quantityBottles||0));
+    if(ordered<=0)return;
+    const key=li.productId!=null?String(li.productId):'d:'+(li.description||'');
+    const already=got[key]||0;
+    const g=poRecvGuessSku(li);
+    lines.push({key,productId:li.productId,desc:li.description||li.brandName,bpc,ordered,already,remaining:Math.max(0,ordered-already),
+      recv:Math.max(0,ordered-already),sku:g.sku,guess:g.guess});
+  });
+  _recvPO={id,poNumber:order.poNumber,supplier:order.supplierName,lines,cid:(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('rcv-'+Date.now()+'-'+Math.random().toString(36).slice(2)),busy:false};
+  if(!lines.length){toast('This PO has no quantities to receive');return}
+  if(!lines.some(l=>l.remaining>0)){
+    if(!confirm('Everything on '+order.poNumber+' is already counted as received. Mark it complete?'))return;
+  }
+  renderReceivePOAsk();
+}
+function closeReceivePO(){const m=document.getElementById('po-recv-modal-bg');if(m)m.remove();_recvPO=null;}
+function _recvShell(inner,wide){
+  const old=document.getElementById('po-recv-modal-bg');if(old)old.remove();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="po-recv-modal-bg" style="display:flex"><div class="modal" style="max-width:${wide?'860px':'460px'};width:96%">${inner}</div></div>`);
+}
+function renderReceivePOAsk(){
+  const r=_recvPO;if(!r)return;
+  const totalBtl=r.lines.reduce((a,l)=>a+l.remaining,0);
+  const needsSku=r.lines.some(l=>l.remaining>0&&!l.sku);
+  _recvShell(`<div class="modal-title"><i class="ti ti-package-import" style="color:var(--gold);margin-right:6px"></i>Receive ${r.poNumber}</div>
+    <p style="font-size:14px;margin:4px 0 6px"><strong>Was this PO received in full?</strong></p>
+    <p style="font-size:12px;color:var(--text3);margin:0 0 6px">${r.supplier} &middot; ${r.lines.filter(l=>l.remaining>0).length} line${r.lines.filter(l=>l.remaining>0).length!==1?'s':''} &middot; ${totalBtl} bottles ${r.lines.some(l=>l.already>0)?'still outstanding':'ordered'}</p>
+    ${needsSku?'<p style="font-size:12px;color:var(--amber,#8A6100);margin:6px 0 0">Some items need to be matched to an inventory product first, so you\'ll review the list.</p>':''}
+    <div class="modal-footer" style="gap:8px;flex-wrap:wrap"><button class="btn" onclick="closeReceivePO()">Cancel</button>
+      <button class="btn" onclick="renderReceivePOTable()"><i class="ti ti-edit"></i> No -- enter what arrived</button>
+      <button class="btn btn-dark" onclick="${needsSku?'renderReceivePOTable()':'submitReceivePO()'}"><i class="ti ti-check"></i> Yes, received in full</button></div>`);
+}
+function renderReceivePOTable(){
+  const r=_recvPO;if(!r)return;
+  const opts=sel=>'<option value="">-- choose inventory product --</option>'+[...PRODUCTS].sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(p=>`<option value="${p.sku}" ${p.sku===sel?'selected':''}>${poEsc(p.name)} (${p.sku})${p.warehouse==='acs_logistics'?' [Logistics]':''}</option>`).join('');
+  _recvShell(`<div class="modal-title"><i class="ti ti-package-import" style="color:var(--gold);margin-right:6px"></i>Receive ${r.poNumber} -- ${poEsc(r.supplier)}</div>
+    <p style="font-size:12px;color:var(--text3);margin:0 0 10px">Enter what actually arrived, in cases and/or loose bottles. Pre-filled with what is still outstanding.</p>
+    <div style="overflow-x:auto;max-height:55vh;overflow-y:auto"><table class="tbl"><thead><tr><th>Item</th><th style="text-align:right">Ordered</th><th style="text-align:right">Already in</th><th style="text-align:center">Cases in</th><th style="text-align:center">Loose btl</th><th>Inventory product</th><th style="text-align:right">Short</th></tr></thead><tbody>
+    ${r.lines.map((l,i)=>`<tr>
+      <td style="font-weight:500">${poEsc(l.desc)}<div style="font-size:11px;color:var(--text3)">${l.bpc}/case</div></td>
+      <td style="text-align:right;font-size:12px">${(l.ordered/l.bpc).toFixed(l.ordered%l.bpc?2:0)} cs<div style="font-size:11px;color:var(--text3)">${l.ordered} btl</div></td>
+      <td style="text-align:right;font-size:12px">${l.already?l.already+' btl':'--'}</td>
+      <td><input type="number" class="qty-input" min="0" id="rv-c-${i}" value="${Math.floor(l.recv/l.bpc)||''}" oninput="recvEdit(${i})"/></td>
+      <td><input type="number" class="qty-input" min="0" id="rv-b-${i}" value="${(l.recv%l.bpc)||''}" oninput="recvEdit(${i})"/></td>
+      <td><select class="finput" style="min-width:200px;${l.sku?'':'border-color:var(--red)'}" id="rv-s-${i}" onchange="_recvPO.lines[${i}].sku=this.value;this.style.borderColor=this.value?'':'var(--red)'">${opts(l.sku)}</select>${l.guess?'<div style="font-size:10px;color:var(--text3)">auto-matched -- please check</div>':''}</td>
+      <td id="rv-short-${i}" style="text-align:right;font-weight:600"></td></tr>`).join('')}
+    </tbody></table></div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px"><input type="checkbox" id="rv-close"/> Close this PO -- the missing items are not coming (otherwise it stays open as "Partially received" for the rest)</label>
+    <div class="modal-footer"><button class="btn" onclick="closeReceivePO()">Cancel</button><button class="btn btn-dark" id="rv-go" onclick="submitReceivePO(true)"><i class="ti ti-check"></i> Update PO &amp; inventory</button></div>`,true);
+  r.lines.forEach((l,i)=>recvEdit(i));
+}
+function recvEdit(i){
+  const l=_recvPO.lines[i];
+  const c=parseInt(document.getElementById('rv-c-'+i).value)||0,b=parseInt(document.getElementById('rv-b-'+i).value)||0;
+  l.recv=c*l.bpc+b;
+  const short=l.remaining-l.recv,cell=document.getElementById('rv-short-'+i);
+  if(!cell)return;
+  cell.innerHTML=short>0?`<span style="color:var(--red)">-${short} btl</span>`:short<0?`<span style="color:#8A6100">+${-short} over</span>`:'<span style="color:var(--green)">&#10003;</span>';
+}
+async function submitReceivePO(fromTable){
+  const r=_recvPO;if(!r||r.busy)return;
+  const use=r.lines.filter(l=>l.recv>0);
+  const closeShort=fromTable?!!document.getElementById('rv-close')?.checked:!use.length;
+  if(!use.length&&!closeShort){toast('Enter a quantity for at least one item');return}
+  if(use.some(l=>!l.sku)){toast('Choose an inventory product for each received item');return}
+  const over=use.filter(l=>l.recv>l.remaining);
+  if(over.length&&!confirm('More was entered than is outstanding for: '+over.map(l=>l.desc).join(', ')+'.\n\nReceive the larger amount anyway?'))return;
+  const short=r.lines.filter(l=>l.remaining>l.recv);
+  if(fromTable&&short.length&&!closeShort){
+    if(!confirm(short.length+' item'+(short.length!==1?'s are':' is')+' short. The PO will stay open as "Partially received" so the rest can be received later.\n\nContinue?'))return;
+  }
+  r.busy=true;
+  const btn=document.getElementById('rv-go');if(btn){btn.disabled=true;btn.textContent='Saving...';}
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/po-receiving/'+r.id+'/receive',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({clientId:r.cid,closeShort,lines:use.map(l=>({lineKey:l.key,productId:l.productId,sku:l.sku,bottles:l.recv}))})}).then(x=>x.json());
+    if(!res.ok){r.busy=false;toast(res.error||'Could not receive PO');if(btn){btn.disabled=false;btn.textContent='Update PO & inventory';}return}
+    // Mirror the new stock onto the local product list so Inventory shows it without a refresh.
+    (res.stocks||[]).forEach(s=>{const p=PRODUCTS.find(x=>x.sku===s.sku);if(p)p.stock=s.stock;});
+    const num=r.poNumber;closeReceivePO();
+    toast(res.duplicate?num+' was already received':num+(res.status==='partial'?' partially received -- inventory updated':' received -- inventory updated'));
+    await loadPOReceiving();updateBadges&&updateBadges();
+    renderPOHistory();
+  }catch(e){
+    r.busy=false;if(btn){btn.disabled=false;btn.textContent='Update PO & inventory';}
+    alert('Could not confirm the receipt for '+r.poNumber+'. Check Inventory and the adjustment log BEFORE trying again, so the same shipment is not added twice.');
+  }
 }
 function _poEmailBadge(status){
   if(status==='sent')return'<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--green)"><i class="ti ti-circle-check"></i> Sent</span>';
@@ -4998,14 +5125,16 @@ function filterPOHistory(){
     <td style="text-align:right">${o.totalBottles}</td>
     <td style="text-align:right">${o.totalCases.toFixed(2)}</td>
     <td style="text-align:right;font-weight:600">${fmt(o.grandTotal)}</td>
+    <td>${_poRecvBadge(o.id)}</td>
     <td>${_poEmailBadge(o.emailStatus)}</td>
     <td style="white-space:nowrap;display:flex;gap:6px">
-      <button class="btn btn-sm btn-warning" onclick="openEditPO(${o.id})"><i class="ti ti-edit"></i> Edit</button>
+      ${(PO_RECV.statuses[o.id]||{}).status==='received'?'':`<button class="btn btn-sm btn-success" onclick="openReceivePO(${o.id})"><i class="ti ti-package-import"></i> PO Received</button>`}
+      ${(PO_RECV.statuses[o.id]||{}).status==='received'?'':`<button class="btn btn-sm btn-warning" onclick="openEditPO(${o.id})"><i class="ti ti-edit"></i> Edit</button>`}
       <button class="btn btn-sm btn-pdf" onclick="exportPOPdf(${o.id})"><i class="ti ti-file-download"></i> PDF</button>
       <button class="btn btn-sm" onclick="sendPOEmailToSupplier(${o.id})"><i class="ti ti-mail"></i> ${o.emailStatus==='sent'?'Resend':'Send'}</button>
       <button class="btn-delete-item" title="Delete PO" onclick="deletePO(${o.id})"><i class="ti ti-trash"></i></button>
     </td>
-  </tr>`).join(''):'<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--text3)">No purchase orders match</td></tr>';
+  </tr>`).join(''):'<tr><td colspan="10" style="padding:30px;text-align:center;color:var(--text3)">No purchase orders match</td></tr>';
 }
 
 // -- Suppliers & Products ------------------------------------------------------------
