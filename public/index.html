@@ -14939,7 +14939,7 @@ function _corpGroupsTabHtml(){
     <tbody>${groups.map(g=>`<tr>
       <td style="font-weight:600"><i class="ti ti-building-store" style="color:var(--gold);margin-right:6px"></i>${g}</td>
       <td style="text-align:right">${counts[g]}</td>
-      <td style="text-align:right"><button class="btn btn-sm" onclick="loadCorpGroupMembers('${g.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i> Manage members</button></td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn btn-sm btn-dark" onclick="openBulkAcctUpdate('${g.replace(/'/g,"\\'")}')"><i class="ti ti-adjustments"></i> Update all accounts</button> <button class="btn btn-sm" onclick="loadCorpGroupMembers('${g.replace(/'/g,"\\'")}')"><i class="ti ti-edit"></i> Manage members</button></td>
     </tr>`).join('')}
     </tbody></table>`:`<div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">No corp groups assigned yet -- use the tool below to create one.</div>`}
     ${unassignedCount?`<div style="padding:10px 18px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)">${unassignedCount} account${unassignedCount!==1?'s have':' has'} no corp group set</div>`:''}
@@ -14960,10 +14960,81 @@ function _corpGroupsTabHtml(){
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <span id="cg-selected-count" style="font-size:13px;color:var(--text2);font-weight:600">0 accounts selected</span>
         <button class="btn btn-dark btn-sm" onclick="assignCorpGroupToSelected()"><i class="ti ti-check"></i> Assign Corp Group</button>
+        <button class="btn btn-sm" onclick="openBulkAcctUpdate(null)"><i class="ti ti-adjustments"></i> Update settings for selected</button>
         <button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearCorpGroupFromSelected()"><i class="ti ti-x"></i> Clear Corp Group from Selected</button>
       </div>
     </div>
   </div>`;
+}
+
+// ---- Bulk update settings for a whole corp group (or the accounts picked in the tool) --------------
+const BULK_ACCT_FIELDS=[
+  {k:'rep',label:'Assigned rep',type:'rep'},
+  {k:'waiveDeliveryAlways',label:'Always waive delivery fee',type:'bool'},
+  {k:'terms',label:'Payment terms',type:'select',from:'a-terms'},
+  {k:'commissionPct',label:'Commission %',type:'num'},
+  {k:'creditLimit',label:'Credit limit ($)',type:'num'},
+  {k:'region',label:'Region',type:'text'},
+  {k:'accountType',label:'Account type',type:'select',from:'a-type'},
+  {k:'allowOrders',label:'Allow orders',type:'bool'},
+  {k:'prefersMasterInvoice',label:'Prefers master invoice',type:'bool'},
+  {k:'onlinePayments',label:'Online payments',type:'yesno'},
+  {k:'paymentProvider',label:'Payment provider',type:'text'},
+  {k:'preferredPaymentMethodName',label:'Preferred payment method',type:'text'},
+  {k:'showProductUpc',label:'Show product UPC',type:'bool'},
+  {k:'pastDue',label:'Past due',type:'bool'},
+  {k:'codEmailNotifications',label:'COD email notifications',type:'bool'},
+];
+let _bulkAcctIds=[],_bulkAcctLabel='';
+function openBulkAcctUpdate(group){
+  let accts;
+  if(group){accts=ACCOUNTS.filter(a=>a.corpGroup===group);_bulkAcctLabel='"'+group+'"';}
+  else{accts=_cgSelectedAccounts.map(x=>ACCOUNTS.find(a=>a.id===x.id)).filter(Boolean);_bulkAcctLabel='the selected accounts';}
+  if(!accts.length){alert('No accounts to update -- select some first.');return}
+  _bulkAcctIds=accts.map(a=>a.id);
+  const ctl=fd=>{
+    const id='bu-v-'+fd.k;
+    if(fd.type==='rep')return`<select class="finput" id="${id}">${USERS.filter(u=>u.role==='rep'||u.role==='admin').map(u=>`<option value="${u.id}">${poEsc(u.fname+' '+u.lname)}</option>`).join('')}</select>`;
+    if(fd.type==='bool')return`<select class="finput" id="${id}"><option value="true">Yes</option><option value="false">No</option></select>`;
+    if(fd.type==='yesno')return`<select class="finput" id="${id}"><option value="Yes">Yes</option><option value="No">No</option></select>`;
+    if(fd.type==='select'){const el=document.getElementById(fd.from);return`<select class="finput" id="${id}">${el?el.innerHTML.replace(/ selected(="[^"]*")?/g,''):''}</select>`;}
+    if(fd.type==='num')return`<input class="finput" type="number" step="any" id="${id}"/>`;
+    return`<input class="finput" id="${id}"/>`;
+  };
+  const old=document.getElementById('bu-modal-bg');if(old)old.remove();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="bu-modal-bg" style="display:flex"><div class="modal" style="max-width:560px;width:96%">
+    <div class="modal-title"><i class="ti ti-adjustments" style="color:var(--gold);margin-right:6px"></i>Update ${accts.length} account${accts.length!==1?'s':''} -- ${poEsc(_bulkAcctLabel)}</div>
+    <p style="font-size:12px;color:var(--text3);margin:0 0 10px">Tick only the settings you want to change. Everything not ticked stays as it is on each account. Addresses, delivery notes, ship days and AP contacts are never touched here.</p>
+    <div style="max-height:58vh;overflow-y:auto">
+    ${BULK_ACCT_FIELDS.map(fd=>`<div style="display:grid;grid-template-columns:24px 190px 1fr;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <input type="checkbox" id="bu-on-${fd.k}" onchange="document.getElementById('bu-v-${fd.k}').disabled=!this.checked"/>
+      <label for="bu-on-${fd.k}" style="font-size:13px;cursor:pointer">${fd.label}</label>${ctl(fd)}</div>`).join('')}
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="document.getElementById('bu-modal-bg').remove()">Cancel</button><button class="btn btn-dark" id="bu-go" onclick="applyBulkAcctUpdate()"><i class="ti ti-check"></i> Apply to all ${accts.length}</button></div>
+  </div></div>`);
+  BULK_ACCT_FIELDS.forEach(fd=>{document.getElementById('bu-v-'+fd.k).disabled=true;});
+}
+async function applyBulkAcctUpdate(){
+  const changes={},labels=[];
+  BULK_ACCT_FIELDS.forEach(fd=>{
+    if(!document.getElementById('bu-on-'+fd.k).checked)return;
+    const raw=document.getElementById('bu-v-'+fd.k).value;
+    changes[fd.k]=fd.type==='bool'?raw==='true':fd.type==='num'?parseFloat(raw):raw;
+    const el=document.getElementById('bu-v-'+fd.k);
+    labels.push(fd.label+' -> '+(el.tagName==='SELECT'?el.options[el.selectedIndex].text:raw||'(blank)'));
+  });
+  if(!labels.length){alert('Tick at least one setting to change.');return}
+  if(Object.entries(changes).some(([k,v])=>typeof v==='number'&&!Number.isFinite(v))){alert('Enter a number for the numeric settings you ticked.');return}
+  if(!confirm('Apply to '+_bulkAcctIds.length+' account'+(_bulkAcctIds.length!==1?'s':'')+' in '+_bulkAcctLabel+':\n\n'+labels.join('\n')+'\n\nThis overwrites the current value on every one of them.'))return;
+  const btn=document.getElementById('bu-go');btn.disabled=true;btn.textContent='Saving...';
+  try{
+    const res=await fetch(TOASTED_BACKEND_URL+'/api/accounts/bulk-update',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({accountIds:_bulkAcctIds,changes})}).then(r=>r.json());
+    if(!res.ok){alert(res.error||'Could not update accounts');btn.disabled=false;btn.textContent='Apply to all '+_bulkAcctIds.length;return}
+    _bulkAcctIds.forEach(id=>{const a=ACCOUNTS.find(x=>x.id===id);if(a)Object.assign(a,changes);});
+    document.getElementById('bu-modal-bg').remove();
+    toast('Updated '+res.updated+' account'+(res.updated!==1?'s':''));
+    if(changes.rep!==undefined&&typeof loadAllDataFromBackend==='function')loadAllDataFromBackend();
+  }catch(e){alert('Could not confirm the update -- check your connection and look at one of the accounts before retrying.');btn.disabled=false;btn.textContent='Apply to all '+_bulkAcctIds.length;}
 }
 function refreshCorpGroupsTab(){
   const el=document.getElementById('tab-corpgroups');
