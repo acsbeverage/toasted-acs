@@ -4761,10 +4761,86 @@ async function renderPO(){
     <button class="btn ${_poSubview==='new'?'btn-dark':''}" onclick="switchPOSubview('new')"><i class="ti ti-plus"></i> New PO</button>
     <button class="btn ${_poSubview==='history'?'btn-dark':''}" onclick="switchPOSubview('history')"><i class="ti ti-history"></i> PO History</button>
     <button class="btn ${_poSubview==='suppliers'?'btn-dark':''}" onclick="switchPOSubview('suppliers')"><i class="ti ti-building-warehouse"></i> Suppliers &amp; Products</button>
+    <button class="btn" style="margin-left:auto" onclick="openPOInvSync()"><i class="ti ti-arrows-exchange"></i> Sync with Inventory</button>
   </div>
   <div id="po-subview-body"><div style="padding:40px;text-align:center;color:var(--text3)">Loading...</div></div>`;
   await loadPOData();
   renderPOSubview();
+}
+
+// ---- Sync the PO product catalog with general inventory ---------------------------------------
+// Inventory is the master list: ACS Item # = inventory item #, pack size and bottle size follow inventory.
+// Supplier, description and prices on the PO catalog are never changed here.
+let _syncRows=[];
+const _normSize=x=>String(x||'750ml').toLowerCase().replace(/\s+/g,'');
+async function openPOInvSync(){
+  let all=[];
+  try{
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/po/products',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!r.ok){toast(r.error||'Could not load PO products');return}
+    all=r.products;
+  }catch(e){toast('Could not load PO products -- check connection');return}
+  await loadPOReceiving();
+  const active=PRODUCTS.filter(p=>(p._details||{}).active!=='No');
+  _syncRows=all.map(pp=>{
+    let sku='',how='';
+    const exact=active.find(p=>pp.vintage&&String(p.sku)===String(pp.vintage).trim());
+    if(exact){sku=exact.sku;how='item #';}
+    else{const g=poRecvGuessSku({productId:pp.id,brandName:pp.brandName,description:pp.description,bottlesPerCase:pp.bottlesPerCase});sku=g.sku;how=g.sku?(g.guess?'name (check)':'saved'):'';}
+    return{pp,sku,how,apply:false,supplier:(PO_SUPPLIERS.find(s=>s.id===pp.supplierId)||{}).name||''};
+  });
+  _syncRows.forEach(r=>{r.apply=_syncDiffers(r)});
+  renderPOInvSync(false);
+}
+function _syncInv(r){return PRODUCTS.find(p=>p.sku===r.sku)}
+function _syncDiffers(r){
+  const p=_syncInv(r);if(!p)return false;
+  return String(r.pp.vintage||'')!==String(p.sku)||(r.pp.bottlesPerCase||0)!==(p.btl||0)||_normSize(r.pp.bottleSize)!==_normSize((p._details||{}).bottleSize);
+}
+function renderPOInvSync(showAll){
+  const old=document.getElementById('po-sync-modal-bg');if(old)old.remove();
+  const opts=sel=>'<option value="">-- not matched --</option>'+[...PRODUCTS].sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(p=>`<option value="${p.sku}" ${p.sku===sel?'selected':''}>${poEsc(p.name)} (${p.sku}, ${p.btl}pk)</option>`).join('');
+  const cell=(a,b,diff)=>diff?`<span style="color:var(--red);font-weight:600">${poEsc(a||'--')}</span> <span style="color:var(--text3)">&rarr;</span> <span style="color:var(--green);font-weight:600">${poEsc(b)}</span>`:`<span style="color:var(--text3)">${poEsc(b||a||'--')}</span>`;
+  const rows=_syncRows.map((r,i)=>({r,i})).filter(({r})=>showAll||!r.sku||_syncDiffers(r));
+  const unmatched=_syncRows.filter(r=>!r.sku).length,diffs=_syncRows.filter(r=>_syncDiffers(r)).length;
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="po-sync-modal-bg" style="display:flex"><div class="modal" style="max-width:1000px;width:97%">
+    <div class="modal-title"><i class="ti ti-arrows-exchange" style="color:var(--gold);margin-right:6px"></i>Sync PO products with Inventory</div>
+    <p style="font-size:12px;color:var(--text3);margin:0 0 8px">Inventory is the master. Ticked rows get the inventory item # (as ACS Item #), pack size and bottle size. Descriptions, suppliers and prices are not changed. <strong>${diffs}</strong> differ, <strong>${unmatched}</strong> not matched to an inventory product.</p>
+    <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin-bottom:8px"><input type="checkbox" ${showAll?'checked':''} onchange="renderPOInvSync(this.checked)"/> Also show products that already match</label>
+    <div style="max-height:56vh;overflow:auto"><table class="tbl"><thead><tr><th></th><th>PO product</th><th>Inventory product</th><th>ACS Item #</th><th>Pack</th><th>Bottle size</th></tr></thead><tbody>
+    ${rows.map(({r,i})=>{const p=_syncInv(r);const pd=p?((p._details||{}).bottleSize||'750ml'):'';return`<tr>
+      <td><input type="checkbox" ${r.apply?'checked':''} ${p?'':'disabled'} onchange="_syncRows[${i}].apply=this.checked"/></td>
+      <td style="font-size:12px"><strong>${poEsc(r.pp.brandName)}</strong> ${poEsc(r.pp.description)}<div style="color:var(--text3);font-size:11px">${poEsc(r.supplier)}</div></td>
+      <td><select class="finput" style="min-width:230px" onchange="_syncRows[${i}].sku=this.value;_syncRows[${i}].how='manual';_syncRows[${i}].apply=_syncDiffers(_syncRows[${i}]);renderPOInvSync(${showAll})">${opts(r.sku)}</select>${r.how&&r.sku?`<div style="font-size:10px;color:var(--text3)">matched by ${r.how}</div>`:''}</td>
+      <td style="font-size:12px">${p?cell(r.pp.vintage,p.sku,String(r.pp.vintage||'')!==String(p.sku)):'--'}</td>
+      <td style="font-size:12px">${p?cell(r.pp.bottlesPerCase+'pk',p.btl+'pk',r.pp.bottlesPerCase!==p.btl):'--'}</td>
+      <td style="font-size:12px">${p?cell(r.pp.bottleSize,pd,_normSize(r.pp.bottleSize)!==_normSize(pd)):'--'}</td></tr>`}).join('')||'<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text3)">Everything matches.</td></tr>'}
+    </tbody></table></div>
+    <div class="modal-footer"><button class="btn" onclick="document.getElementById('po-sync-modal-bg').remove()">Close</button><button class="btn btn-dark" id="sync-go" onclick="applyPOInvSync()"><i class="ti ti-check"></i> Apply to ticked</button></div>
+  </div></div>`);
+}
+async function applyPOInvSync(){
+  const todo=_syncRows.filter(r=>r.apply&&_syncInv(r));
+  if(!todo.length){toast('Nothing ticked');return}
+  if(!confirm('Update '+todo.length+' PO product'+(todo.length!==1?'s':'')+' to match inventory?'))return;
+  const btn=document.getElementById('sync-go');btn.disabled=true;btn.textContent='Saving...';
+  const H={'Content-Type':'application/json','Authorization':'Bearer '+window._authToken};
+  let ok=0,fail=0;
+  try{
+    await fetch(TOASTED_BACKEND_URL+'/api/po-receiving/sku-map',{method:'POST',headers:H,body:JSON.stringify({pairs:todo.map(r=>({poProductId:r.pp.id,sku:r.sku}))})});
+    for(const r of todo){
+      const p=_syncInv(r),pp=r.pp;
+      const body={supplierId:pp.supplierId,description:pp.description,brandName:pp.brandName,vintage:String(p.sku),type:pp.type,
+        bottleSize:(p._details||{}).bottleSize||pp.bottleSize||'750ml',bottlesPerCase:p.btl||pp.bottlesPerCase,casePrice:pp.casePrice,bottlePrice:pp.bottlePrice};
+      // keep the per-bottle price consistent with the case price if the pack size changed
+      if(body.bottlesPerCase!==pp.bottlesPerCase&&body.casePrice>0)body.bottlePrice=Math.round(body.casePrice/body.bottlesPerCase*100)/100;
+      try{const x=await fetch(TOASTED_BACKEND_URL+'/api/po/products/'+pp.id,{method:'PATCH',headers:H,body:JSON.stringify(body)}).then(r=>r.json());x.ok?ok++:fail++;}catch(e){fail++}
+    }
+  }catch(e){fail=todo.length-ok}
+  document.getElementById('po-sync-modal-bg').remove();
+  toast('Synced '+ok+' product'+(ok!==1?'s':'')+(fail?' -- '+fail+' failed':''));
+  if(_poSelectedSupplier)await loadPOProducts(_poSelectedSupplier);
+  if(typeof renderPOSubview==='function')renderPOSubview();
 }
 function switchPOSubview(v){_poSubview=v;renderPO();}
 function renderPOSubview(){
@@ -5007,7 +5083,9 @@ function poRecvGuessSku(li){
   const scored=PRODUCTS.filter(p=>(p._details||{}).active!=='No').map(p=>{
     const B=poTokens(p.name);
     let sc=A.filter(a=>B.some(b=>poTokEq(a,b))).length/A.length;
-    if(li.bottlesPerCase&&p.btl)sc+=(p.btl===li.bottlesPerCase?0.15:-0.3);
+    const hint=(String(li.description||'').match(/(\d+)\s*-?\s*(?:pk|pack)\b/i)||String(li.description||'').match(/\b(\d+)\s*\/\s*\d/)||[])[1];
+    const bp=hint?parseInt(hint):li.bottlesPerCase;   // a pack size written in the description beats a stale pack-size field
+    if(bp&&p.btl)sc+=(p.btl===bp?0.15:-0.3);
     return{p,sc};
   }).sort((x,y)=>y.sc-x.sc);
   if(scored.length&&scored[0].sc>=0.7&&(!scored[1]||scored[0].sc-scored[1].sc>=0.15))return{sku:scored[0].p.sku,guess:true};
