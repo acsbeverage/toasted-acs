@@ -5270,7 +5270,7 @@ function openPOProductForm(supplierId,id){
       <label class="flabel">Description *</label><input class="finput" id="pop-desc" value="${p?p.description.replace(/"/g,'&quot;'):''}" placeholder="e.g. Alma del Jaguar Tequila Blanco 6/750" style="margin-bottom:12px"/>
       <div class="form-grid form-grid-2" style="gap:12px;margin-bottom:12px">
         <div><label class="flabel">Brand Name</label><input class="finput" id="pop-brand" value="${p?(p.brandName||'').replace(/"/g,'&quot;'):''}"/></div>
-        <div><label class="flabel">Vintage</label><input class="finput" id="pop-vintage" value="${p?(p.vintage||''):''}" placeholder="optional"/></div>
+        <div><label class="flabel">ACS Item #</label><input class="finput" id="pop-vintage" value="${p?(p.vintage||''):''}" placeholder="e.g. 945159"/></div>
       </div>
       <div class="form-grid form-grid-3" style="gap:12px;margin-bottom:12px">
         <div><label class="flabel">Type</label><input class="finput" id="pop-type" value="${p?p.type:'Spirits'}"/></div>
@@ -5388,9 +5388,9 @@ function _buildPOPdfDoc(order){
   const ML=36,MT=32,CW=792-72;
 
   const COLS=[
-    ['PO Date',58,'left'],['Brand',80,'left'],['Vintage',36,'left'],['Type',52,'left'],
+    ['PO Date',58,'left'],['Brand',80,'left'],['ACS Item #',52,'left'],['Type',52,'left'],
     ['Size',44,'left'],['Qty Btl',44,'right'],['Qty Cs',44,'right'],
-    ['Description',156,'left'],['Case $',56,'right'],['Btl $',56,'right'],['Total',94,'right']
+    ['Description',140,'left'],['Case $',56,'right'],['Btl $',56,'right'],['Total',94,'right']
   ];
   const colX=[];{let x=ML;COLS.forEach(([,w])=>{colX.push(x);x+=w;});}
   const fmtN=v=>{ if(v===null||v===undefined)return'N/C'; const n=parseFloat(v); if(isNaN(n)||n===0)return'N/C'; return'$'+n.toFixed(2); };
@@ -5413,7 +5413,7 @@ function _buildPOPdfDoc(order){
     const bg=item.isNoCharge?[255,245,245]:(idx%2===1?[245,245,243]:[255,255,255]);
     doc.setFillColor(bg[0],bg[1],bg[2]);doc.rect(ML,y,CW,rowH,'F');
     const cells=[
-      poDateStr, item.brandName||'', item.vintage||'', item.type||'', item.bottleSize||'',
+      poDateStr, item.brandName||'', item.vintage||(PO_RECV.skuMap[item.productId]||''), item.type||'', item.bottleSize||'',
       item.quantityBottles>0?String(item.quantityBottles):'',
       item.quantityCases>0?item.quantityCases.toFixed(2):'',
       item.description||'',
