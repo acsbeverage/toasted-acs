@@ -1264,4 +1264,124 @@ router.delete('/accounts/:id/attachments/:attId', requireAdmin, async (req, res)
   }
 });
 
+// ============================================================================
+// PO RECEIVING -- "PO Received" button on Purchase Orders. Adds what actually arrived to inventory,
+// writes the normal inventory-adjustment log entries ("Received Shipment"), and tracks per-PO status
+// (Open / Partial / Received). Tables are created on first use, so no migration step is needed.
+// Lives here (not in purchaseOrders.js) so the existing PO routes are untouched.
+// ============================================================================
+let _poRecvReady = null;
+function ensurePoReceivingTables() {
+  if (!_poRecvReady) {
+    _poRecvReady = (async () => {
+      await query(`CREATE TABLE IF NOT EXISTS po_sku_map (po_product_id INTEGER PRIMARY KEY, sku TEXT NOT NULL)`);
+      await query(`CREATE TABLE IF NOT EXISTS po_receipts (
+        id SERIAL PRIMARY KEY, po_id INTEGER NOT NULL, client_id TEXT UNIQUE, received_by TEXT,
+        close_short BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT NOW())`);
+      await query(`CREATE TABLE IF NOT EXISTS po_receipt_lines (
+        id SERIAL PRIMARY KEY, receipt_id INTEGER REFERENCES po_receipts(id) ON DELETE CASCADE,
+        po_id INTEGER NOT NULL, line_key TEXT NOT NULL, sku TEXT, bottles_received INTEGER NOT NULL DEFAULT 0)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_po_receipt_lines_po ON po_receipt_lines(po_id)`);
+      await query(`CREATE TABLE IF NOT EXISTS po_receive_status (
+        po_id INTEGER PRIMARY KEY, status TEXT NOT NULL, closed_short BOOLEAN DEFAULT FALSE,
+        received_at TIMESTAMPTZ, received_by TEXT)`);
+    })().catch(err => { _poRecvReady = null; throw err; });
+  }
+  return _poRecvReady;
+}
+const poLineKey = (productId, description) => productId != null ? String(productId) : 'd:' + (description || '');
+
+router.get('/po-receiving/summary', requireAdmin, async (req, res) => {
+  try {
+    await ensurePoReceivingTables();
+    const [st, rl, mp] = await Promise.all([
+      getAll('SELECT po_id, status, closed_short, received_at, received_by FROM po_receive_status'),
+      getAll('SELECT po_id, line_key, SUM(bottles_received)::int AS bottles FROM po_receipt_lines GROUP BY po_id, line_key'),
+      getAll('SELECT po_product_id, sku FROM po_sku_map'),
+    ]);
+    const statuses = {}, received = {}, skuMap = {};
+    st.forEach(r => { statuses[r.po_id] = { status: r.status, closedShort: !!r.closed_short, receivedAt: r.received_at, receivedBy: r.received_by }; });
+    rl.forEach(r => { (received[r.po_id] = received[r.po_id] || {})[r.line_key] = r.bottles; });
+    mp.forEach(r => { skuMap[r.po_product_id] = r.sku; });
+    res.json({ ok: true, statuses, received, skuMap });
+  } catch (err) {
+    console.error('PO receiving summary error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/po-receiving/:poId/receive', requireAdmin, async (req, res) => {
+  try {
+    await ensurePoReceivingTables();
+    const poId = parseInt(req.params.poId);
+    const { clientId, closeShort } = req.body;
+    const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+    const po = await getOne('SELECT id, po_number FROM purchase_orders WHERE id=$1', [poId]);
+    if (!po) return res.status(404).json({ ok: false, error: 'PO not found' });
+    if (!clientId) return res.status(400).json({ ok: false, error: 'Missing receipt id' });
+
+    const toReceive = lines.map(l => ({ lineKey: String(l.lineKey), productId: l.productId != null ? parseInt(l.productId) : null,
+      sku: l.sku, bottles: Math.max(0, parseInt(l.bottles) || 0) })).filter(l => l.bottles > 0);
+    if (!toReceive.length && !closeShort) return res.status(400).json({ ok: false, error: 'Nothing to receive -- enter at least one quantity' });
+    if (toReceive.some(l => !l.sku)) return res.status(400).json({ ok: false, error: 'Every received line needs an inventory product selected' });
+
+    // Check every product exists BEFORE touching anything, so a bad line can't leave the PO half-applied.
+    const skus = [...new Set(toReceive.map(l => l.sku))];
+    const prods = await getAll(`SELECT sku, name, btl, COALESCE(warehouse,'main') AS warehouse FROM products WHERE sku = ANY($1)`, [skus]);
+    const bySku = {}; prods.forEach(p => { bySku[p.sku] = p; });
+    const missing = skus.filter(s => !bySku[s]);
+    if (missing.length) return res.status(400).json({ ok: false, error: 'Product not found in inventory: ' + missing.join(', ') });
+
+    // Claim this receipt id first. A double-click or an automatic retry carries the same id, finds it
+    // already claimed, and is told so instead of adding the stock a second time.
+    const by = req.user.fname ? `${req.user.fname} ${req.user.lname || ''}`.trim() : (req.user.email || '');
+    const claim = await getOne(
+      `INSERT INTO po_receipts (po_id, client_id, received_by, close_short) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (client_id) DO NOTHING RETURNING id`, [poId, String(clientId), by, !!closeShort]);
+    if (!claim) return res.json({ ok: true, duplicate: true });
+
+    const results = [];
+    for (const l of toReceive) {
+      const p = bySku[l.sku];
+      const btl = parseInt(p.btl) || 12;
+      const deltaCases = l.bottles / btl;                       // stock is kept in cases
+      const r = await query(`UPDATE products SET stock = stock + $1::numeric WHERE sku=$2 RETURNING stock`, [deltaCases, l.sku]);
+      await query('INSERT INTO po_receipt_lines (receipt_id, po_id, line_key, sku, bottles_received) VALUES ($1,$2,$3,$4,$5)',
+        [claim.id, poId, l.lineKey, l.sku, l.bottles]);
+      try {
+        await query(
+          `INSERT INTO stock_adjustments (sku, warehouse, cases, bottles, sign, reason, notes, by_user_id, by_name)
+           VALUES ($1,$2,$3,$4,1,'Received Shipment',$5,$6,$7)`,
+          [l.sku, p.warehouse, Math.floor(l.bottles / btl), l.bottles % btl, 'PO ' + po.po_number, req.user.id, by]);
+      } catch (e) { console.error('PO receive: adjustment log insert failed (stock WAS updated):', e.message); }
+      // Remember the PO-product -> inventory-product pairing so next time it's pre-filled.
+      if (l.productId != null) {
+        await query(`INSERT INTO po_sku_map (po_product_id, sku) VALUES ($1,$2)
+                     ON CONFLICT (po_product_id) DO UPDATE SET sku=EXCLUDED.sku`, [l.productId, l.sku]);
+      }
+      results.push({ sku: l.sku, stock: parseFloat(r.rows[0].stock) });
+    }
+
+    // Full or partial? Compare everything received on this PO (all receipts) with what was ordered.
+    const ordered = await getAll('SELECT product_id, description, quantity_bottles, quantity_cases, bottles_per_case FROM po_line_items WHERE po_id=$1', [poId]);
+    const got = await getAll('SELECT line_key, SUM(bottles_received)::int AS b FROM po_receipt_lines WHERE po_id=$1 GROUP BY line_key', [poId]);
+    const gotBy = {}; got.forEach(g => { gotBy[g.line_key] = g.b; });
+    const complete = ordered.every(o => {
+      const need = (parseFloat(o.quantity_cases) || 0) * (o.bottles_per_case || 6) + (o.quantity_bottles || 0);
+      return need <= 0 || (gotBy[poLineKey(o.product_id, o.description)] || 0) >= Math.round(need);
+    });
+    const status = (complete || closeShort) ? 'received' : 'partial';
+    const closedShort = !!closeShort && !complete;
+    await query(
+      `INSERT INTO po_receive_status (po_id, status, closed_short, received_at, received_by) VALUES ($1,$2,$3,NOW(),$4)
+       ON CONFLICT (po_id) DO UPDATE SET status=EXCLUDED.status, closed_short=EXCLUDED.closed_short, received_at=NOW(), received_by=EXCLUDED.received_by`,
+      [poId, status, closedShort, by]);
+    res.json({ ok: true, status, closedShort, stocks: results });
+  } catch (err) {
+    console.error('PO receive error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+
 module.exports = router;
