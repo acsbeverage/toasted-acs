@@ -1352,6 +1352,25 @@ router.get('/po-receiving/summary', requireAdmin, async (req, res) => {
   }
 });
 
+router.post('/po-receiving/sku-map', requireAdmin, async (req, res) => {
+  try {
+    await ensurePoReceivingTables();
+    const pairs = Array.isArray(req.body.pairs) ? req.body.pairs : [];
+    let n = 0;
+    for (const p of pairs) {
+      const pid = parseInt(p.poProductId);
+      if (!pid || !p.sku) continue;
+      await query(`INSERT INTO po_sku_map (po_product_id, sku) VALUES ($1,$2)
+                   ON CONFLICT (po_product_id) DO UPDATE SET sku=EXCLUDED.sku`, [pid, String(p.sku)]);
+      n++;
+    }
+    res.json({ ok: true, saved: n });
+  } catch (err) {
+    console.error('PO sku-map error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.post('/po-receiving/:poId/receive', requireAdmin, async (req, res) => {
   try {
     await ensurePoReceivingTables();
