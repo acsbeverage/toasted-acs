@@ -184,6 +184,48 @@ router.post('/accounts/bulk-corp-group', requireAdmin, async (req, res) => {
   }
 });
 
+// Change the same settings on many accounts at once (chains / corp groups). Only the fields listed here can be
+// changed this way -- addresses, delivery notes, ship days and AP/invoice contacts are deliberately NOT included.
+const BULK_ACCOUNT_FIELDS = {
+  rep: ['rep', 'str'], terms: ['terms', 'str'], waiveDeliveryAlways: ['waive_delivery_always', 'bool'],
+  commissionPct: ['commission_pct', 'num'], creditLimit: ['credit_limit', 'num'],
+  region: ['region', 'str'], accountType: ['account_type', 'str'],
+  paymentProvider: ['payment_provider', 'str'], preferredPaymentMethodName: ['preferred_payment_method_name', 'str'],
+  onlinePayments: ['online_payments', 'yesno'], redemption: ['redemption', 'yesno'],
+  prefersMasterInvoice: ['prefers_master_invoice', 'bool'], allowOrders: ['allow_orders', 'bool'],
+  showProductUpc: ['show_product_upc', 'bool'], pastDue: ['past_due', 'bool'],
+  codEmailNotifications: ['cod_email_notifications', 'bool'],
+};
+router.post('/accounts/bulk-update', requireAdmin, async (req, res) => {
+  try {
+    const { accountIds, changes } = req.body;
+    if (!Array.isArray(accountIds) || !accountIds.length) return res.status(400).json({ ok: false, error: 'No accounts selected' });
+    if (!changes || typeof changes !== 'object') return res.status(400).json({ ok: false, error: 'No changes given' });
+    const sets = [], vals = [accountIds];
+    for (const key of Object.keys(changes)) {
+      const def = BULK_ACCOUNT_FIELDS[key];
+      if (!def) return res.status(400).json({ ok: false, error: 'This field can not be changed in bulk: ' + key });
+      let v = changes[key];
+      if (def[1] === 'bool') v = (v === true || v === 'true');
+      else if (def[1] === 'num') { v = parseFloat(v); if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: 'Invalid number for ' + key }); }
+      else if (def[1] === 'yesno') v = (v === 'Yes' || v === true) ? 'Yes' : 'No';
+      else v = String(v == null ? '' : v);
+      if (key === 'rep') {
+        const u = await getOne('SELECT id FROM users WHERE id=$1', [v]);
+        if (!u) return res.status(400).json({ ok: false, error: 'Rep not found' });
+      }
+      vals.push(v);
+      sets.push(`${def[0]}=$${vals.length}`);
+    }
+    if (!sets.length) return res.status(400).json({ ok: false, error: 'No changes given' });
+    const result = await query(`UPDATE accounts SET ${sets.join(', ')} WHERE id = ANY($1)`, vals);
+    res.json({ ok: true, updated: result.rowCount });
+  } catch (err) {
+    console.error('Bulk account update error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.patch('/accounts/:id', requireAdmin, async (req, res) => {
   try {
     const b = req.body;
