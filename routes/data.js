@@ -1324,6 +1324,7 @@ function ensurePoReceivingTables() {
         id SERIAL PRIMARY KEY, receipt_id INTEGER REFERENCES po_receipts(id) ON DELETE CASCADE,
         po_id INTEGER NOT NULL, line_key TEXT NOT NULL, sku TEXT, bottles_received INTEGER NOT NULL DEFAULT 0)`);
       await query(`CREATE INDEX IF NOT EXISTS idx_po_receipt_lines_po ON po_receipt_lines(po_id)`);
+      await query(`CREATE TABLE IF NOT EXISTS po_line_ordered (po_id INTEGER NOT NULL, line_key TEXT NOT NULL, ordered_bottles INTEGER NOT NULL, PRIMARY KEY (po_id, line_key))`);
       await query(`CREATE TABLE IF NOT EXISTS po_receive_status (
         po_id INTEGER PRIMARY KEY, status TEXT NOT NULL, closed_short BOOLEAN DEFAULT FALSE,
         received_at TIMESTAMPTZ, received_by TEXT)`);
@@ -1423,12 +1424,23 @@ router.post('/po-receiving/:poId/receive', requireAdmin, async (req, res) => {
       results.push({ sku: l.sku, stock: parseFloat(r.rows[0].stock) });
     }
 
+    // The screen works out each line's ordered bottles using the INVENTORY pack size (from the item #), which can
+    // differ from the pack size saved on an older PO line. Remember that so "full vs partial" is judged on it.
+    for (const o of (Array.isArray(req.body.ordered) ? req.body.ordered : [])) {
+      const ob = parseInt(o.bottles);
+      if (o.lineKey != null && ob > 0) {
+        await query(`INSERT INTO po_line_ordered (po_id, line_key, ordered_bottles) VALUES ($1,$2,$3)
+                     ON CONFLICT (po_id, line_key) DO UPDATE SET ordered_bottles=EXCLUDED.ordered_bottles`, [poId, String(o.lineKey), ob]);
+      }
+    }
+    const ovr = {}; (await getAll('SELECT line_key, ordered_bottles FROM po_line_ordered WHERE po_id=$1', [poId])).forEach(r => { ovr[r.line_key] = r.ordered_bottles; });
     // Full or partial? Compare everything received on this PO (all receipts) with what was ordered.
     const ordered = await getAll('SELECT product_id, description, quantity_bottles, quantity_cases, bottles_per_case FROM po_line_items WHERE po_id=$1', [poId]);
     const got = await getAll('SELECT line_key, SUM(bottles_received)::int AS b FROM po_receipt_lines WHERE po_id=$1 GROUP BY line_key', [poId]);
     const gotBy = {}; got.forEach(g => { gotBy[g.line_key] = g.b; });
     const complete = ordered.every(o => {
-      const need = (parseFloat(o.quantity_cases) || 0) * (o.bottles_per_case || 6) + (o.quantity_bottles || 0);
+      const k = poLineKey(o.product_id, o.description);
+      const need = ovr[k] != null ? ovr[k] : (parseFloat(o.quantity_cases) || 0) * (o.bottles_per_case || 6) + (o.quantity_bottles || 0);
       return need <= 0 || (gotBy[poLineKey(o.product_id, o.description)] || 0) >= Math.round(need);
     });
     const status = (complete || closeShort) ? 'received' : 'partial';
