@@ -5094,17 +5094,35 @@ function poRecvGuessSku(li){
 async function openReceivePO(id){
   const order=await _fetchPOOrder(id);if(!order)return;
   await loadPOReceiving();
+  // Catalog item #s, for older PO lines that were saved before ACS Item # existed on the line.
+  const catItem={};
+  try{const r=await fetch(TOASTED_BACKEND_URL+'/api/po/products',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(r.ok)r.products.forEach(p=>{catItem[p.id]=p.vintage||''});}catch(e){}
   const got=PO_RECV.received[id]||{};
   const lines=[];
   (order.lineItems||[]).forEach(li=>{
-    const bpc=li.bottlesPerCase||6;
-    const ordered=Math.round((li.quantityCases||0)*bpc+(li.quantityBottles||0));
-    if(ordered<=0)return;
+    const cs=li.quantityCases||0,lb=li.quantityBottles||0;
+    if(cs<=0&&lb<=0)return;
     const key=li.productId!=null?String(li.productId):'d:'+(li.description||'');
+    // 1) ACS Item # on the line (or catalog) -> exact inventory product -> its pack size.
+    // 2) Otherwise a previously confirmed match for this product.
+    // 3) Otherwise pick by name + pack size (flagged for checking), keeping the PO line's own pack size.
+    const itemNo=String(li.vintage||catItem[li.productId]||'').trim();
+    let p=itemNo?PRODUCTS.find(x=>String(x.sku)===itemNo):null,sku='',guess=false,src='';
+    if(p){sku=p.sku;src='item #';}
+    else{
+      const g=poRecvGuessSku(li);sku=g.sku;guess=g.guess;
+      p=PRODUCTS.find(x=>x.sku===sku)||null;
+      src=sku?(g.guess?'name & pack':'saved match'):'';
+      if(sku&&!g.guess)src='saved match';
+    }
+    const poBpc=li.bottlesPerCase||6;
+    const trustPack=!!p&&!guess;                       // item # / saved match: inventory's pack size is the truth
+    const bpc=trustPack?(p.btl||poBpc):poBpc;
+    const ordered=Math.round(cs*bpc+lb);
     const already=got[key]||0;
-    const g=poRecvGuessSku(li);
     lines.push({key,productId:li.productId,desc:li.description||li.brandName,bpc,ordered,already,remaining:Math.max(0,ordered-already),
-      recv:Math.max(0,ordered-already),sku:g.sku,guess:g.guess});
+      recv:Math.max(0,ordered-already),sku,guess,src,cs,lb,poBpc,packFixed:trustPack&&bpc!==poBpc});
   });
   _recvPO={id,poNumber:order.poNumber,supplier:order.supplierName,lines,cid:(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('rcv-'+Date.now()+'-'+Math.random().toString(36).slice(2)),busy:false};
   if(!lines.length){toast('This PO has no quantities to receive');return}
@@ -5121,11 +5139,11 @@ function _recvShell(inner,wide){
 function renderReceivePOAsk(){
   const r=_recvPO;if(!r)return;
   const totalBtl=r.lines.reduce((a,l)=>a+l.remaining,0);
-  const needsSku=r.lines.some(l=>l.remaining>0&&!l.sku);
+  const needsSku=r.lines.some(l=>l.remaining>0&&(!l.sku||l.packFixed||l.guess));
   _recvShell(`<div class="modal-title"><i class="ti ti-package-import" style="color:var(--gold);margin-right:6px"></i>Receive ${r.poNumber}</div>
     <p style="font-size:14px;margin:4px 0 6px"><strong>Was this PO received in full?</strong></p>
     <p style="font-size:12px;color:var(--text3);margin:0 0 6px">${r.supplier} &middot; ${r.lines.filter(l=>l.remaining>0).length} line${r.lines.filter(l=>l.remaining>0).length!==1?'s':''} &middot; ${totalBtl} bottles ${r.lines.some(l=>l.already>0)?'still outstanding':'ordered'}</p>
-    ${needsSku?'<p style="font-size:12px;color:var(--amber,#8A6100);margin:6px 0 0">Some items need to be matched to an inventory product first, so you\'ll review the list.</p>':''}
+    ${needsSku?'<p style="font-size:12px;color:var(--amber,#8A6100);margin:6px 0 0">Some items need a quick check (unmatched, auto-matched by name, or a pack size that differs from the PO), so you\'ll review the list.</p>':''}
     <div class="modal-footer" style="gap:8px;flex-wrap:wrap"><button class="btn" onclick="closeReceivePO()">Cancel</button>
       <button class="btn" onclick="renderReceivePOTable()"><i class="ti ti-edit"></i> No -- enter what arrived</button>
       <button class="btn btn-dark" onclick="${needsSku?'renderReceivePOTable()':'submitReceivePO()'}"><i class="ti ti-check"></i> Yes, received in full</button></div>`);
@@ -5137,17 +5155,26 @@ function renderReceivePOTable(){
     <p style="font-size:12px;color:var(--text3);margin:0 0 10px">Enter what actually arrived, in cases and/or loose bottles. Pre-filled with what is still outstanding.</p>
     <div style="overflow-x:auto;max-height:55vh;overflow-y:auto"><table class="tbl"><thead><tr><th>Item</th><th style="text-align:right">Ordered</th><th style="text-align:right">Already in</th><th style="text-align:center">Cases in</th><th style="text-align:center">Loose btl</th><th>Inventory product</th><th style="text-align:right">Short</th></tr></thead><tbody>
     ${r.lines.map((l,i)=>`<tr>
-      <td style="font-weight:500">${poEsc(l.desc)}<div style="font-size:11px;color:var(--text3)">${l.bpc}/case</div></td>
+      <td style="font-weight:500">${poEsc(l.desc)}<div style="font-size:11px;color:var(--text3)">${l.bpc}/case${l.packFixed?` <span style="color:#8A6100">(PO said ${l.poBpc}/case -- using inventory pack size from item #)</span>`:''}</div></td>
       <td style="text-align:right;font-size:12px">${(l.ordered/l.bpc).toFixed(l.ordered%l.bpc?2:0)} cs<div style="font-size:11px;color:var(--text3)">${l.ordered} btl</div></td>
       <td style="text-align:right;font-size:12px">${l.already?l.already+' btl':'--'}</td>
       <td><input type="number" class="qty-input" min="0" id="rv-c-${i}" value="${Math.floor(l.recv/l.bpc)||''}" oninput="recvEdit(${i})"/></td>
       <td><input type="number" class="qty-input" min="0" id="rv-b-${i}" value="${(l.recv%l.bpc)||''}" oninput="recvEdit(${i})"/></td>
-      <td><select class="finput" style="min-width:200px;${l.sku?'':'border-color:var(--red)'}" id="rv-s-${i}" onchange="_recvPO.lines[${i}].sku=this.value;this.style.borderColor=this.value?'':'var(--red)'">${opts(l.sku)}</select>${l.guess?'<div style="font-size:10px;color:var(--text3)">auto-matched -- please check</div>':''}</td>
+      <td><select class="finput" style="min-width:200px;${l.sku?'':'border-color:var(--red)'}" id="rv-s-${i}" onchange="recvPickSku(${i},this.value)">${opts(l.sku)}</select>${l.guess?'<div style="font-size:10px;color:var(--text3)">auto-matched by name &amp; pack size -- please check</div>':(l.src&&l.sku?`<div style="font-size:10px;color:var(--text3)">matched by ${l.src}</div>`:'')}</td>
       <td id="rv-short-${i}" style="text-align:right;font-weight:600"></td></tr>`).join('')}
     </tbody></table></div>
     <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px"><input type="checkbox" id="rv-close"/> Close this PO -- the missing items are not coming (otherwise it stays open as "Partially received" for the rest)</label>
     <div class="modal-footer"><button class="btn" onclick="closeReceivePO()">Cancel</button><button class="btn btn-dark" id="rv-go" onclick="submitReceivePO(true)"><i class="ti ti-check"></i> Update PO &amp; inventory</button></div>`,true);
   r.lines.forEach((l,i)=>recvEdit(i));
+}
+function recvPickSku(i,sku){
+  const l=_recvPO.lines[i],p=PRODUCTS.find(x=>x.sku===sku);
+  l.sku=sku;l.guess=false;l.src='your choice';
+  if(p){  // picking the product settles the pack size: inventory's pack size is the truth
+    l.bpc=p.btl||l.poBpc;l.packFixed=l.bpc!==l.poBpc;
+    l.ordered=Math.round(l.cs*l.bpc+l.lb);l.remaining=Math.max(0,l.ordered-l.already);l.recv=l.remaining;
+  }
+  renderReceivePOTable();
 }
 function recvEdit(i){
   const l=_recvPO.lines[i];
@@ -5173,7 +5200,7 @@ async function submitReceivePO(fromTable){
   const btn=document.getElementById('rv-go');if(btn){btn.disabled=true;btn.textContent='Saving...';}
   try{
     const res=await fetch(TOASTED_BACKEND_URL+'/api/po-receiving/'+r.id+'/receive',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
-      body:JSON.stringify({clientId:r.cid,closeShort,lines:use.map(l=>({lineKey:l.key,productId:l.productId,sku:l.sku,bottles:l.recv}))})}).then(x=>x.json());
+      body:JSON.stringify({clientId:r.cid,closeShort,ordered:r.lines.map(l=>({lineKey:l.key,bottles:l.ordered})),lines:use.map(l=>({lineKey:l.key,productId:l.productId,sku:l.sku,bottles:l.recv}))})}).then(x=>x.json());
     if(!res.ok){r.busy=false;toast(res.error||'Could not receive PO');if(btn){btn.disabled=false;btn.textContent='Update PO & inventory';}return}
     // Mirror the new stock onto the local product list so Inventory shows it without a refresh.
     (res.stocks||[]).forEach(s=>{const p=PRODUCTS.find(x=>x.sku===s.sku);if(p)p.stock=s.stock;});
@@ -5279,8 +5306,9 @@ function renderPOSupplierDetailBody(){
 
   <div class="card">
     <div class="card-header"><span class="card-title">${PO_PRODUCTS.length} products</span><button class="btn btn-sm btn-success" onclick="openPOProductForm(${supplier.id})"><i class="ti ti-plus"></i> Add Product</button></div>
-    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Description</th><th>Type/Size</th><th>Pack</th><th style="text-align:right">Case $</th><th style="text-align:right">Btl $</th><th></th></tr></thead><tbody>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ACS Item #</th><th>Description</th><th>Type/Size</th><th>Pack</th><th style="text-align:right">Case $</th><th style="text-align:right">Btl $</th><th></th></tr></thead><tbody>
     ${PO_PRODUCTS.map(p=>`<tr>
+      <td style="font-size:12px;font-family:monospace;color:${p.vintage?'var(--text)':'var(--red)'}">${p.vintage?poEsc(p.vintage):'--'}</td>
       <td style="font-weight:500">${p.description}</td>
       <td style="font-size:12px;color:var(--text2)">${p.type} / ${p.bottleSize}</td>
       <td style="font-size:12px">${p.bottlesPerCase}/cs</td>
