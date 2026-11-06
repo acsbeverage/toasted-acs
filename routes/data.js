@@ -1457,4 +1457,209 @@ router.post('/po-receiving/:poId/receive', requireAdmin, async (req, res) => {
 });
 
 
+// ============================================================================
+// NEW ITEM SUBMISSIONS -- suppliers fill in a public form (public/new-item.html); ACS reviews and approves,
+// and approval creates the product(s) in Toasted (and optionally the PO catalog entry).
+// Tables are created on first use, so no migration is needed.
+// ============================================================================
+let _itemSubReady = null;
+function ensureItemSubTables() {
+  if (!_itemSubReady) {
+    _itemSubReady = query(`CREATE TABLE IF NOT EXISTS item_submissions (
+      id SERIAL PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      supplier_name TEXT, contact_name TEXT, contact_email TEXT, contact_phone TEXT,
+      items JSONB NOT NULL DEFAULT '[]',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      reviewed_by TEXT, reviewed_at TIMESTAMPTZ, review_note TEXT,
+      created_skus JSONB DEFAULT '[]'
+    )`).catch(err => { _itemSubReady = null; throw err; });
+  }
+  return _itemSubReady;
+}
+const ITEM_TEXT_FIELDS = ['availabilityDate', 'unitUpc', 'sccCode', 'brand', 'description', 'packSize', 'saleUnitSize', 'casesPerPallet',
+  'casesPerLayer', 'productClass', 'varietal', 'vintage', 'abv', 'country', 'region', 'subregion', 'caseFob', 'bottleFob', 'fobQd',
+  'daSupport', 'currency', 'srp', 'regularity', 'ratings', 'availability', 'pars', 'otherNotes', 'onPremiseReq', 'chainAuth',
+  'demoSupport', 'posAvailable', 'orderInstructions'];
+const _subHits = new Map();   // ip -> [timestamps]  (simple in-memory limiter for the public form)
+function subRateLimited(ip) {
+  const now = Date.now(), win = 10 * 60 * 1000;
+  const hits = (_subHits.get(ip) || []).filter(t => now - t < win);
+  if (hits.length >= 6) { _subHits.set(ip, hits); return true; }
+  hits.push(now); _subHits.set(ip, hits);
+  if (_subHits.size > 5000) _subHits.clear();
+  return false;
+}
+const escHtml = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const APP_BASE_URL = process.env.APP_URL || 'https://toasted.acsbeverageco.com';
+
+async function itemSubNotifyRecipients() {
+  if (process.env.NEW_ITEM_NOTIFY_EMAIL) return process.env.NEW_ITEM_NOTIFY_EMAIL.split(',').map(s => s.trim()).filter(Boolean);
+  return [...NEW_ACCOUNT_NOTIFY_EMAILS];
+}
+async function sendItemSubEmail(to, subject, html) {
+  if (!process.env.SENDGRID_API_KEY || !to || (Array.isArray(to) && !to.length)) { console.log('Item submission email (not sent):', subject); return; }
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  await sgMail.send({ to, from: { email: FROM_EMAIL, name: FROM_NAME }, subject, html });
+}
+
+// PUBLIC (no login): the supplier-facing form posts here.
+router.post('/public/new-item-submission', async (req, res) => {
+  try {
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const b = req.body || {};
+    if (b.website) return res.json({ ok: true });                 // hidden spam-trap field: pretend success, store nothing
+    if (subRateLimited(ip)) return res.status(429).json({ ok: false, error: 'Too many submissions -- please wait a few minutes and try again.' });
+    const clip = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const supplier = clip(b.supplierName, 200), contactName = clip(b.contactName, 200), contactEmail = clip(b.contactEmail, 200), phone = clip(b.contactPhone, 60);
+    if (!supplier || !contactName) return res.status(400).json({ ok: false, error: 'Supplier name and contact name are required.' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) return res.status(400).json({ ok: false, error: 'A valid contact email is required.' });
+    const rawItems = Array.isArray(b.items) ? b.items.slice(0, 25) : [];
+    const items = rawItems.map(it => {
+      const o = {};
+      ITEM_TEXT_FIELDS.forEach(k => { o[k] = clip(it && it[k], k === 'otherNotes' || k === 'orderInstructions' || k === 'ratings' ? 2000 : 300); });
+      return o;
+    }).filter(o => o.brand || o.description);
+    if (!items.length) return res.status(400).json({ ok: false, error: 'Please enter at least one item (brand and item description).' });
+    if (items.some(o => !o.brand || !o.description || !o.packSize)) return res.status(400).json({ ok: false, error: 'Each item needs a brand, item description and pack size.' });
+
+    await ensureItemSubTables();
+    const row = await getOne(
+      `INSERT INTO item_submissions (supplier_name, contact_name, contact_email, contact_phone, items) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id`,
+      [supplier, contactName, contactEmail, phone, JSON.stringify(items)]);
+    res.json({ ok: true, id: row.id });
+
+    // Emails go out after the response so a mail hiccup can never lose or delay a submission.
+    (async () => {
+      try {
+        const list = items.map(i => `<li><strong>${escHtml(i.brand)}</strong> ${escHtml(i.description)} <span style="color:#888">(${escHtml(i.packSize)})</span></li>`).join('');
+        await sendItemSubEmail(await itemSubNotifyRecipients(), `New item submission: ${supplier} (${items.length} item${items.length !== 1 ? 's' : ''})`,
+          `<div style="font-family:Arial,sans-serif;max-width:560px"><h2 style="color:#B8792C;margin-bottom:4px">New Item Submission</h2>
+           <p style="color:#555;margin-top:0">${escHtml(supplier)} -- ${escHtml(contactName)} (${escHtml(contactEmail)}${phone ? ', ' + escHtml(phone) : ''})</p>
+           <ul>${list}</ul>
+           <p style="margin-top:20px"><a href="${APP_BASE_URL}/#itemsubs" style="background:#B8792C;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600">Review &amp; Approve</a></p></div>`);
+        await sendItemSubEmail(contactEmail, 'We received your new item submission',
+          `<div style="font-family:Arial,sans-serif;max-width:520px"><p>Hi ${escHtml(contactName)},</p>
+           <p>Thanks -- ACS Beverage Co. received your new item submission for ${items.length} item${items.length !== 1 ? 's' : ''}. We'll review it and be in touch if we have any questions.</p><ul>${list}</ul></div>`);
+      } catch (e) { console.error('Item submission email error:', e.message); }
+    })();
+  } catch (err) {
+    console.error('Item submission error:', err.message);
+    if (!res.headersSent) res.status(500).json({ ok: false, error: 'Something went wrong -- please try again.' });
+  }
+});
+
+router.get('/item-submissions', requireAdmin, async (req, res) => {
+  try {
+    await ensureItemSubTables();
+    const rows = await getAll('SELECT * FROM item_submissions ORDER BY (status=\'pending\') DESC, created_at DESC LIMIT 300');
+    res.json({ ok: true, submissions: rows.map(r => ({
+      id: r.id, status: r.status, supplierName: r.supplier_name, contactName: r.contact_name, contactEmail: r.contact_email,
+      contactPhone: r.contact_phone, items: r.items || [], createdAt: r.created_at, reviewedBy: r.reviewed_by,
+      reviewedAt: r.reviewed_at, reviewNote: r.review_note, createdSkus: r.created_skus || [],
+    })) });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+router.get('/item-submissions/pending-count', requireAdmin, async (req, res) => {
+  try {
+    await ensureItemSubTables();
+    const r = await getOne(`SELECT COUNT(*)::int AS n FROM item_submissions WHERE status='pending'`);
+    res.json({ ok: true, count: r.n });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Match a submitted producer/brand to one already in Toasted (ignoring case, accents and punctuation) so it
+// reuses the existing spelling instead of creating a near-duplicate producer.
+const _normProd = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function matchExistingProducer(name, existing) {
+  const n = _normProd(name);
+  if (!n) return name;
+  const hit = existing.find(p => _normProd(p) === n);
+  return hit || name;
+}
+router.post('/item-submissions/:id/approve', requireAdmin, async (req, res) => {
+  try {
+    await ensureItemSubTables();
+    await ensureDetailsExtraColumn();
+    const id = parseInt(req.params.id);
+    const sub = await getOne('SELECT * FROM item_submissions WHERE id=$1', [id]);
+    if (!sub) return res.status(404).json({ ok: false, error: 'Submission not found' });
+    if (sub.status !== 'pending') return res.status(409).json({ ok: false, error: 'This submission was already ' + sub.status });
+    const list = (Array.isArray(req.body.items) ? req.body.items : []).filter(i => i && i.include !== false);
+    if (!list.length) return res.status(400).json({ ok: false, error: 'No items selected' });
+
+    // Validate everything first so nothing is half-created.
+    const seen = new Set();
+    for (const i of list) {
+      i.sku = String(i.sku || '').trim();
+      if (!i.sku) return res.status(400).json({ ok: false, error: 'Every item needs an ACS Item # before approving' });
+      if (!String(i.name || '').trim()) return res.status(400).json({ ok: false, error: `Item ${i.sku} needs a name` });
+      if (seen.has(i.sku)) return res.status(400).json({ ok: false, error: `ACS Item # ${i.sku} is used twice in this submission` });
+      seen.add(i.sku);
+    }
+    const existing = await getAll('SELECT sku FROM products WHERE sku = ANY($1)', [[...seen]]);
+    if (existing.length) return res.status(400).json({ ok: false, error: 'ACS Item # already exists in Toasted: ' + existing.map(e => e.sku).join(', ') });
+
+    const by = req.user.fname ? `${req.user.fname} ${req.user.lname || ''}`.trim() : (req.user.email || '');
+    const existingProducers = (await getAll(`SELECT DISTINCT producer FROM products WHERE COALESCE(producer,'')<>''`)).map(r => r.producer);
+    const created = [], poWarnings = [];
+    for (const i of list) {
+      const btl = parseInt(i.btl) || 6;
+      const fob = parseFloat(i.fobPrice) || 0;
+      // Only item #, name, producer, pack size, UPC (and category) are set. Pricing, UPC, vintage etc. are left alone on purpose;
+      // the supplier's FOB goes to the PO catalog entry only.
+      const producer = matchExistingProducer(String(i.producer || '').trim(), existingProducers);
+      await query(
+        `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,warehouse,bottle_size,upc,active,core)
+         VALUES ($1,$2,$3,$4,$5,0,6,'main',$6,$7,'Yes','No')`,
+        [i.sku, String(i.name).trim(), producer, i.cat || 'Spirits', btl, String(i.bottleSize || '750ml'), String(i.upc || '').trim()]);
+      created.push(i.sku);
+      if (i.poSupplierId) {
+        try {
+          await query(
+            `INSERT INTO po_products (supplier_id,brand_name,vintage,type,bottle_size,bottles_per_case,description,case_price,bottle_price)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [parseInt(i.poSupplierId), matchExistingProducer(String(i.producer || '').trim(), existingProducers), i.sku, i.cat === 'Wine' ? 'Wine' : 'Spirits', String(i.bottleSize || '750ml'), btl,
+             String(i.name).trim(), fob, btl ? Math.round(fob / btl * 100) / 100 : 0]);
+        } catch (e) { poWarnings.push(i.sku + ': ' + e.message); }
+      }
+    }
+    await query(`UPDATE item_submissions SET status='approved', reviewed_by=$1, reviewed_at=NOW(), created_skus=$2::jsonb WHERE id=$3`, [by, JSON.stringify(created), id]);
+    res.json({ ok: true, created, poWarnings });
+
+    (async () => {
+      try {
+        await sendItemSubEmail(sub.contact_email, 'Your new item submission was approved',
+          `<div style="font-family:Arial,sans-serif;max-width:520px"><p>Hi ${escHtml(sub.contact_name)},</p>
+           <p>Good news -- ACS Beverage Co. approved your new item submission and has set up ${created.length} item${created.length !== 1 ? 's' : ''}:</p>
+           <ul>${list.map(i => `<li>${escHtml(i.name)} (ACS Item # ${escHtml(i.sku)})</li>`).join('')}</ul></div>`);
+      } catch (e) { console.error('Item approval email error:', e.message); }
+    })();
+  } catch (err) {
+    console.error('Item submission approve error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/item-submissions/:id/reject', requireAdmin, async (req, res) => {
+  try {
+    await ensureItemSubTables();
+    const id = parseInt(req.params.id);
+    const sub = await getOne('SELECT * FROM item_submissions WHERE id=$1', [id]);
+    if (!sub) return res.status(404).json({ ok: false, error: 'Submission not found' });
+    if (sub.status !== 'pending') return res.status(409).json({ ok: false, error: 'This submission was already ' + sub.status });
+    const note = String(req.body.note || '').trim().slice(0, 1000);
+    const by = req.user.fname ? `${req.user.fname} ${req.user.lname || ''}`.trim() : (req.user.email || '');
+    await query(`UPDATE item_submissions SET status='rejected', reviewed_by=$1, reviewed_at=NOW(), review_note=$2 WHERE id=$3`, [by, note, id]);
+    res.json({ ok: true });
+    if (req.body.notifySupplier && sub.contact_email) {
+      sendItemSubEmail(sub.contact_email, 'Update on your new item submission',
+        `<div style="font-family:Arial,sans-serif;max-width:520px"><p>Hi ${escHtml(sub.contact_name)},</p>
+         <p>Thanks for your new item submission. We aren't able to set it up as submitted.</p>${note ? `<p>${escHtml(note)}</p>` : ''}
+         <p>Please reply to this email or contact your ACS rep if you have questions.</p></div>`).catch(e => console.error('Item reject email error:', e.message));
+    }
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+
 module.exports = router;
