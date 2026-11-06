@@ -10782,8 +10782,10 @@ function exportReportCSV(reportId){
   const body=rows.map(r=>cols.map(c=>{
     const v=r[c];
     if(CURRENCY_COLS.includes(c)&&typeof v==='number')return v.toFixed(2);
-    if(typeof v==='string'&&v.includes(','))return'"'+v+'"';
-    return v??'';
+    // Quote anything containing a comma, quote, or LINE BREAK (delivery notes often have several lines) --
+    // an unquoted line break splits one report row into several broken ones.
+    const t=(v===undefined||v===null)?'':String(v);
+    return /[",\r\n]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t;
   }).join(',')).join('\n');
   const csv=header+'\n'+body;
   const blob=new Blob([csv],{type:'text/csv'});
