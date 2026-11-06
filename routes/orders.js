@@ -536,6 +536,17 @@ router.post('/', requireAuth, async (req, res) => {
       rep = (acctForOrder && acctForOrder.rep) || req.user.id;
     }
 
+    // "Never charge this account a delivery fee" is enforced HERE, on the server, for every way an order can
+    // arrive (new order, customer portal, PO import, resumed draft, reorder). Previously each screen had to
+    // remember to apply it, and any that didn't (or had a stale account list) still added the $6 fee.
+    {
+      const feeAcct = await getOne('SELECT waive_delivery_always FROM accounts WHERE id=$1', [acct]);
+      if (feeAcct && feeAcct.waive_delivery_always === true) {
+        waiveDelivery = true;
+        if (Array.isArray(items)) items = items.filter(i => i.sku !== '__DELIVERY__');
+      }
+    }
+
     // Order IDs are always assigned server-side as a true sequential ACS-NNNNN number --
     // never trust a client-provided id, and never generate one client-side. A number freed
     // by a deleted order is reused first, so deletions never leave a permanent gap in the
