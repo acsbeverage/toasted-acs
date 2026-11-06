@@ -500,6 +500,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div class="nav-item admin-only hidden" onclick="showPage('products')" id="nav-products"><i class="ti ti-adjustments"></i> Manage Products</div>
     <div class="nav-item admin-only hidden" onclick="showPage('reports')" id="nav-reports"><i class="ti ti-chart-bar"></i> Reports</div>
     <div class="nav-item admin-only hidden" onclick="showPage('po')" id="nav-po"><i class="ti ti-truck"></i> Purchase Orders</div>
+    <div class="nav-item admin-only hidden" onclick="showPage('itemsubs')" id="nav-itemsubs"><i class="ti ti-package-import"></i> Item Submissions <span class="nav-badge red hidden" id="itemsubs-badge">0</span></div>
     <div class="nav-item admin-only hidden" onclick="showPage('import')" id="nav-import"><i class="ti ti-upload"></i> Import Data</div>
     </div>
     <div class="sidebar-bottom">
@@ -1298,6 +1299,7 @@ function updateBadges(){
   const db=document.getElementById('deliv-badge');if(db){const dc=pendingDeliveries().length;db.textContent=dc;db.style.display=dc>0?'inline':'none'}
   const arb=document.getElementById('ar-badge');if(arb){const overdue=ORDERS.filter(o=>o.status==='delivered'&&!o.paid&&calcDue(o.delivery||o.date,acctById(o.acct))<today()).length;arb.textContent=overdue;arb.classList.toggle('hidden',overdue===0)}
   const drb=document.getElementById('drafts-badge');if(drb){const mine=currentUser&&currentUser.role==='admin'?DRAFT_ORDERS:DRAFT_ORDERS.filter(d=>currentUser&&d.rep===currentUser.id);const dc=mine.length;drb.textContent=dc;drb.style.display=dc>0?'inline':'none'}
+  refreshItemSubBadge();
   const tsb=document.getElementById('tastings-badge');if(tsb){const tc=TASTINGS.length;tsb.textContent=tc;tsb.style.display=tc>0?'inline':'none'}
 }
 function toast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800)}
@@ -2391,7 +2393,7 @@ function doLogout(){
     document.querySelectorAll('.admin-only').forEach(el=>u.role==='admin'?el.classList.remove('hidden'):el.classList.add('hidden'));
     if(u.role==='admin')qboCheckStatus();
     startLivePolling();
-    const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','logistics','fetchqbo','docs','users','pricing','settings','import','reports','ar','products','po'];
+    const RESTORABLE_PAGES=['dashboard','accounts','drafts','tastings','unconfirmed','deliveries','history','exportorders','catalog','inventory','logistics','fetchqbo','docs','users','pricing','settings','import','reports','ar','products','po','itemsubs'];
     const hashParts=(location.hash||'').replace('#','').split('/');
     const hashPage=hashParts[0];
     const hashDetailId=hashParts[1];
@@ -2613,7 +2615,7 @@ const BG_REFRESH_MIN_INTERVAL=20000; // don't refresh more than once every 20s, 
 const BUILDER_PAGES=['neworder','newtasting','po']; // pages with in-progress unsaved state -- never force-rerender these
 
 function _dispatchPageRender(page){
-  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,logistics:renderACSLogistics,fetchqbo:renderFetchQuickBooks,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO}[page]||(() => {}))();
+  ({dashboard:renderDashboard,accounts:renderAccountsPage,neworder:renderNewOrder,drafts:renderDraftOrders,tastings:renderTastings,newtasting:renderNewTasting,unconfirmed:renderUnconfirmed,deliveries:renderDeliveries,history:renderHistory,exportorders:renderExportOrders,catalog:renderCatalog,inventory:renderInventory,logistics:renderACSLogistics,fetchqbo:renderFetchQuickBooks,docs:renderDocs,users:renderUsers,pricing:renderPricing,settings:renderSettings,import:renderImport,reports:renderReports,ar:renderAR,products:renderProducts,po:renderPO,itemsubs:renderItemSubs}[page]||(() => {}))();
 }
 
 async function triggerBackgroundRefresh(page){
@@ -2673,7 +2675,7 @@ function showPage(page, pushState=true){
   window._openDetailView=null;
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const nav=document.getElementById('nav-'+page);if(nav)nav.classList.add('active');
-  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',logistics:'ACS Logistics',fetchqbo:'Fetch QuickBooks',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders'};
+  const titles={dashboard:'Dashboard',accounts:'Accounts',neworder:'New Order',drafts:'Draft Orders',tastings:'Tastings',newtasting:'New Tasting',unconfirmed:'Unconfirmed Orders',deliveries:'Deliveries',history:'Order History',exportorders:'Export Orders',catalog:'Products',inventory:'Inventory',logistics:'ACS Logistics',fetchqbo:'Fetch QuickBooks',docs:'Shared Documents',users:'Users',pricing:'Pricing Tiers',settings:'Company Settings',import:'Import Data',reports:'Reports',ar:'Accounts Receivable',products:'Manage Products',po:'Purchase Orders',itemsubs:'New Item Submissions'};
   document.getElementById('topbar-title').textContent=titles[page]||page;
   document.getElementById('topbar-right').innerHTML='';
   // Push a real history entry for each nav click, so the browser's back button behaves the
@@ -4757,6 +4759,142 @@ async function setPONextNumber(){
   }catch(e){toast('Failed to set PO number -- check connection');}
 }
 
+
+// ---- New item submissions (supplier form -> review -> auto-create products) ----------------------
+let _itemSubs=[],_itemSubBadgeAt=0,_itemSubOpen=null;
+async function refreshItemSubBadge(){
+  if(!currentUser||currentUser.role!=='admin'||Date.now()-_itemSubBadgeAt<60000)return;
+  _itemSubBadgeAt=Date.now();
+  try{
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/item-submissions/pending-count',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    const b=document.getElementById('itemsubs-badge');
+    if(r.ok&&b){b.textContent=r.count;b.classList.toggle('hidden',!r.count)}
+  }catch(e){}
+}
+async function renderItemSubs(){
+  const el=document.getElementById('main-content');
+  el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3)">Loading...</div>';
+  try{
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/item-submissions',{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
+    if(!r.ok)throw new Error(r.error||'failed');
+    _itemSubs=r.submissions;
+  }catch(e){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">Could not load submissions -- '+poEsc(e.message)+'</div>';return}
+  _itemSubBadgeAt=0;
+  const pend=_itemSubs.filter(x=>x.status==='pending').length;
+  const b=document.getElementById('itemsubs-badge');if(b){b.textContent=pend;b.classList.toggle('hidden',!pend)}
+  const link=location.origin+'/new-item.html';
+  const pill=st=>st==='pending'?'<span class="tier-pill" style="background:#FFF3D6;color:#8A6100">Pending</span>':st==='approved'?'<span class="tier-pill" style="background:#E3F5EC;color:#0a6a50">Approved</span>':'<span class="tier-pill" style="background:#fde7e5;color:#b3261e">Rejected</span>';
+  el.innerHTML=`
+  <div class="card" style="padding:14px 16px;margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:240px"><div style="font-weight:600;font-size:13px">Supplier submission link</div>
+      <div style="font-size:12px;color:var(--text3)">Put this under your email signature and on your website.</div>
+      <div style="font-family:monospace;font-size:13px;margin-top:4px;word-break:break-all">${poEsc(link)}</div></div>
+    <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${link}').then(()=>toast('Link copied'))"><i class="ti ti-copy"></i> Copy link</button>
+    <a class="btn btn-sm" href="${link}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Open form</a>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>Submitted</th><th>Supplier</th><th>Contact</th><th>Items</th><th>Status</th><th></th></tr></thead><tbody>
+  ${_itemSubs.map(x=>`<tr>
+    <td style="font-size:12px;white-space:nowrap">${new Date(x.createdAt).toLocaleDateString()}</td>
+    <td style="font-weight:600">${poEsc(x.supplierName)}</td>
+    <td style="font-size:12px">${poEsc(x.contactName)}<div style="color:var(--text3)">${poEsc(x.contactEmail)}</div></td>
+    <td style="font-size:12px">${x.items.map(i=>poEsc(i.brand+' '+i.description)).join('<br>')}</td>
+    <td>${pill(x.status)}${x.status==='approved'&&x.createdSkus.length?`<div style="font-size:11px;color:var(--text3)">${x.createdSkus.map(poEsc).join(', ')}</div>`:''}</td>
+    <td style="text-align:right"><button class="btn btn-sm ${x.status==='pending'?'btn-dark':''}" onclick="openItemSub(${x.id})">${x.status==='pending'?'Review':'View'}</button></td></tr>`).join('')
+    ||'<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text3)">No submissions yet.</td></tr>'}
+  </tbody></table></div>`;
+}
+const _isNum=v=>{const n=parseFloat(String(v||'').replace(/[$,\s]/g,''));return Number.isFinite(n)?n:0};
+function itemSubDefaults(sub,i){
+  const brand=(i.brand||'').trim(),desc=(i.description||'').trim(),pack=(i.packSize||'').trim();
+  let name=desc.toLowerCase().includes(brand.toLowerCase())?desc:(brand+' '+desc).trim();
+  if(pack&&!name.toLowerCase().includes(pack.toLowerCase()))name+=' '+pack;
+  const pm=pack.match(/^(\d+)\s*[\/xX]\s*(.+)$/);
+  const btl=pm?parseInt(pm[1]):6,size=pm?pm[2].replace(/\s+/g,''):'750ml';
+  let fob=_isNum(i.caseFob);if(!fob&&_isNum(i.bottleFob))fob=Math.round(_isNum(i.bottleFob)*btl*100)/100;
+  const cls=(i.productClass||'').toLowerCase();
+  const cat=/wine|red|white|ros[eé]|sparkling|champagne|prosecco|cava/.test(cls)?'Wine':/beer|rtd|seltzer|cider|hard/.test(cls)?'Beer & RTD':'Spirits';
+  const bits=[['ABV',i.abv&&i.abv+(String(i.abv).includes('%')?'':'%')],['Origin',[i.country,i.region,i.subregion].filter(Boolean).join(' / ')],['Varietal',i.varietal],
+    ['Cases/pallet',i.casesPerPallet],['Cases/layer',i.casesPerLayer],['SRP',i.srp],['Available',i.availabilityDate],['Availability',i.availability],['Pars',i.pars],['Notes',i.otherNotes]]
+    .filter(([,v])=>v).map(([k,v])=>k+': '+v);
+  const notes=('Submitted by '+sub.supplierName+' on '+new Date(sub.createdAt).toLocaleDateString()+(bits.length?'. '+bits.join('; '):'')).slice(0,1500);
+  const sup=(PO_SUPPLIERS||[]).find(p=>p.name&&sub.supplierName&&p.name.trim().toLowerCase()===sub.supplierName.trim().toLowerCase());
+  // Match the brand to a producer already in Toasted (ignoring case / accents / punctuation).
+  const nz=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const known=[...new Set(PRODUCTS.map(p=>p.producer).filter(Boolean))];
+  const hit=known.find(p=>nz(p)===nz(brand));
+  return{sku:'',name,producer:hit||brand,producerMatched:!!hit,cat,btl,bottleSize:size,fobPrice:fob||'',upc:(i.unitUpc&&!/^0+$/.test(String(i.unitUpc).trim()))?String(i.unitUpc).trim():'',
+    poSupplierId:sup?String(sup.id):'',include:true,knownProducers:known};
+}
+async function openItemSub(id){
+  const sub=_itemSubs.find(x=>x.id===id);if(!sub)return;
+  if(!_poDataLoaded){try{await loadPOData()}catch(e){}}
+  _itemSubOpen={sub,items:sub.items.map(i=>itemSubDefaults(sub,i))};
+  renderItemSubModal();
+}
+function renderItemSubModal(){
+  const {sub,items}=_itemSubOpen,pending=sub.status==='pending';
+  const old=document.getElementById('isub-modal-bg');if(old)old.remove();
+  const dis=pending?'':'disabled';
+  const supOpts=sel=>'<option value="">-- don\'t add to PO catalog --</option>'+(PO_SUPPLIERS||[]).map(p=>`<option value="${p.id}" ${String(p.id)===String(sel)?'selected':''}>${poEsc(p.name)}</option>`).join('');
+  const catOpts=sel=>(typeof SHOP_CATEGORIES!=='undefined'?SHOP_CATEGORIES:['Wine','Spirits']).map(c=>`<option ${c===sel?'selected':''}>${poEsc(c)}</option>`).join('');
+  const field=(i,k,label,type,w)=>`<div style="${w||''}"><label class="flabel">${label}</label><input class="finput" ${dis} type="${type||'text'}" value="${poEsc(items[i][k])}" oninput="_itemSubOpen.items[${i}].${k}=this.value"/></div>`;
+  const raw=(it)=>[['UPC',it.unitUpc],['SCC',it.sccCode],['Pack',it.packSize],['Sale unit',it.saleUnitSize],['Cases/pallet',it.casesPerPallet],['Cases/layer',it.casesPerLayer],['Class',it.productClass],['Varietal',it.varietal],['Vintage',it.vintage],['ABV',it.abv],['Origin',[it.country,it.region,it.subregion].filter(Boolean).join(' / ')],['Case FOB',it.caseFob],['Bottle FOB',it.bottleFob],['FOB QD',it.fobQd],['DA support',it.daSupport],['Currency',it.currency],['SRP',it.srp],['Available',it.availabilityDate],['Availability',it.availability],['Pars',it.pars],['Regularity',it.regularity],['Ratings',it.ratings],['Notes',it.otherNotes],['On-premise',it.onPremiseReq],['Chain auth / DI',it.chainAuth],['Demo support',it.demoSupport],['POS',it.posAvailable],['Order instructions',it.orderInstructions]].filter(([,v])=>v).map(([k,v])=>`<span style="display:inline-block;margin:2px 10px 2px 0"><span style="color:var(--text3)">${k}:</span> ${poEsc(v)}</span>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="isub-modal-bg" style="display:flex"><div class="modal" style="max-width:900px;width:97%">
+    <div class="modal-title"><i class="ti ti-package-import" style="color:var(--gold);margin-right:6px"></i>${poEsc(sub.supplierName)} <span style="font-weight:400;font-size:13px;color:var(--text3)">&mdash; ${poEsc(sub.contactName)}, ${poEsc(sub.contactEmail)}${sub.contactPhone?', '+poEsc(sub.contactPhone):''}</span></div>
+    ${pending?'<p style="font-size:12px;color:var(--text3);margin:0 0 10px">Check the details, type the <strong>ACS Item #</strong> for each item, and approve. Approving creates the product in Toasted with just the item #, name, producer, pack size and UPC -- no pricing is touched. The supplier\'s Case FOB is used only for the PO catalog entry.</p>':`<p style="font-size:13px;margin:0 0 10px">${sub.status==='approved'?'Approved':'Rejected'} by ${poEsc(sub.reviewedBy||'')} ${sub.reviewedAt?new Date(sub.reviewedAt).toLocaleDateString():''}${sub.reviewNote?' -- '+poEsc(sub.reviewNote):''}</p>`}
+    <div style="max-height:62vh;overflow-y:auto">
+    ${items.map((it,i)=>`<div class="card" style="padding:12px;margin-bottom:10px;${it.include?'':'opacity:.55'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Item ${i+1}</strong>
+        ${pending?`<label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" ${it.include?'checked':''} onchange="_itemSubOpen.items[${i}].include=this.checked;renderItemSubModal()"/> Include</label>`:''}</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        ${field(i,'sku','ACS Item # *')}${field(i,'name','Product name *','text','grid-column:span 2')}
+        <div><label class="flabel">Producer <span style="font-weight:400;color:${it.producerMatched?'var(--green)':'#8A6100'}">${it.producerMatched?'(matches existing)':'(new -- pick an existing one if it should match)'}</span></label>
+          <input class="finput" ${dis} list="isub-prod-${i}" value="${poEsc(it.producer)}" oninput="_itemSubOpen.items[${i}].producer=this.value"/>
+          <datalist id="isub-prod-${i}">${it.knownProducers.map(p=>`<option value="${poEsc(p)}">`).join('')}</datalist></div>
+        <div><label class="flabel">Category</label><select class="finput" ${dis} onchange="_itemSubOpen.items[${i}].cat=this.value">${catOpts(it.cat)}</select></div>
+        ${field(i,'btl','Bottles per case','number')}${field(i,'bottleSize','Bottle size')}${field(i,'upc','UPC')}
+        <div style="grid-column:span 3;padding-top:8px;border-top:1px dashed var(--border)"><span style="font-size:12px;font-weight:600">PO catalog entry</span> <span style="font-size:11.5px;color:var(--text3)">(uses the item # above as its ACS Item #)</span></div>
+        <div style="grid-column:span 2"><label class="flabel">Add to the PO catalog for supplier</label><select class="finput" ${dis} onchange="_itemSubOpen.items[${i}].poSupplierId=this.value">${supOpts(it.poSupplierId)}</select></div>
+        ${field(i,'fobPrice','Case price - supplier FOB ($)','number')}
+      </div>
+      <div style="font-size:11.5px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><strong>As submitted:</strong> ${poEsc(sub.items[i].brand)} -- ${poEsc(sub.items[i].description)}<br>${raw(sub.items[i])}</div>
+    </div>`).join('')}
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="document.getElementById('isub-modal-bg').remove()">Close</button>
+      ${pending?`<button class="btn" style="color:var(--red);border-color:var(--red)" onclick="rejectItemSub()"><i class="ti ti-x"></i> Reject</button>
+      <button class="btn btn-dark" id="isub-go" onclick="approveItemSub()"><i class="ti ti-check"></i> Approve &amp; create in Toasted</button>`:''}
+    </div></div></div>`);
+}
+async function approveItemSub(){
+  const {sub,items}=_itemSubOpen,use=items.filter(i=>i.include);
+  if(!use.length){toast('Include at least one item');return}
+  if(use.some(i=>!String(i.sku).trim())){toast('Type an ACS Item # for each included item');return}
+  if(use.some(i=>PRODUCTS.some(p=>String(p.sku)===String(i.sku).trim()))){toast('One of those ACS Item #s already exists in Toasted');return}
+  if(!confirm('Create '+use.length+' product'+(use.length!==1?'s':'')+' in Toasted from '+sub.supplierName+'\'s submission?'))return;
+  const btn=document.getElementById('isub-go');btn.disabled=true;btn.textContent='Creating...';
+  try{
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/item-submissions/'+sub.id+'/approve',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
+      body:JSON.stringify({items:items.map(i=>({...i,btl:parseInt(i.btl)||6,fobPrice:_isNum(i.fobPrice)}))})}).then(r=>r.json());
+    if(!r.ok){toast(r.error||'Could not approve');btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Approve &amp; create in Toasted';return}
+    document.getElementById('isub-modal-bg').remove();
+    toast('Created '+r.created.length+' product'+(r.created.length!==1?'s':'')+' in Toasted'+(r.poWarnings&&r.poWarnings.length?' -- PO catalog problem, check Suppliers & Products':''));
+    if(r.poWarnings&&r.poWarnings.length)alert('Products were created, but these could not be added to the PO catalog:\n\n'+r.poWarnings.join('\n'));
+    await loadAllDataFromBackend();_poDataLoaded=false;updateBadges();renderItemSubs();
+  }catch(e){toast('Could not confirm -- refresh and check before trying again');btn.disabled=false;}
+}
+async function rejectItemSub(){
+  const {sub}=_itemSubOpen;
+  const note=prompt('Optional note to the supplier (leave blank for none). Cancel to keep this submission pending.','');
+  if(note===null)return;
+  let notify=false;
+  if(sub.contactEmail)notify=confirm('Email '+sub.contactEmail+' to let them know it was not approved?');
+  try{
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/item-submissions/'+sub.id+'/reject',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},body:JSON.stringify({note,notifySupplier:notify})}).then(r=>r.json());
+    if(!r.ok){toast(r.error||'Could not reject');return}
+    document.getElementById('isub-modal-bg').remove();toast('Submission rejected');renderItemSubs();
+  }catch(e){toast('Could not reject -- check connection')}
+}
 async function renderPO(){
   document.getElementById('main-content').innerHTML=`
   <div style="display:flex;gap:8px;margin-bottom:16px">
