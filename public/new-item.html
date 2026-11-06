@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>New Item Submission - ACS Beverage Co.</title>
+<style>
+  :root{--bg:#faf7f2;--card:#fff;--ink:#2a2420;--muted:#7a6f66;--line:#e6ddd1;--gold:#b8792c;--gold-d:#9a6322;--red:#b3261e;--green:#1d7a4f}
+  @media (prefers-color-scheme:dark){:root{--bg:#1c1917;--card:#26211e;--ink:#f1ebe4;--muted:#a89d92;--line:#3a332e;--gold:#d49a52;--gold-d:#e0aa66;--red:#f2877f;--green:#58c294}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:24px 16px 60px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .card h2{font-size:16px;margin:0 0 12px}
+  .item-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .item-head h2{margin:0}
+  .sec{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);margin:18px 0 8px;border-top:1px solid var(--line);padding-top:12px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
+  .full{grid-column:1/-1}
+  label{display:block;font-size:12.5px;font-weight:600;margin-bottom:4px}
+  label .req{color:var(--red)}
+  .hint{font-weight:400;color:var(--muted)}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+  textarea{min-height:64px;resize:vertical}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);outline-offset:0;border-color:var(--gold)}
+  .btn{border:0;border-radius:8px;padding:11px 18px;font:inherit;font-weight:600;cursor:pointer}
+  .btn-primary{background:var(--gold);color:#fff}.btn-primary:hover{background:var(--gold-d)}
+  .btn-primary:disabled{opacity:.6;cursor:default}
+  .btn-ghost{background:transparent;color:var(--gold);border:1px solid var(--gold)}
+  .btn-x{background:transparent;color:var(--red);padding:4px 8px;font-size:13px}
+  .err{color:var(--red);font-weight:600;margin:10px 0}
+  .done{text-align:center;padding:48px 16px}
+  .done .tick{font-size:44px;color:var(--green)}
+  .hp{position:absolute;left:-9999px;opacity:0;height:0;width:0}
+  .foot{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="formView">
+    <h1>New Item Submission</h1>
+    <p class="sub">ACS Beverage Co. &mdash; for existing suppliers adding new items. Fill in what you have; fields marked * are required. You can submit up to 10 items at once.</p>
+
+    <form id="f" autocomplete="on" novalidate>
+      <div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" id="website" tabindex="-1" autocomplete="off"/></label></div>
+
+      <div class="card">
+        <h2>Your information</h2>
+        <div class="grid">
+          <div><label>Supplier <span class="req">*</span></label><input id="supplierName" required autocomplete="organization"/></div>
+          <div><label>Your name <span class="req">*</span></label><input id="contactName" required autocomplete="name"/></div>
+          <div><label>Email <span class="req">*</span></label><input id="contactEmail" type="email" required autocomplete="email"/></div>
+          <div><label>Phone</label><input id="contactPhone" type="tel" autocomplete="tel"/></div>
+        </div>
+      </div>
+
+      <div id="items"></div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn btn-ghost" id="addBtn">+ Add another item</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn">Submit for review</button>
+      </div>
+      <div class="err" id="err" role="alert"></div>
+      <p class="foot">FOB prices are subject to change between orders. By submitting you confirm the information is accurate to the best of your knowledge.</p>
+    </form>
+  </div>
+
+  <div id="doneView" class="card done" style="display:none">
+    <div class="tick">&#10003;</div>
+    <h1>Thank you!</h1>
+    <p class="sub" style="margin-bottom:18px">Your submission was received. A confirmation is on its way to your email, and we'll follow up if we have any questions.</p>
+    <button class="btn btn-ghost" onclick="location.reload()">Submit more items</button>
+  </div>
+</div>
+
+<script>
+const MAX_ITEMS=10;
+// [key, label, kind, required, hint, full-width]
+const SECTIONS=[
+ ['Product details',[
+  ['brand','Brand','text',1],['description','Item description','text',1,'',1],
+  ['packSize','Pack size','text',1,'e.g. 6/750ml'],['saleUnitSize','Sale unit size','text',0,'if different from pack size'],
+  ['unitUpc','Unit UPC','text',0,'12 digits, or 0000 if none'],['sccCode','SCC code (full case)','text',0,'12 digits, or 0000 if none'],
+  ['casesPerPallet','Cases per pallet','text'],['casesPerLayer','Cases per layer','text'],
+  ['productClass','Product class','text',0,'e.g. Tequila, Red Wine'],['varietal','Varietal','text'],
+  ['vintage','Vintage','text'],['abv','Alcohol %','text'],
+  ['country','Country of origin','text'],['region','Region','text'],['subregion','Subregion','text'],
+ ]],
+ ['FOB pricing',[
+  ['caseFob','Case FOB ($)','text',0,'price per case'],['bottleFob','Bottle FOB ($)','text'],
+  ['fobQd','FOB quantity discount & quantity required','text',0,'',1],['daSupport','DA support','text',0,'list if by bottle or case'],
+  ['currency','Currency (if applicable)','text'],['srp','Brand standards | SRP','text',0,'',1],
+ ]],
+ ['Availability',[
+  ['availabilityDate','Order availability date','date'],['availability','Availability','select',0,'',0,['','Core','Special Order','Seasonal','Limited / Allocated','Other']],
+  ['pars','Suggested pars (cases)','text'],['regularity','Regularity','text',0,'e.g. annual release, ongoing'],
+  ['ratings','Current press / ratings','textarea',0,'',1],['otherNotes','Other notes (expected out-of-stock, etc.)','textarea',0,'',1],
+ ]],
+ ['Premise / retail information',[
+  ['onPremiseReq','On-premise requirements','text',0,'',1],['chainAuth','Current chain authorization / DI status','text',0,'',1],
+  ['demoSupport','Demo support available?','select',0,'',0,['','Yes','No']],['posAvailable','POS available?','select',0,'',0,['','Yes','No']],
+  ['orderInstructions','Order instructions / amount / notes','textarea',0,'',1],
+ ]],
+];
+const itemsEl=document.getElementById('items');
+function itemCard(n){
+  const d=document.createElement('div');d.className='card item';
+  let h=`<div class="item-head"><h2>Item #${n}</h2>${n>1?'<button type="button" class="btn btn-x" data-rm>Remove</button>':''}</div>`;
+  SECTIONS.forEach(([title,fields])=>{
+    h+=`<div class="sec">${title}</div><div class="grid">`;
+    fields.forEach(([k,label,kind,req,hint,full,opts])=>{
+      const lab=`<label>${label}${req?' <span class="req">*</span>':''}${hint?` <span class="hint">(${hint})</span>`:''}</label>`;
+      let ctl;
+      if(kind==='select')ctl=`<select data-k="${k}">${opts.map(o=>`<option value="${o}">${o||'--'}</option>`).join('')}</select>`;
+      else if(kind==='textarea')ctl=`<textarea data-k="${k}"></textarea>`;
+      else ctl=`<input data-k="${k}" type="${kind}" ${req?'required':''}/>`;
+      h+=`<div class="${full?'full':''}">${lab}${ctl}</div>`;
+    });
+    h+='</div>';
+  });
+  d.innerHTML=h;
+  const rm=d.querySelector('[data-rm]');if(rm)rm.onclick=()=>{d.remove();renumber()};
+  return d;
+}
+function renumber(){
+  [...itemsEl.children].forEach((c,i)=>{c.querySelector('h2').textContent='Item #'+(i+1)});
+  document.getElementById('addBtn').style.display=itemsEl.children.length>=MAX_ITEMS?'none':'';
+}
+function addItem(){if(itemsEl.children.length>=MAX_ITEMS)return;itemsEl.appendChild(itemCard(itemsEl.children.length+1));renumber()}
+document.getElementById('addBtn').onclick=()=>{addItem();itemsEl.lastElementChild.scrollIntoView({behavior:'smooth',block:'start'})};
+addItem();
+
+document.getElementById('f').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const err=document.getElementById('err');err.textContent='';
+  const val=id=>document.getElementById(id).value.trim();
+  if(!val('supplierName')||!val('contactName')){err.textContent='Please enter your supplier and name.';return}
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val('contactEmail'))){err.textContent='Please enter a valid email address.';return}
+  const items=[...itemsEl.children].map(c=>{const o={};c.querySelectorAll('[data-k]').forEach(x=>{o[x.dataset.k]=x.value.trim()});return o});
+  for(let i=0;i<items.length;i++){
+    if(!items[i].brand||!items[i].description||!items[i].packSize){err.textContent=`Item #${i+1}: brand, item description and pack size are required.`;return}
+  }
+  const btn=document.getElementById('submitBtn');btn.disabled=true;btn.textContent='Submitting...';
+  try{
+    const r=await fetch('/api/public/new-item-submission',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({website:val('website'),supplierName:val('supplierName'),contactName:val('contactName'),contactEmail:val('contactEmail'),contactPhone:val('contactPhone'),items})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.ok){err.textContent=j.error||'Something went wrong -- please try again.';btn.disabled=false;btn.textContent='Submit for review';return}
+    document.getElementById('formView').style.display='none';document.getElementById('doneView').style.display='';window.scrollTo(0,0);
+  }catch(x){err.textContent='Could not reach the server -- check your connection and try again.';btn.disabled=false;btn.textContent='Submit for review'}
+});
+</script>
+</body>
+</html>
