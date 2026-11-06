@@ -10353,11 +10353,11 @@ async function renderActiveReport(reportId){
       const params=new URLSearchParams();
       if(from)params.set('from',from);
       if(to)params.set('to',to);
-      // Depletion reports (RA5/RA6/RA42) count an order in the month it was CONFIRMED, whether or not it has been delivered.
-      if(['RA5','RA6','RA42'].includes(reportId))params.set('basis','confirmed');
+      // Depletion reports (RA5/RA6/RA42) count an order in the month it was DELIVERED (by its delivery date).
+      if(['RA5','RA6','RA42'].includes(reportId))params.set('basis','delivered');
       const res=await fetch(TOASTED_BACKEND_URL+'/api/orders/report-data?'+params.toString(),{headers:{'Authorization':'Bearer '+window._authToken}}).then(r=>r.json());
       if(!res.ok){el.innerHTML=filterBar+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- '+(res.error||'please try again')+'</div>';return;}
-      orders=res.orders.filter(o=>o.status==='delivered'||o.status==='confirmed');
+      orders=res.orders.filter(o=>['RA5','RA6','RA42'].includes(reportId)?o.status==='delivered':(o.status==='delivered'||o.status==='confirmed'));
     }catch(e){
       el.innerHTML=filterBar+'<div style="padding:40px;text-align:center;color:var(--red)">Could not load report data -- check your connection</div>';
       return;
@@ -10526,7 +10526,7 @@ function renderRA5(el, orders, producerFilter){
         account:acct.name||'',
         accountRegion:acct.region||'',
         salesRep:rep.fname+' '+(rep.lname||''),
-        date:o.date,
+        date:o.delivery||o.date,
         confirmedDate:o.confirmedAt||'',
         quantity:qty,
         unitPrice:unitPrice,
