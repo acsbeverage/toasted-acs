@@ -79,11 +79,9 @@ const TIER_LABELS = {
 };
 
 async function buildRA5(from, to, producers, producerLabel) {
-  // Depletions count an order in the month it was CONFIRMED (whether or not it has been
-  // delivered yet). Orders confirmed before confirmation dates were recorded fall back to
-  // their order date.
-  await query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);
-  const dateExpr = `COALESCE((o.confirmed_at AT TIME ZONE 'America/Los_Angeles')::date, o.date)`;
+  // Depletions count an order in the month it was DELIVERED (its delivery date), and only once it is
+  // marked delivered. Falls back to the order date if an order has no delivery date.
+  const dateExpr = `COALESCE(o.delivery, o.date)`;
   // One row per order line item, matching the real RA5 export -- not an aggregated summary.
   const rows = await getAll(
     `SELECT p.name as wine_name, p.sku as wine_code, p.vintage, p.producer, p.cat, p.btl, p.bottle_size,
@@ -92,7 +90,7 @@ async function buildRA5(from, to, producers, producerLabel) {
             p.da_frontline, p.da_mix12, p.da_acs3, p.da_brand3, p.da_brand5,
             a.name as account_name, a.lic as abc_number, a.ship_street, a.ship_city, a.ship_state, a.ship_zip, a.id as account_id,
             u.fname as rep_fname, u.lname as rep_lname,
-            o.id as invoice_number, o.po as po_number, o.date, o.is_sample, o.notes as order_notes,
+            o.id as invoice_number, o.po as po_number, COALESCE(o.delivery, o.date) AS date, o.is_sample, o.notes as order_notes,
             oi.cases, oi.bottles, oi.rate, oi.tier, oi.notes as line_notes, oi.discount_pct, oi.is_manual,
             (SELECT ptp.price FROM product_tier_prices ptp
              WHERE ptp.sku = oi.sku AND ptp.tier_name = oi.tier
@@ -107,7 +105,7 @@ async function buildRA5(from, to, producers, producerLabel) {
      JOIN products p ON oi.sku = p.sku
      LEFT JOIN accounts a ON o.acct_id = a.id
      LEFT JOIN users u ON o.rep_id = u.id
-     WHERE o.status IN ('confirmed','delivered') AND oi.is_fee=FALSE
+     WHERE o.status = 'delivered' AND oi.is_fee=FALSE
        AND ($1::date IS NULL OR ${dateExpr} >= $1) AND ($2::date IS NULL OR ${dateExpr} <= $2)
        AND ($3::text[] IS NULL OR p.producer = ANY($3))
      ORDER BY p.name, ${dateExpr}`,
