@@ -1240,6 +1240,8 @@ function syncFeesFor(items,opts){
   }
 
   // Delivery fee: add if not already present and not waived
+  // A waived order carries no delivery fee at all -- including one that was already on it.
+  if(opts.waiveDelivery)items=items.filter(x=>x.sku!==DELIVERY_FEE_SKU);
   const hasDelivery=items.find(x=>x.sku===DELIVERY_FEE_SKU);
   if(!hasDelivery&&!opts.waiveDelivery){
     items.push({sku:DELIVERY_FEE_SKU,feeAmt:DELIVERY_FEE_AMT,_fee:true,_locked:true});
@@ -3248,7 +3250,7 @@ function setSampleSource(src){
 
 function onAcctChange(){
   const id=document.getElementById('o-acct').value;const acct=acctById(id);currentOrder.acct=id;
-  if(acct&&acct.waiveDeliveryAlways){currentOrder.waiveDelivery=true;syncFees();renderLineItems();}
+  if(acct){currentOrder.waiveDelivery=!!acct.waiveDeliveryAlways;syncFees();renderLineItems();}
   const searchInput=document.getElementById('o-acct-search');
   if(searchInput)searchInput.value=acct?acct.name:'';
   const info=document.getElementById('acct-info');
@@ -4386,7 +4388,7 @@ function resumeDraft(draftId){
   const d=DRAFT_ORDERS.find(x=>x.id===draftId);if(!d)return;
   showPage('neworder');
   setTimeout(()=>{
-    currentOrder={acct:d.acct,items:d.items.map(x=>({...x})),date:d.date,delivery:d.delivery,po:d.po,notes:d.notes,orderType:'standard',_resumedDraftId:d.id};
+    currentOrder={acct:d.acct,items:d.items.map(x=>({...x})),date:d.date,delivery:d.delivery,po:d.po,notes:d.notes,orderType:'standard',_resumedDraftId:d.id,waiveDelivery:!!acctById(d.acct)?.waiveDeliveryAlways};
     document.getElementById('o-acct').value=d.acct;onAcctChange();
     document.getElementById('o-date').value=d.date;
     document.getElementById('o-del').value=d.delivery;
