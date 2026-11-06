@@ -323,7 +323,10 @@ router.get('/report-data', requireAuth, async (req, res) => {
     await ensureConfirmedAtColumn();
     // basis=confirmed: bucket orders by the date they were confirmed (falls back to the order
     // date for orders confirmed before confirmation dates were recorded).
-    const dateExpr = req.query.basis === 'confirmed'
+    // basis=delivered: bucket by the DELIVERY date (falls back to the order date if none is set).
+    const dateExpr = req.query.basis === 'delivered'
+      ? `COALESCE(o.delivery, o.date)`
+      : req.query.basis === 'confirmed'
       ? `COALESCE((o.confirmed_at AT TIME ZONE 'America/Los_Angeles')::date, o.date)`
       : 'o.date';
     let rows;
