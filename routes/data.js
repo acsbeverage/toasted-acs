@@ -1495,7 +1495,7 @@ const APP_BASE_URL = process.env.APP_URL || 'https://toasted.acsbeverageco.com';
 
 async function itemSubNotifyRecipients() {
   if (process.env.NEW_ITEM_NOTIFY_EMAIL) return process.env.NEW_ITEM_NOTIFY_EMAIL.split(',').map(s => s.trim()).filter(Boolean);
-  return [...NEW_ACCOUNT_NOTIFY_EMAILS];
+  return ['jessica@acsbeverage.com', 'kevin@acsbeverage.com'];   // fixed list, independent of the new-account notification list
 }
 async function sendItemSubEmail(to, subject, html) {
   if (!process.env.SENDGRID_API_KEY || !to || (Array.isArray(to) && !to.length)) { console.log('Item submission email (not sent):', subject); return; }
