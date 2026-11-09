@@ -5282,7 +5282,13 @@ async function openReceivePO(id){
     const poBpc=li.bottlesPerCase||6;
     const trustPack=!!p&&!guess;                       // item # / saved match: inventory's pack size is the truth
     const bpc=trustPack?(p.btl||poBpc):poBpc;
-    const ordered=Math.round(cs*bpc+lb);
+    // The PO form keeps cases and bottles in step (typing 2 cases also fills 12 bottles), so a line with both
+    // filled is ONE quantity shown two ways. Adding them together doubled the count on receiving.
+    let ordered;
+    if(cs>0&&lb>0){
+      const mirrored=Math.abs(cs*poBpc-lb)<=Math.max(1,lb*0.01);
+      ordered=mirrored?(Number.isInteger(cs*2)?Math.round(cs*bpc):lb):Math.round(cs*bpc+lb);
+    }else ordered=Math.round(cs*bpc+lb);
     const already=got[key]||0;
     lines.push({key,productId:li.productId,desc:li.description||li.brandName,bpc,ordered,already,remaining:Math.max(0,ordered-already),
       recv:Math.max(0,ordered-already),sku,guess,src,cs,lb,poBpc,packFixed:trustPack&&bpc!==poBpc});
