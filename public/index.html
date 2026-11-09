@@ -13077,7 +13077,8 @@ function renderARTable(){
           ${pdfSplitBtn(o.id)}
           ${!o.paid
             ?`<button class="btn btn-sm btn-success" onclick="markARPaid('${o.id}')" title="Mark as paid"><i class="ti ti-check"></i> Paid</button>`
-            :`<button class="btn btn-sm" onclick="markARUnpaid('${o.id}')" title="Mark as unpaid" style="color:var(--text2)"><i class="ti ti-arrow-back-up"></i></button>`}
+            :`<button class="btn btn-sm" onclick="removeOrderPayment('${o.id}')" title="Remove payment (mark unpaid)" style="color:var(--red)"><i class="ti ti-receipt-off"></i></button>`}
+          ${(!o.paid&&o.partialPaidAmount>0)?`<button class="btn btn-sm" onclick="removeOrderPayment('${o.id}')" title="Remove the partial payment" style="color:var(--red)"><i class="ti ti-receipt-off"></i></button>`:''}
           <button class="btn btn-sm btn-warning" onclick="unconfirmOrder('${o.id}')" title="Move back to unconfirmed" style="padding:5px 8px"><i class="ti ti-arrow-back-up"></i></button>
         </div>
       </td>
@@ -13090,6 +13091,26 @@ async function markARPaid(orderId){
   o.paid=true;o.paidAt=today();
   await saveOrderStatusToDB(orderId,{paid:true,paidDate:today()});
   updateBadges();toast(orderId+' marked as paid');renderARTable();
+}
+// Remove a recorded payment from an invoice -- e.g. QuickBooks applied it to the wrong account. The invoice goes
+// back to fully unpaid, and if the payment came from QuickBooks its id is remembered so "Fetch payments" doesn't
+// just apply it again. (This changes Toasted only; the payment in QuickBooks itself is not touched.)
+async function removeOrderPayment(orderId){
+  const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
+  if(currentUser&&currentUser.role!=='admin'){toast('Only an admin can remove a payment');return}
+  const amt=o.paid?(o.paidAmount||orderTotal(o)):(o.partialPaidAmount||0);
+  const acct=(ACCOUNTS.find(a=>a.id===o.acct)||{}).name||'';
+  const fromQbo=!!o.qboPaymentId;
+  if(!confirm('Remove the '+(o.paid?'':'partial ')+'payment of '+fmt(amt)+' from '+orderId+(acct?' ('+acct+')':'')+'?\n\n'
+    +(fromQbo?'It came from QuickBooks (payment #'+o.qboPaymentId+'). Toasted will remember to skip it, so Fetch Payments will not re-apply it to this invoice.\n\nThis does not change anything in QuickBooks -- fix the payment there too.\n\n':'')
+    +'The invoice goes back to unpaid.'))return;
+  const prev={paid:o.paid,paidAt:o.paidAt,paidDate:o.paidDate,paidAmount:o.paidAmount,partialPaidAmount:o.partialPaidAmount,qboPaymentId:o.qboPaymentId,ignoredQboPayments:o.ignoredQboPayments};
+  o.paid=false;o.paidAt=null;o.paidDate=null;o.paidAmount=null;o.partialPaidAmount=null;
+  o.ignoredQboPayments=(o.ignoredQboPayments||[]).concat(o.qboPaymentId?[String(o.qboPaymentId)]:[]);o.qboPaymentId=null;
+  const ok=await saveOrderStatusToDB(orderId,{clearPayment:true});
+  delete o.clearPayment;
+  if(!ok){Object.assign(o,prev);renderARTable();return}
+  updateBadges();toast('Payment removed from '+orderId);renderARTable();
 }
 async function markARUnpaid(orderId){
   const o=ORDERS.find(x=>x.id===orderId);if(!o)return;
@@ -15523,6 +15544,9 @@ function _qboReconcilePayments(payments, logFn, docNumberByInvoiceId){
       (line.LinkedTxn||[]).forEach(lt=>{
         if(lt.TxnType!=='Invoice')return;
         hasLineLink=true;
+        // A payment an admin already removed from this invoice is not re-applied.
+        const _ord=ORDERS.find(o=>o.qboInvoiceId===lt.TxnId)||ORDERS.find(o=>o.id===docNumberByInvoiceId[lt.TxnId]);
+        if(_ord&&(_ord.ignoredQboPayments||[]).includes(String(p.Id)))return;
         const key=lt.TxnId;
         amountByKey[key]=(amountByKey[key]||0)+(parseFloat(line.Amount)||0);
         paymentIdByKey[key]=p.Id;
@@ -15535,7 +15559,7 @@ function _qboReconcilePayments(payments, logFn, docNumberByInvoiceId){
     if(!hasLineLink){
       const docNum=p.PaymentRefNum||p.DocNumber||'';
       const order=ORDERS.find(o=>o.id===docNum);
-      if(order){
+      if(order&&!(order.ignoredQboPayments||[]).includes(String(p.Id))){
         const key=order.qboInvoiceId||('doc:'+order.id);
         amountByKey[key]=(amountByKey[key]||0)+(parseFloat(p.TotalAmt)||0);
         paymentIdByKey[key]=p.Id;
