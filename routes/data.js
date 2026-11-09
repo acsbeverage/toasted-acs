@@ -1473,7 +1473,12 @@ router.post('/po-receiving/:poId/receive', requireAdmin, async (req, res) => {
     const gotBy = {}; got.forEach(g => { gotBy[g.line_key] = g.b; });
     const complete = ordered.every(o => {
       const k = poLineKey(o.product_id, o.description);
-      const need = ovr[k] != null ? ovr[k] : (parseFloat(o.quantity_cases) || 0) * (o.bottles_per_case || 6) + (o.quantity_bottles || 0);
+      const need = ovr[k] != null ? ovr[k] : (() => {
+        // cases and bottles on a PO line mirror each other (2 cases also stores 12 bottles) -- count the line once
+        const cs = parseFloat(o.quantity_cases) || 0, lb = o.quantity_bottles || 0, bpc = o.bottles_per_case || 6;
+        if (cs > 0 && lb > 0 && Math.abs(cs * bpc - lb) <= Math.max(1, lb * 0.01)) return lb;
+        return cs * bpc + lb;
+      })();
       return need <= 0 || (gotBy[poLineKey(o.product_id, o.description)] || 0) >= Math.round(need);
     });
     const status = (complete || closeShort) ? 'received' : 'partial';
