@@ -4861,13 +4861,13 @@ function renderItemSubModal(){
   const raw=(it)=>[['UPC',it.unitUpc],['SCC',it.sccCode],['Pack',it.packSize],['Sale unit',it.saleUnitSize],['Cases/pallet',it.casesPerPallet],['Cases/layer',it.casesPerLayer],['Category',it.category],['Subcategory',it.subcategory],['Class',it.productClass],['Varietal',it.varietal],['Vintage',it.vintage],['ABV',it.abv],['Origin',[it.country,it.region,it.subregion].filter(Boolean).join(' / ')],['Case FOB',it.caseFob],['Bottle FOB',it.bottleFob],['FOB QD',it.fobQd],['DA support',it.daSupport],['Currency',it.currency],['SRP',it.srp],['Available',it.availabilityDate],['Availability',it.availability],['Pars',it.pars],['Regularity',it.regularity],['Ratings',it.ratings],['Notes',it.otherNotes],['On-premise',it.onPremiseReq],['Chain auth / DI',it.chainAuth],['Demo support',it.demoSupport],['POS',it.posAvailable],['Order instructions',it.orderInstructions]].filter(([,v])=>v).map(([k,v])=>`<span style="display:inline-block;margin:2px 10px 2px 0"><span style="color:var(--text3)">${k}:</span> ${poEsc(v)}</span>`).join('');
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="isub-modal-bg" style="display:flex"><div class="modal" style="max-width:900px;width:97%">
     <div class="modal-title"><i class="ti ti-package-import" style="color:var(--gold);margin-right:6px"></i>${poEsc(sub.supplierName)} <span style="font-weight:400;font-size:13px;color:var(--text3)">&mdash; ${poEsc(sub.contactName)}, ${poEsc(sub.contactEmail)}${sub.contactPhone?', '+poEsc(sub.contactPhone):''}</span></div>
-    ${pending?'<p style="font-size:12px;color:var(--text3);margin:0 0 10px">Check the details, type the <strong>ACS Item #</strong> for each item, and approve. Approving creates the product in Toasted with just the item #, name, producer, category, subcategory, pack size, CRV (set from the bottle size) and UPC -- no pricing is touched. The supplier\'s Case FOB is used only for the PO catalog entry.</p>':`<p style="font-size:13px;margin:0 0 10px">${sub.status==='approved'?'Approved':'Rejected'} by ${poEsc(sub.reviewedBy||'')} ${sub.reviewedAt?new Date(sub.reviewedAt).toLocaleDateString():''}${sub.reviewNote?' -- '+poEsc(sub.reviewNote):''}</p>`}
+    ${pending?'<p style="font-size:12px;color:var(--text3);margin:0 0 10px">Check the details and approve -- Toasted assigns each item its next <strong>ACS Item #</strong> automatically (only type one to override). Approving creates the product in Toasted with just the item #, name, producer, category, subcategory, pack size, CRV (set from the bottle size) and UPC -- no pricing is touched. The supplier\'s Case FOB is used only for the PO catalog entry.</p>':`<p style="font-size:13px;margin:0 0 10px">${sub.status==='approved'?'Approved':'Rejected'} by ${poEsc(sub.reviewedBy||'')} ${sub.reviewedAt?new Date(sub.reviewedAt).toLocaleDateString():''}${sub.reviewNote?' -- '+poEsc(sub.reviewNote):''}</p>`}
     <div style="max-height:62vh;overflow-y:auto">
     ${items.map((it,i)=>`<div class="card" style="padding:12px;margin-bottom:10px;${it.include?'':'opacity:.55'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Item ${i+1}</strong>
         ${pending?`<label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" ${it.include?'checked':''} onchange="_itemSubOpen.items[${i}].include=this.checked;renderItemSubModal()"/> Include</label>`:''}</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-        ${field(i,'sku','ACS Item # *')}${field(i,'name','Product name *','text','grid-column:span 2')}
+        <div><label class="flabel">ACS Item # <span style="font-weight:400;color:var(--text3)">(auto)</span></label><input class="finput" ${dis} placeholder="Assigned on approval" value="${poEsc(items[i].sku)}" oninput="_itemSubOpen.items[${i}].sku=this.value"/></div>${field(i,'name','Product name *','text','grid-column:span 2')}
         <div><label class="flabel">Producer <span style="font-weight:400;color:${it.producerMatched?'var(--green)':'#8A6100'}">${it.producerMatched?'(matches existing)':'(new -- pick an existing one if it should match)'}</span></label>
           <input class="finput" ${dis} list="isub-prod-${i}" value="${poEsc(it.producer)}" oninput="_itemSubOpen.items[${i}].producer=this.value"/>
           <datalist id="isub-prod-${i}">${it.knownProducers.map(p=>`<option value="${poEsc(p)}">`).join('')}</datalist></div>
@@ -4893,8 +4893,7 @@ function renderItemSubModal(){
 async function approveItemSub(){
   const {sub,items}=_itemSubOpen,use=items.filter(i=>i.include);
   if(!use.length){toast('Include at least one item');return}
-  if(use.some(i=>!String(i.sku).trim())){toast('Type an ACS Item # for each included item');return}
-  if(use.some(i=>PRODUCTS.some(p=>String(p.sku)===String(i.sku).trim()))){toast('One of those ACS Item #s already exists in Toasted');return}
+  if(use.some(i=>String(i.sku).trim()&&PRODUCTS.some(p=>String(p.sku)===String(i.sku).trim()))){toast('One of those ACS Item #s already exists in Toasted');return}
   if(!confirm('Create '+use.length+' product'+(use.length!==1?'s':'')+' in Toasted from '+sub.supplierName+'\'s submission?'))return;
   const btn=document.getElementById('isub-go');btn.disabled=true;btn.textContent='Creating...';
   try{
@@ -4902,7 +4901,7 @@ async function approveItemSub(){
       body:JSON.stringify({items:items.map(i=>({...i,btl:parseInt(i.btl)||6,fobPrice:_isNum(i.fobPrice)}))})}).then(r=>r.json());
     if(!r.ok){toast(r.error||'Could not approve');btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Approve &amp; create in Toasted';return}
     document.getElementById('isub-modal-bg').remove();
-    toast('Created '+r.created.length+' product'+(r.created.length!==1?'s':'')+' in Toasted'+(r.poWarnings&&r.poWarnings.length?' -- PO catalog problem, check Suppliers & Products':''));
+    toast('Created '+r.created.length+' product'+(r.created.length!==1?'s':'')+' in Toasted (ACS Item # '+r.created.join(', ')+')'+(r.poWarnings&&r.poWarnings.length?' -- PO catalog problem, check Suppliers & Products':''));
     if(r.poWarnings&&r.poWarnings.length)alert('Products were created, but these could not be added to the PO catalog:\n\n'+r.poWarnings.join('\n'));
     await loadAllDataFromBackend();_poDataLoaded=false;updateBadges();renderItemSubs();
   }catch(e){toast('Could not confirm -- refresh and check before trying again');btn.disabled=false;}
@@ -8969,7 +8968,7 @@ async function handleImportFile(input,type){
     let ok=0,failed=0;
     for(const row of dataRows){
       const obj={}; headers.forEach((h,i)=>obj[h]=row[i]!==undefined?String(row[i]).trim():'');
-      if(!obj['sku'])continue;
+      if(!obj['sku']&&!obj['name'])continue;      // blank SKU with a name: Toasted assigns the next ACS Item #
       const prices={};TIERS.forEach(t=>{const v=obj[t.name.toLowerCase()];if(v)prices[t.id]=parseFloat(v)||0;});
       try{
         const res1=await fetch(TOASTED_BACKEND_URL+'/api/products',{
@@ -8978,7 +8977,7 @@ async function handleImportFile(input,type){
         }).then(r=>r.json());
         if(!res1.ok){failed++;continue;}
         if(Object.keys(prices).length||obj['stockcases']||obj['reorderpoint']){
-          await fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(obj['sku']),{
+          await fetch(TOASTED_BACKEND_URL+'/api/products/'+encodeURIComponent(res1.sku||obj['sku']),{
             method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+window._authToken},
             body:JSON.stringify({prices,stock:parseFloat(obj['stockcases'])||0,_details:{}})
           }).then(r=>r.json());
@@ -14566,7 +14565,8 @@ function renderProductForm(p,isNew){
       <div style="font-size:11px;color:var(--text3);margin-bottom:12px">ACS Logistics is a separate warehousing pool for clients' stock -- not visible to reps or customers, and not orderable.</div>
 
       <label class="flabel">SKU / Code</label>
-      <input id="pf-sku" type="text" class="finput" value="${p.sku||''}" placeholder="Unique SKU" style="margin-bottom:${isNew?'12px':'4px'}"/>
+      <input id="pf-sku" type="text" class="finput" value="${p.sku||''}" placeholder="${isNew?'Leave blank -- Toasted assigns the next ACS Item #':'Unique SKU'}" style="margin-bottom:${isNew?'4px':'4px'}"/>
+      ${isNew?`<div style="font-size:11px;color:var(--text3);margin-bottom:12px">New products get the next ACS Item # automatically when you save. Only type one here if you need a specific number.</div>`:''}
       ${!isNew?`<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Changing this renames the SKU everywhere, including on past orders -- use with care.</div>`:''}
 
       <label class="flabel">Internal Code</label>
@@ -14709,10 +14709,9 @@ function saveProduct(){
   const name=(document.getElementById('pf-name').value||'').trim();
   const sku=(document.getElementById('pf-sku').value||'').trim();
   if(!name){toast('Product name is required');return;}
-  if(!sku){toast('SKU is required');return;}
-
   const isNew=!_editingProductSku;
-  if(isNew&&PRODUCTS.find(p=>p.sku===sku)){toast('SKU already exists');return;}
+  if(!sku&&!isNew){toast('SKU is required');return;}
+  if(isNew&&sku&&PRODUCTS.find(p=>p.sku===sku)){toast('SKU already exists');return;}
 
   const details={
     upc:document.getElementById('pf-upc').value.trim(),
@@ -14753,6 +14752,15 @@ function saveProduct(){
       warehouse:document.getElementById('pf-warehouse').value,
       _details:details
     };
+    if(!sku){
+      // No item # typed: the server assigns the next one, so wait for it before the product appears in the list.
+      saveNewProductToDB(newProduct).then(d=>{
+        newProduct.sku=String(d.sku);PRODUCTS.push(newProduct);
+        toast('Product added -- '+name+' (ACS Item # '+d.sku+')');
+        const nav=document.querySelector('.nav-item.active');
+        if(nav&&nav.id==='nav-logistics')renderACSLogistics();else renderProducts();
+      }).catch(e=>{toast('Could not create product -- '+e.message)});
+    }else{
     PRODUCTS.push(newProduct);
     saveNewProductToDB(newProduct).then(()=>{
       toast('Product added -- '+name);
@@ -14760,6 +14768,7 @@ function saveProduct(){
       PRODUCTS=PRODUCTS.filter(x=>x.sku!==newProduct.sku); // roll back the optimistic add
       toast('Could not create product -- '+e.message);
     });
+    }
   } else {
     const p=PRODUCTS.find(x=>x.sku===_editingProductSku);
     if(!p)return;
