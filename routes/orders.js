@@ -88,7 +88,7 @@ async function buildOrdersList(user, since) {
     const isAdmin    = user.role === 'admin';
     const isCustomer = user.role === 'customer';
     const useSince = !!since && !isCustomer;
-    const COLS = `o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, ${CONFIRMED_DATE_SQL} AS confirmed_date`;
+    const COLS = `o.id, o.acct_id, o.rep_id, o.date, o.delivery, o.status, o.ever_delivered, o.order_type, o.po, o.notes, o.is_sample, o.labels_printed, o.waive_delivery, o.waive_broken_case, o.waive_crv, o.paid, o.paid_date, o.paid_amount, o.qbo_invoice_id, o.qbo_synced_at, o.partial_paid_amount, o.qbo_payment_id, o.ignored_qbo_payment_ids, ${CONFIRMED_DATE_SQL} AS confirmed_date`;
     let rows, total;
     if (isAdmin) {
       const vals = []; let where = '';
@@ -159,6 +159,8 @@ async function buildOrdersList(user, since) {
       paidAmount: r.paid_amount ? parseFloat(r.paid_amount) : null,
       qboInvoiceId: r.qbo_invoice_id, qboSyncedAt: r.qbo_synced_at,
       partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
+      qboPaymentId: r.qbo_payment_id || null,
+      ignoredQboPayments: (r.ignored_qbo_payment_ids || '').split(',').filter(Boolean),
       confirmedAt: r.confirmed_date || null,
       items: itemsByOrder[r.id] || [],
     }));
@@ -171,7 +173,10 @@ async function buildOrdersList(user, since) {
 let _confirmedAtReady = null;
 function ensureConfirmedAtColumn() {
   if (!_confirmedAtReady) {
+    // Also holds the "removed QuickBooks payments" list: QBO payment ids an admin removed from an order, so a
+    // later "Fetch payments" doesn't just apply the same (wrong) payment again.
     _confirmedAtReady = query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`)
+      .then(() => query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ignored_qbo_payment_ids TEXT`))
       .catch(err => { _confirmedAtReady = null; throw err; });
   }
   return _confirmedAtReady;
@@ -392,6 +397,8 @@ router.get('/report-data', requireAuth, async (req, res) => {
       paidAmount: r.paid_amount ? parseFloat(r.paid_amount) : null,
       qboInvoiceId: r.qbo_invoice_id, qboSyncedAt: r.qbo_synced_at,
       partialPaidAmount: r.partial_paid_amount ? parseFloat(r.partial_paid_amount) : null,
+      qboPaymentId: r.qbo_payment_id || null,
+      ignoredQboPayments: (r.ignored_qbo_payment_ids || '').split(',').filter(Boolean),
       confirmedAt: r.confirmed_date || null,
       items: itemsByOrder[r.id] || [],
     }));
@@ -653,8 +660,12 @@ async function patchOrderHandler(req, res) {
     if (req.user.role === 'customer') return res.status(403).json({ ok: false, error: 'Not permitted' });
     const { status, paid, paidDate, paidAmount, qboInvoiceId, qboSyncedAt, qboPaymentId,
             date, delivery, po, notes, items: itemsIn, labelsPrinted, partialPaidAmount,
-            waiveDelivery, waiveBrokenCase, waiveCRV, isSample, orderType } = req.body;
+            waiveDelivery, waiveBrokenCase, waiveCRV, isSample, orderType, clearPayment } = req.body;
     let items = itemsIn;
+    // Removing a recorded payment (e.g. QuickBooks applied it to the wrong account) is an admin action.
+    if (clearPayment && req.user.role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only an admin can remove a payment' });
+    }
     // Confirming an order is a deliberate, admin-only gatekeeping step -- reps can still edit
     // their own orders' other details through this same route, just not move the status itself
     // into confirmed.
@@ -673,6 +684,13 @@ async function patchOrderHandler(req, res) {
     }
     const updates = [], values = [];
     let idx = 1;
+    if (clearPayment) {
+      // Back to completely unpaid. The QuickBooks payment id being removed is remembered on the order so the
+      // next "Fetch payments" skips it instead of re-applying it.
+      updates.push(`ignored_qbo_payment_ids = CASE WHEN qbo_payment_id IS NULL OR qbo_payment_id = '' THEN ignored_qbo_payment_ids
+                      WHEN COALESCE(ignored_qbo_payment_ids,'') = '' THEN qbo_payment_id ELSE ignored_qbo_payment_ids || ',' || qbo_payment_id END`);
+      updates.push(`paid=FALSE`, `paid_date=NULL`, `paid_amount=NULL`, `partial_paid_amount=NULL`, `qbo_payment_id=NULL`);
+    }
     if (status !== undefined)       { updates.push(`status=$${idx++}`);         values.push(status); }
     // Moving an order TO delivered permanently flags that its stock physically left the
     // warehouse. This flag is never cleared by any status change (including Unconfirm) --
