@@ -81,6 +81,7 @@ const MAX_ITEMS=10;
 // [key, label, kind, required, hint, full-width]
 const SECTIONS=[
  ['Product details',[
+  ['category','Category','cat',1],['subcategory','Subcategory','subcat',0,'spirits only'],
   ['brand','Brand','text',1],['description','Item description','text',1,'',1],
   ['packSize','Pack size','text',1,'e.g. 6/750ml'],['saleUnitSize','Sale unit size','text',0,'if different from pack size'],
   ['unitUpc','Unit UPC','text',0,'12 digits, or 0000 if none'],['sccCode','SCC code (full case)','text',0,'12 digits, or 0000 if none'],
@@ -105,6 +106,9 @@ const SECTIONS=[
   ['orderInstructions','Order instructions / amount / notes','textarea',0,'',1],
  ]],
 ];
+// Category / subcategory lists come from Toasted so they always match; these are used only if the lookup fails.
+let CATS=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'],SUBCATS=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
+const optsHtml=a=>['<option value="">-- choose --</option>'].concat(a.map(o=>`<option value="${o.replace(/"/g,'&quot;')}">${o}</option>`)).join('');
 const itemsEl=document.getElementById('items');
 function itemCard(n){
   const d=document.createElement('div');d.className='card item';
@@ -114,7 +118,9 @@ function itemCard(n){
     fields.forEach(([k,label,kind,req,hint,full,opts])=>{
       const lab=`<label>${label}${req?' <span class="req">*</span>':''}${hint?` <span class="hint">(${hint})</span>`:''}</label>`;
       let ctl;
-      if(kind==='select')ctl=`<select data-k="${k}">${opts.map(o=>`<option value="${o}">${o||'--'}</option>`).join('')}</select>`;
+      if(kind==='cat')ctl=`<select data-k="${k}" data-cat ${req?'required':''}>${optsHtml(CATS)}</select>`;
+      else if(kind==='subcat')ctl=`<select data-k="${k}" data-subcat>${optsHtml(SUBCATS)}</select>`;
+      else if(kind==='select')ctl=`<select data-k="${k}">${opts.map(o=>`<option value="${o}">${o||'--'}</option>`).join('')}</select>`;
       else if(kind==='textarea')ctl=`<textarea data-k="${k}"></textarea>`;
       else ctl=`<input data-k="${k}" type="${kind}" ${req?'required':''}/>`;
       h+=`<div class="${full?'full':''}">${lab}${ctl}</div>`;
@@ -122,6 +128,9 @@ function itemCard(n){
     h+='</div>';
   });
   d.innerHTML=h;
+  const cs=d.querySelector('[data-cat]'),ss=d.querySelector('[data-subcat]'),sw=ss.parentElement;
+  const sync=()=>{const on=cs.value==='Spirits';sw.style.display=on?'':'none';if(!on)ss.value=''};
+  cs.onchange=sync;sync();
   const rm=d.querySelector('[data-rm]');if(rm)rm.onclick=()=>{d.remove();renumber()};
   return d;
 }
@@ -131,7 +140,11 @@ function renumber(){
 }
 function addItem(){if(itemsEl.children.length>=MAX_ITEMS)return;itemsEl.appendChild(itemCard(itemsEl.children.length+1));renumber()}
 document.getElementById('addBtn').onclick=()=>{addItem();itemsEl.lastElementChild.scrollIntoView({behavior:'smooth',block:'start'})};
-addItem();
+fetch('/api/public/product-options').then(r=>r.json()).then(j=>{
+  if(!j.ok)return;
+  if(j.categories&&j.categories.length)CATS=j.categories;
+  if(j.subcategories&&j.subcategories.length)SUBCATS=j.subcategories;
+}).catch(()=>{}).finally(()=>addItem());
 
 document.getElementById('f').addEventListener('submit',async e=>{
   e.preventDefault();
@@ -141,7 +154,7 @@ document.getElementById('f').addEventListener('submit',async e=>{
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val('contactEmail'))){err.textContent='Please enter a valid email address.';return}
   const items=[...itemsEl.children].map(c=>{const o={};c.querySelectorAll('[data-k]').forEach(x=>{o[x.dataset.k]=x.value.trim()});return o});
   for(let i=0;i<items.length;i++){
-    if(!items[i].brand||!items[i].description||!items[i].packSize){err.textContent=`Item #${i+1}: brand, item description and pack size are required.`;return}
+    if(!items[i].category||!items[i].brand||!items[i].description||!items[i].packSize){err.textContent=`Item #${i+1}: category, brand, item description and pack size are required.`;return}
   }
   const btn=document.getElementById('submitBtn');btn.disabled=true;btn.textContent='Submitting...';
   try{
