@@ -1480,7 +1480,33 @@ function ensureItemSubTables() {
 const ITEM_TEXT_FIELDS = ['availabilityDate', 'unitUpc', 'sccCode', 'brand', 'description', 'packSize', 'saleUnitSize', 'casesPerPallet',
   'casesPerLayer', 'productClass', 'varietal', 'vintage', 'abv', 'country', 'region', 'subregion', 'caseFob', 'bottleFob', 'fobQd',
   'daSupport', 'currency', 'srp', 'regularity', 'ratings', 'availability', 'pars', 'otherNotes', 'onPremiseReq', 'chainAuth',
-  'demoSupport', 'posAvailable', 'orderInstructions'];
+  'demoSupport', 'posAvailable', 'orderInstructions', 'category', 'subcategory'];
+
+// California Redemption Value (CRV) is picked from the container size: 24 oz and over = 10c, under 24 oz = 5c.
+// Cans under 24 oz use the CAN entry. Returns '' when the size can't be read (the reviewer picks it by hand).
+function crvEntryForSize(sizeStr, hint) {
+  const s = String(sizeStr || '').toLowerCase().replace(/,/g, '');
+  const m = s.match(/(\d+(?:\.\d+)?)\s*(ml|cl|l|ltr|liter|litre|oz|ounce)?/);
+  if (!m) return '';
+  const n = parseFloat(m[1]), u = m[2] || '';
+  let oz;
+  if (u === 'ml') oz = n / 29.5735;
+  else if (u === 'cl') oz = n * 10 / 29.5735;
+  else if (u === 'l' || u === 'ltr' || u === 'liter' || u === 'litre') oz = n * 1000 / 29.5735;
+  else if (u === 'oz' || u === 'ounce') oz = n;
+  else oz = n >= 50 ? n / 29.5735 : n * 1000 / 29.5735;   // no unit: big numbers are ml, small ones liters
+  if (!(oz > 0)) return '';
+  if (oz >= 24) return 'CA CRV (24oz and over)';
+  return /\bcans?\b/i.test(String(hint || '') + ' ' + s) ? 'CA CRV CAN (under 24oz)' : 'CA CRV (under 24oz)';
+}
+
+// PUBLIC (no login): the category / subcategory lists for the supplier form, so they always match Toasted.
+router.get('/public/product-options', async (req, res) => {
+  try {
+    const rows = await getAll("SELECT kind, name FROM product_taxonomy WHERE kind IN ('category','spirit_type') ORDER BY kind, sort_order, name");
+    res.json({ ok: true, categories: rows.filter(r => r.kind === 'category').map(r => r.name), subcategories: rows.filter(r => r.kind === 'spirit_type').map(r => r.name) });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 const _subHits = new Map();   // ip -> [timestamps]  (simple in-memory limiter for the public form)
 function subRateLimited(ip) {
   const now = Date.now(), win = 10 * 60 * 1000;
@@ -1521,6 +1547,7 @@ router.post('/public/new-item-submission', async (req, res) => {
       return o;
     }).filter(o => o.brand || o.description);
     if (!items.length) return res.status(400).json({ ok: false, error: 'Please enter at least one item (brand and item description).' });
+    if (items.some(o => !o.category)) return res.status(400).json({ ok: false, error: 'Please choose a category for each item.' });
     if (items.some(o => !o.brand || !o.description || !o.packSize)) return res.status(400).json({ ok: false, error: 'Each item needs a brand, item description and pack size.' });
 
     await ensureItemSubTables();
@@ -1609,10 +1636,13 @@ router.post('/item-submissions/:id/approve', requireAdmin, async (req, res) => {
       // Only item #, name, producer, pack size, UPC (and category) are set. Pricing, UPC, vintage etc. are left alone on purpose;
       // the supplier's FOB goes to the PO catalog entry only.
       const producer = matchExistingProducer(String(i.producer || '').trim(), existingProducers);
+      const cat = i.cat || 'Spirits';
+      const subcat = cat === 'Spirits' ? String(i.spiritType || '').trim() : '';
+      const crv = i.crv !== undefined && i.crv !== null ? String(i.crv) : crvEntryForSize(i.bottleSize || '750ml', i.name);
       await query(
-        `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,warehouse,bottle_size,upc,active,core)
-         VALUES ($1,$2,$3,$4,$5,0,6,'main',$6,$7,'Yes','No')`,
-        [i.sku, String(i.name).trim(), producer, i.cat || 'Spirits', btl, String(i.bottleSize || '750ml'), String(i.upc || '').trim()]);
+        `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,warehouse,bottle_size,upc,active,core,spirit_type,redemption_entry)
+         VALUES ($1,$2,$3,$4,$5,0,6,'main',$6,$7,'Yes','No',$8,$9)`,
+        [i.sku, String(i.name).trim(), producer, cat, btl, String(i.bottleSize || '750ml'), String(i.upc || '').trim(), subcat, crv]);
       created.push(i.sku);
       if (i.poSupplierId) {
         try {
