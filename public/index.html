@@ -4804,6 +4804,23 @@ async function renderItemSubs(){
   </tbody></table></div>`;
 }
 const _isNum=v=>{const n=parseFloat(String(v||'').replace(/[$,\s]/g,''));return Number.isFinite(n)?n:0};
+// California Redemption Value from the container size (same rule the server uses): 24 oz+ = 10c, under 24 oz = 5c.
+function crvForSize(sizeStr,hint){
+  const s=String(sizeStr||'').toLowerCase().replace(/,/g,'');
+  const m=s.match(/(\d+(?:\.\d+)?)\s*(ml|cl|l|ltr|liter|litre|oz|ounce)?/);
+  if(!m)return'';
+  const n=parseFloat(m[1]),u=m[2]||'';
+  let oz;
+  if(u==='ml')oz=n/29.5735;else if(u==='cl')oz=n*10/29.5735;else if(u==='l'||u==='ltr'||u==='liter'||u==='litre')oz=n*1000/29.5735;
+  else if(u==='oz'||u==='ounce')oz=n;else oz=n>=50?n/29.5735:n*1000/29.5735;
+  if(!(oz>0))return'';
+  if(oz>=24)return'CA CRV (24oz and over)';
+  return /\bcans?\b/i.test(String(hint||'')+' '+s)?'CA CRV CAN (under 24oz)':'CA CRV (under 24oz)';
+}
+function _isubSize(i,v){
+  const it=_itemSubOpen.items[i];it.bottleSize=v;
+  if(!it.crvManual){it.crv=crvForSize(v,it.name);const el=document.getElementById('isub-crv-'+i);if(el)el.value=it.crv}
+}
 function itemSubDefaults(sub,i){
   const brand=(i.brand||'').trim(),desc=(i.description||'').trim(),pack=(i.packSize||'').trim();
   let name=desc.toLowerCase().includes(brand.toLowerCase())?desc:(brand+' '+desc).trim();
@@ -4812,7 +4829,10 @@ function itemSubDefaults(sub,i){
   const btl=pm?parseInt(pm[1]):6,size=pm?pm[2].replace(/\s+/g,''):'750ml';
   let fob=_isNum(i.caseFob);if(!fob&&_isNum(i.bottleFob))fob=Math.round(_isNum(i.bottleFob)*btl*100)/100;
   const cls=(i.productClass||'').toLowerCase();
-  const cat=/wine|red|white|ros[eé]|sparkling|champagne|prosecco|cava/.test(cls)?'Wine':/beer|rtd|seltzer|cider|hard/.test(cls)?'Beer & RTD':'Spirits';
+  // The supplier now picks the category/subcategory on the form (from Toasted's own lists); older submissions fall back to a guess.
+  const _ci=t=>(SHOP_CATEGORIES||[]).find(c=>String(c).toLowerCase()===String(t||'').trim().toLowerCase());
+  const cat=_ci(i.category)||(/wine|red|white|ros[eé]|sparkling|champagne|prosecco|cava/.test(cls)?'Wine':/beer|rtd|seltzer|cider|hard/.test(cls)?'Beer & RTD':'Spirits');
+  const spiritType=(SPIRIT_TYPES||[]).find(t=>String(t).toLowerCase()===String(i.subcategory||'').trim().toLowerCase())||'';
   const bits=[['ABV',i.abv&&i.abv+(String(i.abv).includes('%')?'':'%')],['Origin',[i.country,i.region,i.subregion].filter(Boolean).join(' / ')],['Varietal',i.varietal],
     ['Cases/pallet',i.casesPerPallet],['Cases/layer',i.casesPerLayer],['SRP',i.srp],['Available',i.availabilityDate],['Availability',i.availability],['Pars',i.pars],['Notes',i.otherNotes]]
     .filter(([,v])=>v).map(([k,v])=>k+': '+v);
@@ -4822,7 +4842,7 @@ function itemSubDefaults(sub,i){
   const nz=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const known=[...new Set(PRODUCTS.map(p=>p.producer).filter(Boolean))];
   const hit=known.find(p=>nz(p)===nz(brand));
-  return{sku:'',name,producer:hit||brand,producerMatched:!!hit,cat,btl,bottleSize:size,fobPrice:fob||'',upc:(i.unitUpc&&!/^0+$/.test(String(i.unitUpc).trim()))?String(i.unitUpc).trim():'',
+  return{sku:'',name,producer:hit||brand,producerMatched:!!hit,cat,spiritType,crv:crvForSize(size,name),crvManual:false,btl,bottleSize:size,fobPrice:fob||'',upc:(i.unitUpc&&!/^0+$/.test(String(i.unitUpc).trim()))?String(i.unitUpc).trim():'',
     poSupplierId:sup?String(sup.id):'',include:true,knownProducers:known};
 }
 async function openItemSub(id){
@@ -4838,10 +4858,10 @@ function renderItemSubModal(){
   const supOpts=sel=>'<option value="">-- don\'t add to PO catalog --</option>'+(PO_SUPPLIERS||[]).map(p=>`<option value="${p.id}" ${String(p.id)===String(sel)?'selected':''}>${poEsc(p.name)}</option>`).join('');
   const catOpts=sel=>(typeof SHOP_CATEGORIES!=='undefined'?SHOP_CATEGORIES:['Wine','Spirits']).map(c=>`<option ${c===sel?'selected':''}>${poEsc(c)}</option>`).join('');
   const field=(i,k,label,type,w)=>`<div style="${w||''}"><label class="flabel">${label}</label><input class="finput" ${dis} type="${type||'text'}" value="${poEsc(items[i][k])}" oninput="_itemSubOpen.items[${i}].${k}=this.value"/></div>`;
-  const raw=(it)=>[['UPC',it.unitUpc],['SCC',it.sccCode],['Pack',it.packSize],['Sale unit',it.saleUnitSize],['Cases/pallet',it.casesPerPallet],['Cases/layer',it.casesPerLayer],['Class',it.productClass],['Varietal',it.varietal],['Vintage',it.vintage],['ABV',it.abv],['Origin',[it.country,it.region,it.subregion].filter(Boolean).join(' / ')],['Case FOB',it.caseFob],['Bottle FOB',it.bottleFob],['FOB QD',it.fobQd],['DA support',it.daSupport],['Currency',it.currency],['SRP',it.srp],['Available',it.availabilityDate],['Availability',it.availability],['Pars',it.pars],['Regularity',it.regularity],['Ratings',it.ratings],['Notes',it.otherNotes],['On-premise',it.onPremiseReq],['Chain auth / DI',it.chainAuth],['Demo support',it.demoSupport],['POS',it.posAvailable],['Order instructions',it.orderInstructions]].filter(([,v])=>v).map(([k,v])=>`<span style="display:inline-block;margin:2px 10px 2px 0"><span style="color:var(--text3)">${k}:</span> ${poEsc(v)}</span>`).join('');
+  const raw=(it)=>[['UPC',it.unitUpc],['SCC',it.sccCode],['Pack',it.packSize],['Sale unit',it.saleUnitSize],['Cases/pallet',it.casesPerPallet],['Cases/layer',it.casesPerLayer],['Category',it.category],['Subcategory',it.subcategory],['Class',it.productClass],['Varietal',it.varietal],['Vintage',it.vintage],['ABV',it.abv],['Origin',[it.country,it.region,it.subregion].filter(Boolean).join(' / ')],['Case FOB',it.caseFob],['Bottle FOB',it.bottleFob],['FOB QD',it.fobQd],['DA support',it.daSupport],['Currency',it.currency],['SRP',it.srp],['Available',it.availabilityDate],['Availability',it.availability],['Pars',it.pars],['Regularity',it.regularity],['Ratings',it.ratings],['Notes',it.otherNotes],['On-premise',it.onPremiseReq],['Chain auth / DI',it.chainAuth],['Demo support',it.demoSupport],['POS',it.posAvailable],['Order instructions',it.orderInstructions]].filter(([,v])=>v).map(([k,v])=>`<span style="display:inline-block;margin:2px 10px 2px 0"><span style="color:var(--text3)">${k}:</span> ${poEsc(v)}</span>`).join('');
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-bg open" id="isub-modal-bg" style="display:flex"><div class="modal" style="max-width:900px;width:97%">
     <div class="modal-title"><i class="ti ti-package-import" style="color:var(--gold);margin-right:6px"></i>${poEsc(sub.supplierName)} <span style="font-weight:400;font-size:13px;color:var(--text3)">&mdash; ${poEsc(sub.contactName)}, ${poEsc(sub.contactEmail)}${sub.contactPhone?', '+poEsc(sub.contactPhone):''}</span></div>
-    ${pending?'<p style="font-size:12px;color:var(--text3);margin:0 0 10px">Check the details, type the <strong>ACS Item #</strong> for each item, and approve. Approving creates the product in Toasted with just the item #, name, producer, pack size and UPC -- no pricing is touched. The supplier\'s Case FOB is used only for the PO catalog entry.</p>':`<p style="font-size:13px;margin:0 0 10px">${sub.status==='approved'?'Approved':'Rejected'} by ${poEsc(sub.reviewedBy||'')} ${sub.reviewedAt?new Date(sub.reviewedAt).toLocaleDateString():''}${sub.reviewNote?' -- '+poEsc(sub.reviewNote):''}</p>`}
+    ${pending?'<p style="font-size:12px;color:var(--text3);margin:0 0 10px">Check the details, type the <strong>ACS Item #</strong> for each item, and approve. Approving creates the product in Toasted with just the item #, name, producer, category, subcategory, pack size, CRV (set from the bottle size) and UPC -- no pricing is touched. The supplier\'s Case FOB is used only for the PO catalog entry.</p>':`<p style="font-size:13px;margin:0 0 10px">${sub.status==='approved'?'Approved':'Rejected'} by ${poEsc(sub.reviewedBy||'')} ${sub.reviewedAt?new Date(sub.reviewedAt).toLocaleDateString():''}${sub.reviewNote?' -- '+poEsc(sub.reviewNote):''}</p>`}
     <div style="max-height:62vh;overflow-y:auto">
     ${items.map((it,i)=>`<div class="card" style="padding:12px;margin-bottom:10px;${it.include?'':'opacity:.55'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Item ${i+1}</strong>
@@ -4851,8 +4871,12 @@ function renderItemSubModal(){
         <div><label class="flabel">Producer <span style="font-weight:400;color:${it.producerMatched?'var(--green)':'#8A6100'}">${it.producerMatched?'(matches existing)':'(new -- pick an existing one if it should match)'}</span></label>
           <input class="finput" ${dis} list="isub-prod-${i}" value="${poEsc(it.producer)}" oninput="_itemSubOpen.items[${i}].producer=this.value"/>
           <datalist id="isub-prod-${i}">${it.knownProducers.map(p=>`<option value="${poEsc(p)}">`).join('')}</datalist></div>
-        <div><label class="flabel">Category</label><select class="finput" ${dis} onchange="_itemSubOpen.items[${i}].cat=this.value">${catOpts(it.cat)}</select></div>
-        ${field(i,'btl','Bottles per case','number')}${field(i,'bottleSize','Bottle size')}${field(i,'upc','UPC')}
+        <div><label class="flabel">Category</label><select class="finput" ${dis} onchange="_itemSubOpen.items[${i}].cat=this.value;renderItemSubModal()">${catOpts(it.cat)}</select></div>
+        ${it.cat==='Spirits'?`<div><label class="flabel">Subcategory</label><select class="finput" ${dis} onchange="_itemSubOpen.items[${i}].spiritType=this.value"><option value="">--</option>${(SPIRIT_TYPES||[]).map(t=>`<option ${t===it.spiritType?'selected':''}>${poEsc(t)}</option>`).join('')}</select></div>`:'<div></div>'}
+        ${field(i,'btl','Bottles per case','number')}
+        <div><label class="flabel">Bottle size</label><input class="finput" ${dis} value="${poEsc(it.bottleSize)}" oninput="_isubSize(${i},this.value)"/></div>
+        <div><label class="flabel">CRV <span style="font-weight:400;color:var(--text3)">(auto from size)</span></label><select class="finput" id="isub-crv-${i}" ${dis} onchange="_itemSubOpen.items[${i}].crv=this.value;_itemSubOpen.items[${i}].crvManual=true">${['','- None -','CA CRV (24oz and over)','CA CRV CAN (under 24oz)','CA CRV (under 24oz)'].map(r=>`<option value="${r}" ${(it.crv||'')===r?'selected':''}>${r||'-- Select --'}</option>`).join('')}</select></div>
+        ${field(i,'upc','UPC')}
         <div style="grid-column:span 3;padding-top:8px;border-top:1px dashed var(--border)"><span style="font-size:12px;font-weight:600">PO catalog entry</span> <span style="font-size:11.5px;color:var(--text3)">(uses the item # above as its ACS Item #)</span></div>
         <div style="grid-column:span 2"><label class="flabel">Add to the PO catalog for supplier</label><select class="finput" ${dis} onchange="_itemSubOpen.items[${i}].poSupplierId=this.value">${supOpts(it.poSupplierId)}</select></div>
         ${field(i,'fobPrice','Case price - supplier FOB ($)','number')}
