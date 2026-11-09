@@ -910,17 +910,50 @@ router.patch('/products/:sku', requireAdmin, async (req, res) => {
   }
 });
 
+// ---- Automatic ACS Item #s ----------------------------------------------------------------------
+// One counter hands out the next item number (starting at 945169). Numbers are reserved in a single atomic
+// UPDATE, so two people creating items at the same moment can never get the same one, and any number already
+// in use by a product is skipped. Created on first use -- no migration needed.
+const ITEM_NUMBER_START = 945169;
+let _counterReady = null;
+function ensureCounterTable() {
+  if (!_counterReady) {
+    _counterReady = query(`CREATE TABLE IF NOT EXISTS app_counters (name TEXT PRIMARY KEY, value BIGINT NOT NULL)`)
+      .then(() => query(`INSERT INTO app_counters (name, value) VALUES ('item_number', $1) ON CONFLICT (name) DO NOTHING`, [ITEM_NUMBER_START]))
+      .catch(err => { _counterReady = null; throw err; });
+  }
+  return _counterReady;
+}
+async function allocateItemNumbers(n, taken) {
+  await ensureCounterTable();
+  const usedHere = taken || new Set();
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const r = await getOne(`UPDATE app_counters SET value = value + $1 WHERE name='item_number' RETURNING value - $1 AS start`, [n]);
+    const start = Number(r.start);
+    const nums = Array.from({ length: n }, (_, k) => String(start + k));
+    const clash = await getAll('SELECT sku FROM products WHERE sku = ANY($1)', [nums]);
+    if (!clash.length && !nums.some(x => usedHere.has(x))) return nums;
+  }
+  throw new Error('Could not reserve an item number -- please try again');
+}
+router.get('/next-item-number', requireAdmin, async (req, res) => {
+  try { await ensureCounterTable(); const r = await getOne(`SELECT value FROM app_counters WHERE name='item_number'`); res.json({ ok: true, next: String(r.value) }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 router.post('/products', requireAdmin, async (req, res) => {
   try {
-    const { sku, name, producer, cat, btl, image, warehouse } = req.body;
-    if (!sku || !name) return res.status(400).json({ ok: false, error: 'SKU and name required' });
+    let { sku, name, producer, cat, btl, image, warehouse } = req.body;
+    sku = String(sku || '').trim();
+    if (!name) return res.status(400).json({ ok: false, error: 'Name required' });
+    if (!sku) sku = (await allocateItemNumbers(1))[0];       // no item # given: Toasted assigns the next one
     await query(
       `INSERT INTO products (sku,name,producer,cat,btl,stock,reorder,image_url,warehouse)
        VALUES ($1,$2,$3,$4,$5,0,6,$6,$7)
        ON CONFLICT (sku) DO UPDATE SET name=$2,producer=$3,cat=$4,btl=$5,image_url=$6,warehouse=$7`,
       [sku, name, producer||'', cat||'Spirits', btl||6, image||'', warehouse||'main']
     );
-    res.json({ ok: true });
+    res.json({ ok: true, sku });
   } catch (err) {
     console.error('Create product error:', err.message);
     res.status(500).json({ ok: false, error: 'Server error' });
@@ -1618,14 +1651,22 @@ router.post('/item-submissions/:id/approve', requireAdmin, async (req, res) => {
     // Validate everything first so nothing is half-created.
     const seen = new Set();
     for (const i of list) {
-      i.sku = String(i.sku || '').trim();
-      if (!i.sku) return res.status(400).json({ ok: false, error: 'Every item needs an ACS Item # before approving' });
-      if (!String(i.name || '').trim()) return res.status(400).json({ ok: false, error: `Item ${i.sku} needs a name` });
-      if (seen.has(i.sku)) return res.status(400).json({ ok: false, error: `ACS Item # ${i.sku} is used twice in this submission` });
-      seen.add(i.sku);
+      i.sku = String(i.sku || '').trim();                  // blank = Toasted assigns the next item # below
+      if (!String(i.name || '').trim()) return res.status(400).json({ ok: false, error: 'Every item needs a name' });
+      if (i.sku) {
+        if (seen.has(i.sku)) return res.status(400).json({ ok: false, error: `ACS Item # ${i.sku} is used twice in this submission` });
+        seen.add(i.sku);
+      }
     }
-    const existing = await getAll('SELECT sku FROM products WHERE sku = ANY($1)', [[...seen]]);
-    if (existing.length) return res.status(400).json({ ok: false, error: 'ACS Item # already exists in Toasted: ' + existing.map(e => e.sku).join(', ') });
+    if (seen.size) {
+      const existing = await getAll('SELECT sku FROM products WHERE sku = ANY($1)', [[...seen]]);
+      if (existing.length) return res.status(400).json({ ok: false, error: 'ACS Item # already exists in Toasted: ' + existing.map(e => e.sku).join(', ') });
+    }
+    const needNums = list.filter(i => !i.sku);
+    if (needNums.length) {
+      const nums = await allocateItemNumbers(needNums.length, seen);
+      needNums.forEach((i, k) => { i.sku = nums[k]; seen.add(i.sku); });
+    }
 
     const by = req.user.fname ? `${req.user.fname} ${req.user.lname || ''}`.trim() : (req.user.email || '');
     const existingProducers = (await getAll(`SELECT DISTINCT producer FROM products WHERE COALESCE(producer,'')<>''`)).map(r => r.producer);
