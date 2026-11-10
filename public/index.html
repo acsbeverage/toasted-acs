@@ -7930,8 +7930,30 @@ function renderUsers(){
   <div id="tab-cp" class="hidden"><div class="card"><div class="card-header"><span class="card-title">${CUSTOMER_USERS.length} customer portal logins</span><button class="btn btn-sm btn-dark" onclick="openAddCustomerLogin()"><i class="ti ti-plus"></i> Add customer login</button></div>
   <div style="padding:10px 18px;background:#fffbe8;border-bottom:1px solid var(--border);font-size:12px;color:#8a6a00"><i class="ti ti-info-circle" style="vertical-align:-2px;margin-right:4px"></i>Customer portal logins give account holders access to view their invoices, order history, and place orders directly.</div>
   <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Account</th><th>Rep</th><th>Portal URL</th><th></th></tr></thead>
-  <tbody>${CUSTOMER_USERS.map(c=>{const acct=ACCOUNTS.find(a=>a.id===c.acctId)||{};const rep=USERS.find(u=>u.id===acct.rep)||{};return`<tr><td style="font-weight:600">${c.fname} ${c.lname}</td><td style="color:var(--text2)">${c.email}</td><td style="font-weight:500">${acct.name||'--'}</td><td style="color:var(--text2)">${rep.fname||'--'} ${rep.lname||''}</td><td style="font-size:11px;color:var(--text3)">Same login page</td><td style="display:flex;gap:6px"><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteCustomerLogin('${c.id}')"><i class="ti ti-trash"></i></button></td></tr>`}).join('')}
+  <tbody>${CUSTOMER_USERS.map(c=>{const acct=ACCOUNTS.find(a=>a.id===c.acctId)||{};const rep=USERS.find(u=>u.id===acct.rep)||{};return`<tr><td style="font-weight:600">${c.fname} ${c.lname}</td><td style="color:var(--text2)">${c.email}</td><td style="font-weight:500">${acct.name||'--'}</td><td style="color:var(--text2)">${rep.fname||'--'} ${rep.lname||''}</td><td style="font-size:11px;color:var(--text3)">Same login page</td><td style="display:flex;gap:6px"><button class="btn btn-sm" title="Check what this login can see" onclick="checkCustomerLogin('${c.id}')"><i class="ti ti-stethoscope"></i> Check</button><button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteCustomerLogin('${c.id}')"><i class="ti ti-trash"></i></button></td></tr>`}).join('')}
   </tbody></table></div></div>`;
+}
+// Shows what a customer's portal login is tied to: the account, how many orders / invoices that account has (so what
+// they see when they log in), and look-alike accounts that might be where their real history lives.
+async function checkCustomerLogin(id){
+  const H={'Authorization':'Bearer '+window._authToken};
+  let r;try{r=await fetch(TOASTED_BACKEND_URL+'/api/customer-users/'+encodeURIComponent(id)+'/check',{headers:H}).then(r=>r.json())}catch(e){toast('Could not reach the server');return}
+  if(!r.ok){toast(r.error||'Check failed');return}
+  const A=r.account,L=r.lookAlikes||[];
+  const line=a=>a.name+(a.code?' (#'+a.code+')':'')+' -- '+a.orders+' order'+(a.orders!==1?'s':'')+', '+a.invoiced+' invoiced'+(a.lastOrder?', last '+a.lastOrder:'')+(a.active?'':' [INACTIVE]');
+  let msg='Login: '+r.login.name+' <'+r.login.email+'>\n\n';
+  msg+=A?'Tied to: '+line(A)+'\n(This is exactly what they see when they log in.)':'Tied to an account that no longer exists!';
+  if(A&&!A.orders)msg+='\n\n!! This account has NO orders, so their order history will be empty.';
+  if(L.length)msg+='\n\nOther accounts with a similar name:\n'+L.map((a,i)=>(i+1)+'. '+line(a)).join('\n');
+  if(!L.length){alert(msg);return}
+  const pick=prompt(msg+'\n\nTo move this login to one of those accounts, type its number. Otherwise press Cancel.');
+  const n=parseInt(pick);if(!n||n<1||n>L.length)return;
+  const t=L[n-1];
+  if(!confirm('Move '+r.login.name+"'s portal login to:\n"+line(t)+'?'))return;
+  const p=await fetch(TOASTED_BACKEND_URL+'/api/customer-users/'+encodeURIComponent(id),{method:'PATCH',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({acctId:t.id})}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(!p.ok){alert(p.error||'Could not move the login');return}
+  const cu=CUSTOMER_USERS.find(x=>x.id===id);if(cu)cu.acctId=t.id;
+  toast('Login moved to '+p.acctName);renderUsers();
 }
 function deleteCustomerLogin(id){
   const c=CUSTOMER_USERS.find(x=>x.id===id);if(!c)return;
