@@ -266,6 +266,30 @@ async function getOrdersJson(user, since) {
   try { return await p; } finally { _ordInflight.delete(key); }
 }
 
+// One-time cleanup: take the delivery fee off an account's existing orders that haven't been paid or invoiced in
+// QuickBooks yet (orders created before "no delivery fee" was turned on). GET = preview count, POST = apply.
+async function waivedFeeOrders(acctId) {
+  return getAll(
+    `SELECT DISTINCT o.id FROM orders o JOIN order_items oi ON oi.order_id = o.id AND oi.sku = '__DELIVERY__'
+      WHERE o.acct_id=$1 AND COALESCE(o.paid,FALSE)=FALSE AND COALESCE(o.partial_paid_amount,0)=0 AND COALESCE(o.qbo_invoice_id,'')=''`, [acctId]);
+}
+router.get('/waived-delivery-fees/:acctId', requireAdmin, async (req, res) => {
+  try { res.json({ ok: true, count: (await waivedFeeOrders(req.params.acctId)).length }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+router.post('/waived-delivery-fees/:acctId', requireAdmin, async (req, res) => {
+  try {
+    const acct = await getOne('SELECT waive_delivery_always AS w FROM accounts WHERE id=$1', [req.params.acctId]);
+    if (!acct || acct.w !== true) return res.status(400).json({ ok: false, error: 'This account is not set to "always waive delivery fee"' });
+    const ids = (await waivedFeeOrders(req.params.acctId)).map(r => r.id);
+    if (ids.length) {
+      await query(`DELETE FROM order_items WHERE sku='__DELIVERY__' AND order_id = ANY($1)`, [ids]);
+      await query(`UPDATE orders SET waive_delivery=TRUE WHERE id = ANY($1)`, [ids]);
+    }
+    res.json({ ok: true, count: ids.length, ids });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 router.get('/', requireAuth, async (req, res) => {
   try {
     const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since || '') ? req.query.since : null;
@@ -672,6 +696,12 @@ async function patchOrderHandler(req, res) {
     if (status === 'confirmed' && req.user.role !== 'admin') {
       return res.status(403).json({ ok: false, error: 'Only an admin can confirm an order' });
     }
+    // "Never charge this account a delivery fee" also applies when an existing order is edited.
+    let waiveDeliveryIn = waiveDelivery;
+    if (Array.isArray(items) && items.some(i => i && i.sku === '__DELIVERY__')) {
+      const own = await getOne('SELECT a.waive_delivery_always AS w FROM orders o JOIN accounts a ON a.id = o.acct_id WHERE o.id=$1', [req.params.id]);
+      if (own && own.w === true) { items = items.filter(i => !i || i.sku !== '__DELIVERY__'); waiveDeliveryIn = true; }
+    }
     // Checked BEFORE anything is saved, so a rejected edit changes nothing at all.
     if (Array.isArray(items)) {
       let effectiveSample = isSample;
@@ -710,7 +740,7 @@ async function patchOrderHandler(req, res) {
     if (notes !== undefined)        { updates.push(`notes=$${idx++}`);          values.push(notes); }
     if (labelsPrinted !== undefined){ updates.push(`labels_printed=$${idx++}`); values.push(labelsPrinted); }
     if (partialPaidAmount !== undefined) { updates.push(`partial_paid_amount=$${idx++}`); values.push(partialPaidAmount); }
-    if (waiveDelivery !== undefined)   { updates.push(`waive_delivery=$${idx++}`);    values.push(waiveDelivery); }
+    if (waiveDeliveryIn !== undefined) { updates.push(`waive_delivery=$${idx++}`);    values.push(waiveDeliveryIn); }
     if (waiveBrokenCase !== undefined) { updates.push(`waive_broken_case=$${idx++}`); values.push(waiveBrokenCase); }
     if (waiveCRV !== undefined)        { updates.push(`waive_crv=$${idx++}`);         values.push(waiveCRV); }
     if (isSample !== undefined)        { updates.push(`is_sample=$${idx++}`);         values.push(isSample); }
