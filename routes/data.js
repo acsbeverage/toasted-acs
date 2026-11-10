@@ -1194,6 +1194,41 @@ router.get('/customer-users', requireAdmin, async (req, res) => {
   }
 });
 
+// Portal health check for one customer login: which account it is tied to, how much order history that account
+// has, and any look-alike accounts (same name / code) that might be where the history actually lives.
+router.get('/customer-users/:id/check', requireAdmin, async (req, res) => {
+  try {
+    const cu = await getOne('SELECT id,fname,lname,email,acct_id FROM customer_users WHERE id=$1', [req.params.id]);
+    if (!cu) return res.status(404).json({ ok: false, error: 'Login not found' });
+    const stats = async (id) => {
+      const r = await getOne(`SELECT COUNT(*)::int AS orders, COUNT(*) FILTER (WHERE COALESCE(qbo_invoice_id,'')<>'')::int AS invoiced,
+                              MAX(date) AS last_order FROM orders WHERE acct_id=$1`, [id]);
+      return { orders: r.orders, invoiced: r.invoiced, lastOrder: r.last_order ? String(r.last_order).slice(0, 10) : null };
+    };
+    const acct = await getOne('SELECT id,name,code,rep,is_active FROM accounts WHERE id=$1', [cu.acct_id]);
+    const words = String((acct && acct.name) || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 2).join('%');
+    const like = words ? await getAll(`SELECT id,name,code,rep,is_active FROM accounts WHERE id<>$1 AND LOWER(name) LIKE $2 ORDER BY name LIMIT 15`, [cu.acct_id, '%' + words + '%']) : [];
+    const others = [];
+    for (const a of like) others.push({ id: a.id, name: a.name, code: a.code || '', active: a.is_active !== false, ...(await stats(a.id)) });
+    res.json({ ok: true, login: { id: cu.id, name: (cu.fname + ' ' + (cu.lname || '')).trim(), email: cu.email },
+      account: acct ? { id: acct.id, name: acct.name, code: acct.code || '', active: acct.is_active !== false, ...(await stats(acct.id)) } : null,
+      lookAlikes: others });
+  } catch (err) { console.error('Portal check error:', err.message); res.status(500).json({ ok: false, error: 'Server error' }); }
+});
+
+// Point an existing portal login at a different account (e.g. it was tied to a duplicate account record).
+router.patch('/customer-users/:id', requireAdmin, async (req, res) => {
+  try {
+    const { acctId } = req.body;
+    const acct = await getOne('SELECT id,name FROM accounts WHERE id=$1', [acctId]);
+    if (!acct) return res.status(400).json({ ok: false, error: 'Account not found' });
+    const taken = await getOne('SELECT id FROM customer_users WHERE acct_id=$1 AND id<>$2', [acctId, req.params.id]);
+    if (taken) return res.status(400).json({ ok: false, error: 'Another portal login is already linked to that account' });
+    await query('UPDATE customer_users SET acct_id=$1 WHERE id=$2', [acctId, req.params.id]);
+    res.json({ ok: true, acctName: acct.name });
+  } catch (err) { res.status(500).json({ ok: false, error: 'Server error' }); }
+});
+
 router.delete('/customer-users/:id', requireAdmin, async (req, res) => {
   try {
     await query('DELETE FROM customer_users WHERE id=$1', [req.params.id]);
