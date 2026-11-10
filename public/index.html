@@ -592,6 +592,7 @@ body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--bg
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius)">
       <input type="checkbox" id="a-waive-delivery-always" style="width:16px;height:16px"/>
       <label for="a-waive-delivery-always" style="font-size:13px;cursor:pointer"><b>Never charge this account a delivery fee</b> -- applies automatically to every future order, no manual waiving needed</label>
+      <button type="button" class="btn btn-sm" id="a-strip-fees-btn" style="margin-left:8px;display:none" onclick="stripWaivedDeliveryFees()">Remove from existing unpaid orders</button>
     </div>
 
     <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:14px;margin-bottom:8px">
@@ -6266,7 +6267,7 @@ async function openEditOrder(orderId){
   document.getElementById('edit-notes').value=(o.notes&&o.notes.trim())?o.notes:((acctForNotes&&acctForNotes.deliveryNotes)?acctForNotes.deliveryNotes:'');
   window._editItems=o.items.map(x=>({...x}));
   if(isSampleAcct(o.acct))window._editItems.filter(i=>!i._fee).forEach(i=>i.discountPct=100);
-  _editingWaiveFlags={waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,waiveDelivery:o.waiveDelivery,acct:o.acct,orderType:o.orderType};
+  _editingWaiveFlags={waiveBrokenCase:o.waiveBrokenCase,waiveCRV:o.waiveCRV,waiveDelivery:o.waiveDelivery||!!(acctById(o.acct)||{}).waiveDeliveryAlways,acct:o.acct,orderType:o.orderType};
   window._editItems=syncFeesFor(window._editItems,_editingWaiveFlags);
   renderEditItems();document.getElementById('modal-edit-order').classList.add('open');
 }
@@ -8014,6 +8015,22 @@ function toggleBillSameAsShip(){
   }
 }
 let _editingAccountId=null;
+// Takes the delivery fee off this account's existing orders that aren't paid or invoiced yet (older orders created
+// before "no delivery fee" was turned on). The account must already be saved with the box ticked.
+async function stripWaivedDeliveryFees(){
+  const id=_editingAccountId;if(!id)return;
+  const H={'Authorization':'Bearer '+window._authToken};
+  try{
+    const a=await fetch(TOASTED_BACKEND_URL+'/api/orders/waived-delivery-fees/'+encodeURIComponent(id),{headers:H}).then(r=>r.json());
+    if(!a.ok){toast(a.error||'Could not check orders');return}
+    if(!a.count){toast('No unpaid, un-invoiced orders for this account have a delivery fee');return}
+    if(!confirm('Remove the delivery fee from '+a.count+' existing order'+(a.count!==1?'s':'')+' for this account?\n\nOnly orders that are unpaid and not yet invoiced in QuickBooks are changed.'))return;
+    const r=await fetch(TOASTED_BACKEND_URL+'/api/orders/waived-delivery-fees/'+encodeURIComponent(id),{method:'POST',headers:H}).then(r=>r.json());
+    if(!r.ok){toast(r.error||'Could not update orders');return}
+    toast('Delivery fee removed from '+r.count+' order'+(r.count!==1?'s':''));
+    await loadAllDataFromBackend();
+  }catch(e){toast('Could not reach the server -- try again')}
+}
 function openAddAccount(){
   _editingAccountId=null;
   document.getElementById('acct-modal-title').textContent='Add Account';
@@ -8069,6 +8086,7 @@ function openEditAccountFull(acctId){
   setVal('a-bill-state',a.billState);setVal('a-bill-zip',a.billZip);setVal('a-bill-county',a.billCounty);
   setVal('a-payment-provider',a.paymentProvider);setVal('a-preferred-payment-method',a.preferredPaymentMethodName);
   document.getElementById('a-waive-delivery-always').checked=!!a.waiveDeliveryAlways;
+  {const sb=document.getElementById('a-strip-fees-btn');if(sb)sb.style.display=a.waiveDeliveryAlways?'':'none';}
   setVal('a-region',a.region);setVal('a-tasting-hours',a.tastingHours);setVal('a-delivery-notes',a.deliveryNotes);
   setVal('a-website',a.website);setVal('a-warehouse-code',a.warehouseCode);setVal('a-tax-id',a.taxId);
   setVal('a-abc-detail',a.abcDetail);setVal('a-lic-expiry',a.licExpiry);setVal('a-resale-num',a.resaleNum);
@@ -14863,6 +14881,7 @@ function qboOrderToInvoice(order){
   const acct = ACCOUNTS.find(a=>a.id===order.acct)||{};
   const rep  = USERS.find(u=>u.id===order.rep)||{};
   const lines = order.items
+    .filter(x=>!(x.sku===DELIVERY_FEE_SKU&&acct.waiveDeliveryAlways))   // account is set to never be charged delivery
     .filter(x=>!x._fee||x.sku===DELIVERY_FEE_SKU||x.sku===BROKEN_CASE_SKU||x.sku===CRV_SKU)
     .map(item=>{
       if(item.sku===DELIVERY_FEE_SKU) return {
