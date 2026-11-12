@@ -50,7 +50,7 @@
       <div class="card">
         <h2>Your information</h2>
         <div class="grid">
-          <div><label>Supplier <span class="req">*</span></label><input id="supplierName" required autocomplete="organization"/></div>
+          <div><label>Supplier/Importer name <span class="req">*</span></label><input id="supplierName" required autocomplete="organization"/></div>
           <div><label>Your name <span class="req">*</span></label><input id="contactName" required autocomplete="name"/></div>
           <div><label>Email <span class="req">*</span></label><input id="contactEmail" type="email" required autocomplete="email"/></div>
           <div><label>Phone</label><input id="contactPhone" type="tel" autocomplete="tel"/></div>
@@ -82,16 +82,16 @@ const MAX_ITEMS=10;
 const SECTIONS=[
  ['Product details',[
   ['category','Category','cat',1],['subcategory','Subcategory','subcat',0,'spirits only'],
-  ['brand','Brand','text',1],['description','Item description','text',1,'',1],
-  ['packSize','Pack size','text',1,'e.g. 6/750ml'],['saleUnitSize','Sale unit size','text',0,'if different from pack size'],
-  ['unitUpc','Unit UPC','text',0,'12 digits, or 0000 if none'],['sccCode','SCC code (full case)','text',0,'12 digits, or 0000 if none'],
+  ['brand','Brand','text',1],['description','New item name','text',1],
+  ['packSize','Pack size','pack',1,'bottles per case / size'],['saleUnitSize','Sale unit size','text',0,'if different from pack size'],
+  ['unitUpc','Unit UPC','text',1,'digits only'],['sccCode','SCC code (full case)','text',0,'12 digits, or 0000 if none'],
   ['casesPerPallet','Cases per pallet','text'],['casesPerLayer','Cases per layer','text'],
   ['productClass','Product class','text',0,'e.g. Tequila, Red Wine'],['varietal','Varietal','text'],
   ['vintage','Vintage','text'],['abv','Alcohol %','text'],
   ['country','Country of origin','text'],['region','Region','text'],['subregion','Subregion','text'],
  ]],
  ['FOB pricing',[
-  ['caseFob','Case FOB ($)','text',0,'price per case'],['bottleFob','Bottle FOB ($)','text'],
+  ['caseFob','Case FOB ($)','text',1,'price per case'],['bottleFob','Bottle FOB ($)','text'],
   ['fobQd','FOB quantity discount & quantity required','text',0,'',1],['daSupport','DA support','text',0,'list if by bottle or case'],
   ['currency','Currency (if applicable)','text'],['srp','Brand standards | SRP','text',0,'',1],
  ]],
@@ -109,6 +109,12 @@ const SECTIONS=[
 // Category / subcategory lists come from Toasted so they always match; these are used only if the lookup fails.
 let CATS=['Wine','Spirits','Beer & RTD','Mixers','Vermouth','Sake'],SUBCATS=['Tequila','Mezcal','Whiskey','Bourbon','Rum','Vodka','Aperitifs','Pisco','Gin','Cognac','Armagnac'];
 const optsHtml=a=>['<option value="">-- choose --</option>'].concat(a.map(o=>`<option value="${o.replace(/"/g,'&quot;')}">${o}</option>`)).join('');
+// Common case formats (bottles per case / container size). "Other" lets them type one that isn't listed.
+const PACKS=[['750ml',['12/750ml','6/750ml','4/750ml']],['1L',['12/1L','6/1L','4/1L']],['1.5L',['6/1.5L','12/1.5L']],['1.75L',['6/1.75L','4/1.75L']],
+ ['3L',['4/3L','1/3L']],['700ml',['12/700ml','6/700ml']],['500ml',['12/500ml']],['375ml',['24/375ml','12/375ml','6/375ml']],
+ ['200ml',['24/200ml','12/200ml']],['187ml',['24/187ml','12/187ml']],['100ml',['24/100ml']],['50ml',['120/50ml','60/50ml','12/50ml']],
+ ['Cans',['24/12oz','12/12oz','24/16oz','12/16oz']]];
+const packHtml='<option value="">-- choose --</option>'+PACKS.map(([g,a])=>`<optgroup label="${g}">${a.map(p=>`<option>${p}</option>`).join('')}</optgroup>`).join('')+'<option value="__other">Other (type it)</option>';
 const itemsEl=document.getElementById('items');
 function itemCard(n){
   const d=document.createElement('div');d.className='card item';
@@ -118,7 +124,8 @@ function itemCard(n){
     fields.forEach(([k,label,kind,req,hint,full,opts])=>{
       const lab=`<label>${label}${req?' <span class="req">*</span>':''}${hint?` <span class="hint">(${hint})</span>`:''}</label>`;
       let ctl;
-      if(kind==='cat')ctl=`<select data-k="${k}" data-cat ${req?'required':''}>${optsHtml(CATS)}</select>`;
+      if(kind==='pack')ctl=`<select data-pack required>${packHtml}</select><input data-k="${k}" type="text" placeholder="e.g. 6/750ml" style="display:none;margin-top:6px"/>`;
+      else if(kind==='cat')ctl=`<select data-k="${k}" data-cat ${req?'required':''}>${optsHtml(CATS)}</select>`;
       else if(kind==='subcat')ctl=`<select data-k="${k}" data-subcat>${optsHtml(SUBCATS)}</select>`;
       else if(kind==='select')ctl=`<select data-k="${k}">${opts.map(o=>`<option value="${o}">${o||'--'}</option>`).join('')}</select>`;
       else if(kind==='textarea')ctl=`<textarea data-k="${k}"></textarea>`;
@@ -131,6 +138,8 @@ function itemCard(n){
   const cs=d.querySelector('[data-cat]'),ss=d.querySelector('[data-subcat]'),sw=ss.parentElement;
   const sync=()=>{const on=cs.value==='Spirits';sw.style.display=on?'':'none';if(!on)ss.value=''};
   cs.onchange=sync;sync();
+  const ps=d.querySelector('[data-pack]'),pi=d.querySelector('[data-k=packSize]');
+  ps.onchange=()=>{const o=ps.value==='__other';pi.style.display=o?'':'none';pi.value=o?'':ps.value;if(o)pi.focus()};
   const rm=d.querySelector('[data-rm]');if(rm)rm.onclick=()=>{d.remove();renumber()};
   return d;
 }
@@ -154,7 +163,9 @@ document.getElementById('f').addEventListener('submit',async e=>{
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val('contactEmail'))){err.textContent='Please enter a valid email address.';return}
   const items=[...itemsEl.children].map(c=>{const o={};c.querySelectorAll('[data-k]').forEach(x=>{o[x.dataset.k]=x.value.trim()});return o});
   for(let i=0;i<items.length;i++){
-    if(!items[i].category||!items[i].brand||!items[i].description||!items[i].packSize){err.textContent=`Item #${i+1}: category, brand, item description and pack size are required.`;return}
+    if(!items[i].category||!items[i].brand||!items[i].description||!items[i].packSize){err.textContent=`Item #${i+1}: category, brand, new item name and pack size are required.`;return}
+    if(!(parseFloat(String(items[i].caseFob).replace(/[$,\s]/g,''))>0)){err.textContent=`Item #${i+1}: please enter the case FOB price (numbers only, e.g. 142.50).`;return}
+    if(!/^\d{8,14}$/.test(items[i].unitUpc.replace(/[\s-]/g,''))){err.textContent=`Item #${i+1}: please enter the unit UPC (digits only, 8 to 14 digits).`;return}
   }
   const btn=document.getElementById('submitBtn');btn.disabled=true;btn.textContent='Submitting...';
   try{
