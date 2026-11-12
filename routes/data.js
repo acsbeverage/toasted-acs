@@ -1619,9 +1619,11 @@ router.post('/public/new-item-submission', async (req, res) => {
       ITEM_TEXT_FIELDS.forEach(k => { o[k] = clip(it && it[k], k === 'otherNotes' || k === 'orderInstructions' || k === 'ratings' ? 2000 : 300); });
       return o;
     }).filter(o => o.brand || o.description);
-    if (!items.length) return res.status(400).json({ ok: false, error: 'Please enter at least one item (brand and item description).' });
+    if (!items.length) return res.status(400).json({ ok: false, error: 'Please enter at least one item (brand and new item name).' });
     if (items.some(o => !o.category)) return res.status(400).json({ ok: false, error: 'Please choose a category for each item.' });
-    if (items.some(o => !o.brand || !o.description || !o.packSize)) return res.status(400).json({ ok: false, error: 'Each item needs a brand, item description and pack size.' });
+    if (items.some(o => !o.brand || !o.description || !o.packSize)) return res.status(400).json({ ok: false, error: 'Each item needs a brand, new item name and pack size.' });
+    if (items.some(o => !(parseFloat(String(o.caseFob || '').replace(/[$,\s]/g, '')) > 0))) return res.status(400).json({ ok: false, error: 'Each item needs a case FOB price.' });
+    if (items.some(o => !/^\d{8,14}$/.test(String(o.unitUpc || '').replace(/[\s-]/g, '')))) return res.status(400).json({ ok: false, error: 'Each item needs a unit UPC (digits only).' });
 
     await ensureItemSubTables();
     const row = await getOne(
