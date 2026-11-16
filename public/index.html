@@ -10115,8 +10115,11 @@ function doExportFintech(){
     });
   });
 
-  const csv=rows.map(r=>r.map(v=>'"'+String(v===null||v===undefined?'':v).replace(/"/g,'""')+'"').join(',')).join('\n');
-  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  // Plain CSV for accounting / Fintech: no UTF-8 marker (that is what makes Excel save it as "CSV UTF-8"), so accented
+  // letters are written as their plain-letter equivalents (Ensueño -> Ensueno) instead of garbling.
+  const _plain=t=>String(t).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ß/g,'ss').replace(/[œŒ]/g,'oe').replace(/[æÆ]/g,'ae').replace(/[øØ]/g,'o').replace(/[łŁ]/g,'l').replace(/[đðĐÐ]/g,'d').replace(/[^\x00-\x7F]/g,'');
+  const csv=rows.map(r=>r.map(v=>'"'+_plain(v===null||v===undefined?'':v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='fintech-export-'+today()+'.csv';
   document.body.appendChild(a);a.click();
